@@ -332,7 +332,7 @@ kubectl apply --server-side=true \
 
 if [[ -n "$AUD" && "$AUD" != "https://kubernetes.default.svc"  ]]; then
   echo "* Configuring audience in MaaS AuthPolicy"
-  kubectl patch authpolicy maas-api-auth-policy -n maas-api --type=merge --patch-file <(echo "
+  kubectl patch authpolicy maas-api-auth-policy -n opendatahub --type=merge --patch-file <(echo "
 spec:
   rules:
     authentication:
@@ -345,7 +345,7 @@ fi
 
 # Patch maas-api Deployment with stable image
 : "${MAAS_RHOAI_IMAGE:=v3.0.0}"
-kubectl set image -n maas-api deployment/maas-api maas-api=registry.redhat.io/rhoai/odh-maas-api-rhel9:${MAAS_RHOAI_IMAGE}
+kubectl set image -n opendatahub deployment/maas-api maas-api=registry.redhat.io/rhoai/odh-maas-api-rhel9:${MAAS_RHOAI_IMAGE}
 
 echo ""
 echo "========================================="
