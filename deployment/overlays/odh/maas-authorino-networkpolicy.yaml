@@ -20,10 +20,10 @@ metadata:
     app.kubernetes.io/part-of: models-as-a-service
     app.kubernetes.io/component: networking
 spec:
-  # Apply only to MaaS API pods (principle of least privilege)
+  # Apply to all MaaS components (flexible for future components)
   podSelector:
     matchLabels:
-      app.kubernetes.io/name: maas-api
+      app.kubernetes.io/part-of: models-as-a-service
   policyTypes:
     - Ingress
   ingress:
