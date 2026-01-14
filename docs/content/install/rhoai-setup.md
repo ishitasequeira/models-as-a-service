@@ -235,11 +235,19 @@ spec:
     kserve:
       managementState: Managed
       rawDeploymentServiceConfig: Headed
+      # Enable Models-as-a-Service (optional)
+      modelsAsService:
+        managementState: Managed
 
     # Components recommended for MaaS:
     dashboard:
       managementState: Managed
 ```
+
+!!! note "MaaS via Operator"
+    When `modelsAsService.managementState` is set to `Managed`, the operator will deploy
+    the MaaS API, AuthPolicy, and NetworkPolicy automatically. However, **TokenRateLimitPolicy** and 
+    **RateLimitPolicy** must still be [installed manually](maas-setup.md).
 
 Check [RHOAI documentation](https://docs.redhat.com/en/documentation/red_hat_openshift_ai_self-managed)
 if you need further guidance.
@@ -255,4 +263,5 @@ NAME                        READY   UP-TO-DATE   AVAILABLE   AGE
 kserve-controller-manager   1/1     1            1           73s
 odh-model-controller        1/1     1            1           79s
 rhods-dashboard             2/2     2            2           78s
+maas-api                    1/1     1            1           60s  # Only if MaaS enabled
 ```

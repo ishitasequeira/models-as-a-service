@@ -119,6 +119,18 @@ kubectl apply -f - <<EOF
 EOF
 ```
 
+Once the Kuadrant operator is ready, create a Kuadrant instance:
+
+```shell
+kubectl apply -f - <<EOF
+apiVersion: kuadrant.io/v1beta1
+kind: Kuadrant
+metadata:
+  name: kuadrant
+  namespace: kuadrant-system
+EOF
+```
+
 ### Verification
 
 Check that Kuadrant deployments are ready:
@@ -217,9 +229,95 @@ spec:
     kserve:
       managementState: Managed
       rawDeploymentServiceConfig: Headed
+      # Enable Models-as-a-Service (optional)
+      modelsAsService:
+        managementState: Managed
 
     # Components recommended for MaaS:
     dashboard:
       managementState: Managed
 EOF
 ```
+
+!!! note "MaaS via Operator"
+    When `modelsAsService.managementState` is set to `Managed`, the operator will deploy
+    the MaaS API, AuthPolicy, and NetworkPolicy automatically. However, **TokenRateLimitPolicy** 
+    and **RateLimitPolicy** must still be [installed manually](maas-setup.md).
+
+## Create MaaS Gateway
+
+The MaaS API requires its own Gateway for routing traffic. Create the MaaS Gateway:
+
+```shell
+# Get your cluster's domain
+CLUSTER_DOMAIN=$(kubectl get ingresses.config.openshift.io cluster -o jsonpath='{.spec.domain}')
+
+kubectl apply -f - <<EOF
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: maas-default-gateway
+  namespace: openshift-ingress
+spec:
+  gatewayClassName: openshift-default
+  listeners:
+   - name: http
+     hostname: maas.${CLUSTER_DOMAIN}
+     port: 80
+     protocol: HTTP
+     allowedRoutes:
+       namespaces:
+         from: All
+EOF
+```
+
+Wait for the Gateway to be programmed:
+
+```shell
+kubectl wait --for=condition=Programmed gateway/maas-default-gateway -n openshift-ingress --timeout=60s
+```
+
+### Verification
+
+Check that all MaaS components are running:
+
+```shell
+# Check MaaS API deployment
+kubectl get deployment maas-api -n opendatahub
+
+# Check HTTPRoute
+kubectl get httproute maas-api-route -n opendatahub
+
+# Check AuthPolicy
+kubectl get authpolicy maas-api-auth-policy -n opendatahub
+
+# Check NetworkPolicy (allows Authorino to reach MaaS API)
+kubectl get networkpolicy maas-authorino-allow -n opendatahub
+```
+
+All resources should exist and the MaaS API deployment should show `READY 1/1`.
+
+## Test MaaS API Connectivity
+
+Verify that Authorino can communicate with the MaaS API:
+
+```shell
+# Get Authorino pod
+AUTHORINO_POD=$(kubectl get pods -n kuadrant-system -l authorino-resource=authorino -o jsonpath='{.items[0].metadata.name}')
+
+# Test connectivity
+kubectl exec -n kuadrant-system $AUTHORINO_POD -- curl -s \
+  http://maas-api.opendatahub.svc.cluster.local:8080/health
+```
+
+Expected output:
+```json
+{"status":"healthy"}
+```
+
+## Next Steps
+
+Once ODH with MaaS is installed:
+
+1. [Configure Rate Limit Policies](maas-setup.md) - Set up TokenRateLimitPolicy and RateLimitPolicy
+2. [Deploy a Model](../usage/deploy-model.md) - Deploy your first LLMInferenceService
