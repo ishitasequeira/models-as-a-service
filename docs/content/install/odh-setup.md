@@ -241,8 +241,9 @@ EOF
 
 !!! note "MaaS via Operator"
     When `modelsAsService.managementState` is set to `Managed`, the operator will deploy
-    the MaaS API, AuthPolicy, and NetworkPolicy automatically. However, **TokenRateLimitPolicy** 
-    and **RateLimitPolicy** must still be [installed manually](maas-setup.md).
+    the MaaS API, MaaS API AuthPolicy, and NetworkPolicy automatically. However, the **Gateway**,
+    **Gateway AuthPolicy**, **TokenRateLimitPolicy**, and **RateLimitPolicy** must still be
+    installed manually following the instructions below and in [maas-setup.md](maas-setup.md).
 
 ## Create MaaS Gateway
 
@@ -276,6 +277,11 @@ Wait for the Gateway to be programmed:
 ```shell
 kubectl wait --for=condition=Programmed gateway/maas-default-gateway -n openshift-ingress --timeout=60s
 ```
+
+!!! note
+    The `maas-default-gateway` created above satisfies the Gateway requirement for MaaS. When
+    following the next steps, you can skip the "Create MaaS Gateway" section in maas-setup.md
+    and proceed directly to installing the Gateway AuthPolicy and usage policies.
 
 ### Verification
 
@@ -319,5 +325,5 @@ Expected output:
 
 Once ODH with MaaS is installed:
 
-1. [Configure Rate Limit Policies](maas-setup.md) - Set up TokenRateLimitPolicy and RateLimitPolicy
-2. [Deploy a Model](../usage/deploy-model.md) - Deploy your first LLMInferenceService
+1. [Install MaaS Components](maas-setup.md) - Install Gateway, AuthPolicy, and usage policies
+2. [Deploy a Model](../configuration-and-management/model-setup.md) - Deploy your first LLMInferenceService

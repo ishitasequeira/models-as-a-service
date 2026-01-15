@@ -246,8 +246,9 @@ spec:
 
 !!! note "MaaS via Operator"
     When `modelsAsService.managementState` is set to `Managed`, the operator will deploy
-    the MaaS API, AuthPolicy, and NetworkPolicy automatically. However, **TokenRateLimitPolicy** and 
-    **RateLimitPolicy** must still be [installed manually](maas-setup.md).
+    the MaaS API, MaaS API AuthPolicy, and NetworkPolicy automatically. However, the **Gateway**,
+    **Gateway AuthPolicy**, **TokenRateLimitPolicy**, and **RateLimitPolicy** must still be
+    [installed manually](maas-setup.md).
 
 Check [RHOAI documentation](https://docs.redhat.com/en/documentation/red_hat_openshift_ai_self-managed)
 if you need further guidance.
