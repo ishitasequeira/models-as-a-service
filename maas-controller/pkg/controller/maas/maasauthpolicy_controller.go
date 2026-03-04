@@ -182,13 +182,14 @@ func (r *MaaSAuthPolicyReconciler) reconcileModelAuthPolicies(ctx context.Contex
 						"contentType": "application/json",
 						"method":      "POST",
 						"body": map[string]interface{}{
-							"expression": `{"key": context.request.http.headers.authorization.replace("Bearer ", "")}`,
+							"expression": `{"key": request.headers.authorization.replace("Bearer ", "")}`,
 						},
 					},
 					"metrics":  false,
 					"priority": int64(0),
 				},
 				// Call subscription selector endpoint to determine user's subscription
+				// Priority 1 ensures this runs after apiKeyValidation (priority 0)
 				"subscription-info": map[string]interface{}{
 					"http": map[string]interface{}{
 						"url":         subscriptionSelectorURL,
@@ -198,7 +199,7 @@ func (r *MaaSAuthPolicyReconciler) reconcileModelAuthPolicies(ctx context.Contex
 							"expression": `{
   "groups": auth.metadata.apiKeyValidation.groups,
   "username": auth.metadata.apiKeyValidation.username,
-  "requestedSubscription": "x-maas-subscription" in context.request.http.headers ? context.request.http.headers["x-maas-subscription"] : ""
+  "requestedSubscription": "x-maas-subscription" in request.headers ? request.headers["x-maas-subscription"] : ""
 }`,
 						},
 					},
@@ -208,19 +209,19 @@ func (r *MaaSAuthPolicyReconciler) reconcileModelAuthPolicies(ctx context.Contex
 					// Groups are joined with commas to create a stable string representation.
 					"cache": map[string]interface{}{
 						"key": map[string]interface{}{
-							"selector": `auth.metadata.apiKeyValidation.username + "|" + auth.metadata.apiKeyValidation.groups.join(",") + "|" + ("x-maas-subscription" in context.request.http.headers ? context.request.http.headers["x-maas-subscription"] : "")`,
+							"selector": `auth.metadata.apiKeyValidation.username + "|" + auth.metadata.apiKeyValidation.groups.join(",") + "|" + ("x-maas-subscription" in request.headers ? request.headers["x-maas-subscription"] : "")`,
 						},
 						"ttl": int64(60),
 					},
 					"metrics":  false,
-					"priority": int64(0),
+					"priority": int64(1),
 				},
 			},
 			"authentication": map[string]interface{}{
 				// API Keys - plain authentication, actual validation in metadata layer
 				"api-keys": map[string]interface{}{
 					"plain": map[string]interface{}{
-						"selector": "context.request.http.headers.authorization",
+						"selector": "request.headers.authorization",
 					},
 					"metrics":  false,
 					"priority": int64(0),
@@ -240,7 +241,7 @@ func (r *MaaSAuthPolicyReconciler) reconcileModelAuthPolicies(ctx context.Contex
 					map[string]interface{}{
 						"selector": "auth.metadata.apiKeyValidation.valid",
 						"operator": "eq",
-						"value":    true,
+						"value":    "true",
 					},
 				},
 			},
