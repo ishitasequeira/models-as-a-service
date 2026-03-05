@@ -2,6 +2,9 @@ import os
 import pytest
 import requests
 
+# TLS verification flag - set E2E_SKIP_TLS_VERIFY=true to disable cert verification
+TLS_VERIFY = os.environ.get("E2E_SKIP_TLS_VERIFY", "").lower() != "true"
+
 
 @pytest.fixture(scope="session")
 def gateway_host() -> str:
@@ -74,7 +77,7 @@ def headers(token: str):
 
 @pytest.fixture(scope="session")
 def model_catalog(maas_api_base_url: str, headers: dict):
-    r = requests.get(f"{maas_api_base_url}/v1/models", headers=headers, timeout=45, verify=False)
+    r = requests.get(f"{maas_api_base_url}/v1/models", headers=headers, timeout=45, verify=TLS_VERIFY)
     r.raise_for_status()
     return r.json()
 
@@ -154,7 +157,7 @@ def api_key(api_keys_base_url: str, headers: dict) -> str:
         headers=headers,
         json={"name": "e2e-test-inference-key"},
         timeout=30,
-        verify=False,
+        verify=TLS_VERIFY,
     )
     # Accept both 200 and 201 as success
     if r.status_code not in (200, 201):

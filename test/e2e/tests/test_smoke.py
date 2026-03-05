@@ -2,6 +2,7 @@ import logging
 import json
 import requests
 from test_helper import chat, completions
+from conftest import TLS_VERIFY
 
 log = logging.getLogger(__name__)
 
@@ -15,7 +16,7 @@ def test_healthz_or_404(maas_api_base_url: str):
     # Prefer /health, but tolerate /healthz on some envs
     for path in ("/health", "/healthz"):
         try:
-            r = requests.get(f"{maas_api_base_url}{path}", timeout=10, verify=False)
+            r = requests.get(f"{maas_api_base_url}{path}", timeout=10, verify=TLS_VERIFY)
             print(f"[health] GET {path} -> {r.status_code}")
             assert r.status_code in (200, 401, 404)
             return
@@ -31,7 +32,7 @@ def test_tokens_endpoint_replaced_by_api_keys(maas_api_base_url: str):
     Any of these indicates the old token minting is no longer available.
     """
     url = f"{maas_api_base_url}/v1/tokens"
-    r = requests.post(url, json={"expiration": "1m"}, timeout=20, verify=False)
+    r = requests.post(url, json={"expiration": "1m"}, timeout=20, verify=TLS_VERIFY)
     msg = f"[token] POST {url} (no auth) -> {r.status_code}"
     log.info(msg); print(msg)
 

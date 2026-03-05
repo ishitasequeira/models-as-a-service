@@ -49,6 +49,7 @@ log = logging.getLogger(__name__)
 # Constants (override with env vars)
 TIMEOUT = int(os.environ.get("E2E_TIMEOUT", "30"))
 RECONCILE_WAIT = int(os.environ.get("E2E_RECONCILE_WAIT", "8"))
+TLS_VERIFY = os.environ.get("E2E_SKIP_TLS_VERIFY", "").lower() != "true"
 MODEL_PATH = os.environ.get("E2E_MODEL_PATH", "/llm/facebook-opt-125m-simulated")
 PREMIUM_MODEL_PATH = os.environ.get("E2E_PREMIUM_MODEL_PATH", "/llm/premium-simulated-simulated-premium")
 MODEL_NAME = os.environ.get("E2E_MODEL_NAME", "facebook/opt-125m")
@@ -166,7 +167,7 @@ def _create_api_key(oc_token: str, name: str = None) -> str:
         },
         json={"name": key_name},
         timeout=TIMEOUT,
-        verify=False,
+        verify=TLS_VERIFY,
     )
     if r.status_code not in (200, 201):
         raise RuntimeError(f"Failed to create API key: {r.status_code} {r.text}")
@@ -188,7 +189,7 @@ def _revoke_api_key(oc_token: str, key_id: str):
             url,
             headers={"Authorization": f"Bearer {oc_token}"},
             timeout=TIMEOUT,
-            verify=False,
+            verify=TLS_VERIFY,
         )
     except Exception as e:
         log.warning(f"Failed to revoke API key {key_id}: {e}")
@@ -279,7 +280,7 @@ def _inference(api_key_or_token, path=None, extra_headers=None, subscription=Non
     return requests.post(
         url, headers=headers,
         json={"model": MODEL_NAME, "prompt": "Hello", "max_tokens": 3},
-        timeout=TIMEOUT, verify=False,
+        timeout=TIMEOUT, verify=TLS_VERIFY,
     )
 
 
@@ -359,7 +360,7 @@ class TestAuthEnforcement:
             headers={"Content-Type": "application/json"},
             json={"model": MODEL_NAME, "prompt": "Hello", "max_tokens": 3},
             timeout=TIMEOUT,
-            verify=False,
+            verify=TLS_VERIFY,
         )
         log.info(f"No auth -> {r.status_code}")
         assert r.status_code == 401, f"Expected 401, got {r.status_code}"

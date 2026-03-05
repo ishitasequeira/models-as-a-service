@@ -34,6 +34,8 @@ import pytest
 import requests
 import time
 
+from conftest import TLS_VERIFY
+
 log = logging.getLogger(__name__)
 
 
@@ -47,7 +49,7 @@ class TestAPIKeyCRUD:
             headers=headers,
             json={"name": "test-key-create"},
             timeout=30,
-            verify=False,
+            verify=TLS_VERIFY,
         )
         assert r.status_code in (200, 201), f"Expected 200/201, got {r.status_code}: {r.text}"
         data = r.json()
@@ -62,18 +64,18 @@ class TestAPIKeyCRUD:
         print(f"[create] Created key id={data['id']}, key prefix={key[:15]}...")
 
         # Verify plaintext key is NOT returned on subsequent GET
-        r_get = requests.get(f"{api_keys_base_url}/{data['id']}", headers=headers, timeout=30, verify=False)
+        r_get = requests.get(f"{api_keys_base_url}/{data['id']}", headers=headers, timeout=30, verify=TLS_VERIFY)
         assert r_get.status_code == 200
         assert "key" not in r_get.json(), "Plaintext key should not be in GET (show-once pattern)"
 
     def test_list_api_keys(self, api_keys_base_url: str, headers: dict):
         """Test 2: List own keys - verify basic functionality."""
         # Create two keys
-        r1 = requests.post(api_keys_base_url, headers=headers, json={"name": "test-key-list-1"}, timeout=30, verify=False)
+        r1 = requests.post(api_keys_base_url, headers=headers, json={"name": "test-key-list-1"}, timeout=30, verify=TLS_VERIFY)
         assert r1.status_code in (200, 201)
         key1_id = r1.json()["id"]
 
-        r2 = requests.post(api_keys_base_url, headers=headers, json={"name": "test-key-list-2"}, timeout=30, verify=False)
+        r2 = requests.post(api_keys_base_url, headers=headers, json={"name": "test-key-list-2"}, timeout=30, verify=TLS_VERIFY)
         assert r2.status_code in (200, 201)
         key2_id = r2.json()["id"]
 
@@ -87,7 +89,7 @@ class TestAPIKeyCRUD:
                 "pagination": {"limit": 50, "offset": 0}
             },
             timeout=30,
-            verify=False
+            verify=TLS_VERIFY
         )
         assert r.status_code == 200
         data = r.json()
@@ -114,7 +116,7 @@ class TestAPIKeyCRUD:
                 "pagination": {"limit": 1, "offset": 0}
             },
             timeout=30,
-            verify=False
+            verify=TLS_VERIFY
         )
         assert r_limit.status_code == 200
         limited_items = (r_limit.json().get("items") or r_limit.json().get("data") or [])
@@ -124,17 +126,17 @@ class TestAPIKeyCRUD:
     def test_revoke_api_key(self, api_keys_base_url: str, headers: dict):
         """Test 3: Revoke key - verify status change to 'revoked'."""
         # Create a key
-        r_create = requests.post(api_keys_base_url, headers=headers, json={"name": "test-key-revoke"}, timeout=30, verify=False)
+        r_create = requests.post(api_keys_base_url, headers=headers, json={"name": "test-key-revoke"}, timeout=30, verify=TLS_VERIFY)
         assert r_create.status_code in (200, 201)
         key_id = r_create.json()["id"]
 
         # Revoke it using DELETE
-        r = requests.delete(f"{api_keys_base_url}/{key_id}", headers=headers, timeout=30, verify=False)
+        r = requests.delete(f"{api_keys_base_url}/{key_id}", headers=headers, timeout=30, verify=TLS_VERIFY)
         assert r.status_code == 200
         assert r.json().get("status") == "revoked"
 
         # Verify GET shows revoked status
-        r_get = requests.get(f"{api_keys_base_url}/{key_id}", headers=headers, timeout=30, verify=False)
+        r_get = requests.get(f"{api_keys_base_url}/{key_id}", headers=headers, timeout=30, verify=TLS_VERIFY)
         assert r_get.status_code == 200
         assert r_get.json().get("status") == "revoked"
         print(f"[revoke] Key {key_id} successfully revoked")
@@ -149,12 +151,12 @@ class TestAPIKeyAuthorization:
             pytest.skip("ADMIN_OC_TOKEN not set")
 
         # Create key as regular user
-        r_create = requests.post(api_keys_base_url, headers=headers, json={"name": "regular-user-key"}, timeout=30, verify=False)
+        r_create = requests.post(api_keys_base_url, headers=headers, json={"name": "regular-user-key"}, timeout=30, verify=TLS_VERIFY)
         assert r_create.status_code in (200, 201)
         user_key_id = r_create.json()["id"]
 
         # Get username
-        r_get = requests.get(f"{api_keys_base_url}/{user_key_id}", headers=headers, timeout=30, verify=False)
+        r_get = requests.get(f"{api_keys_base_url}/{user_key_id}", headers=headers, timeout=30, verify=TLS_VERIFY)
         username = r_get.json().get("username") or r_get.json().get("owner")
         assert username
 
@@ -170,7 +172,7 @@ class TestAPIKeyAuthorization:
                 "pagination": {"limit": 50, "offset": 0}
             },
             timeout=30,
-            verify=False
+            verify=TLS_VERIFY
         )
         assert r_admin.status_code == 200
         items = r_admin.json().get("items") or r_admin.json().get("data") or []
@@ -179,7 +181,7 @@ class TestAPIKeyAuthorization:
         print(f"[admin] Admin listed {len(items)} keys for '{username}'")
 
         # Admin revokes user's key using DELETE
-        r_revoke = requests.delete(f"{api_keys_base_url}/{user_key_id}", headers=admin_headers, timeout=30, verify=False)
+        r_revoke = requests.delete(f"{api_keys_base_url}/{user_key_id}", headers=admin_headers, timeout=30, verify=TLS_VERIFY)
         assert r_revoke.status_code == 200
         assert r_revoke.json().get("status") == "revoked"
         print(f"[admin] Admin successfully revoked user's key {user_key_id}")
@@ -194,16 +196,16 @@ class TestAPIKeyAuthorization:
             pytest.skip("ADMIN_OC_TOKEN not set")
 
         # Admin creates a key
-        r_admin = requests.post(api_keys_base_url, headers=admin_headers, json={"name": "admin-only-key"}, timeout=30, verify=False)
+        r_admin = requests.post(api_keys_base_url, headers=admin_headers, json={"name": "admin-only-key"}, timeout=30, verify=TLS_VERIFY)
         assert r_admin.status_code in (200, 201)
         admin_key_id = r_admin.json()["id"]
 
         # Regular user tries to GET admin's key - returns 404 for IDOR protection
-        r_get = requests.get(f"{api_keys_base_url}/{admin_key_id}", headers=headers, timeout=30, verify=False)
+        r_get = requests.get(f"{api_keys_base_url}/{admin_key_id}", headers=headers, timeout=30, verify=TLS_VERIFY)
         assert r_get.status_code == 404, f"Expected 404 (IDOR protection), got {r_get.status_code}"
 
         # Regular user tries to revoke admin's key - returns 404 for IDOR protection
-        r_revoke = requests.delete(f"{api_keys_base_url}/{admin_key_id}", headers=headers, timeout=30, verify=False)
+        r_revoke = requests.delete(f"{api_keys_base_url}/{admin_key_id}", headers=headers, timeout=30, verify=TLS_VERIFY)
         assert r_revoke.status_code == 404, f"Expected 404 (IDOR protection), got {r_revoke.status_code}"
         print("[authz] Non-admin correctly got 404 (IDOR protection) for admin's key")
 
@@ -216,12 +218,12 @@ class TestAPIKeyBulkOperations:
         # Create multiple keys
         key_ids = []
         for i in range(3):
-            r = requests.post(api_keys_base_url, headers=headers, json={"name": f"bulk-test-{i}"}, timeout=30, verify=False)
+            r = requests.post(api_keys_base_url, headers=headers, json={"name": f"bulk-test-{i}"}, timeout=30, verify=TLS_VERIFY)
             assert r.status_code in (200, 201)
             key_ids.append(r.json()["id"])
 
         # Get username from one of the keys
-        r_get = requests.get(f"{api_keys_base_url}/{key_ids[0]}", headers=headers, timeout=30, verify=False)
+        r_get = requests.get(f"{api_keys_base_url}/{key_ids[0]}", headers=headers, timeout=30, verify=TLS_VERIFY)
         username = r_get.json().get("username") or r_get.json().get("owner")
         assert username
 
@@ -231,7 +233,7 @@ class TestAPIKeyBulkOperations:
             headers=headers,
             json={"username": username},
             timeout=30,
-            verify=False
+            verify=TLS_VERIFY
         )
         assert r_bulk.status_code == 200
         data = r_bulk.json()
@@ -240,7 +242,7 @@ class TestAPIKeyBulkOperations:
 
         # Verify keys are revoked
         for key_id in key_ids:
-            r_check = requests.get(f"{api_keys_base_url}/{key_id}", headers=headers, timeout=30, verify=False)
+            r_check = requests.get(f"{api_keys_base_url}/{key_id}", headers=headers, timeout=30, verify=TLS_VERIFY)
             if r_check.status_code == 200:
                 assert r_check.json().get("status") == "revoked"
 
@@ -252,7 +254,7 @@ class TestAPIKeyBulkOperations:
             headers=headers,
             json={"username": "someotheruser"},
             timeout=30,
-            verify=False
+            verify=TLS_VERIFY
         )
         assert r_bulk.status_code == 403, f"Expected 403, got {r_bulk.status_code}: {r_bulk.text}"
         print("[bulk-revoke] Non-admin correctly got 403 when trying to bulk revoke other user's keys")
@@ -263,12 +265,12 @@ class TestAPIKeyBulkOperations:
             pytest.skip("ADMIN_OC_TOKEN not set")
 
         # Create a key as regular user
-        r = requests.post(api_keys_base_url, headers=headers, json={"name": "admin-bulk-revoke-test"}, timeout=30, verify=False)
+        r = requests.post(api_keys_base_url, headers=headers, json={"name": "admin-bulk-revoke-test"}, timeout=30, verify=TLS_VERIFY)
         assert r.status_code in (200, 201)
         key_id = r.json()["id"]
 
         # Get username
-        r_get = requests.get(f"{api_keys_base_url}/{key_id}", headers=headers, timeout=30, verify=False)
+        r_get = requests.get(f"{api_keys_base_url}/{key_id}", headers=headers, timeout=30, verify=TLS_VERIFY)
         username = r_get.json().get("username") or r_get.json().get("owner")
         assert username
 
@@ -278,7 +280,7 @@ class TestAPIKeyBulkOperations:
             headers=admin_headers,
             json={"username": username},
             timeout=30,
-            verify=False
+            verify=TLS_VERIFY
         )
         assert r_bulk.status_code == 200
         data = r_bulk.json()
@@ -324,7 +326,7 @@ class TestAPIKeyModelInference:
                 "max_tokens": 10,
             },
             timeout=60,
-            verify=False,
+            verify=TLS_VERIFY,
         )
 
         assert r.status_code == 200, f"Expected 200, got {r.status_code}: {r.text}"
@@ -357,7 +359,7 @@ class TestAPIKeyModelInference:
                 "max_tokens": 5,
             },
             timeout=30,
-            verify=False,
+            verify=TLS_VERIFY,
         )
 
         assert r.status_code == 403, f"Expected 403 for invalid key, got {r.status_code}: {r.text}"
@@ -380,7 +382,7 @@ class TestAPIKeyModelInference:
                 "max_tokens": 5,
             },
             timeout=30,
-            verify=False,
+            verify=TLS_VERIFY,
         )
 
         assert r.status_code == 401, f"Expected 401 for missing auth, got {r.status_code}: {r.text}"
@@ -400,7 +402,7 @@ class TestAPIKeyModelInference:
             headers=headers,
             json={"name": "test-revoke-inference"},
             timeout=30,
-            verify=False,
+            verify=TLS_VERIFY,
         )
         assert r_create.status_code in (200, 201), f"Failed to create key: {r_create.text}"
         data = r_create.json()
@@ -414,7 +416,7 @@ class TestAPIKeyModelInference:
             headers=key_headers,
             json={"model": inference_model_name, "prompt": "Test", "max_tokens": 5},
             timeout=60,
-            verify=False,
+            verify=TLS_VERIFY,
         )
         # Key should work (200) or might fail for other reasons - we just need to test revocation
         initial_status = r_test.status_code
@@ -425,7 +427,7 @@ class TestAPIKeyModelInference:
             f"{api_keys_base_url}/{key_id}",
             headers=headers,
             timeout=30,
-            verify=False,
+            verify=TLS_VERIFY,
         )
         assert r_revoke.status_code == 200, f"Failed to revoke: {r_revoke.text}"
         assert r_revoke.json().get("status") == "revoked"
@@ -439,7 +441,7 @@ class TestAPIKeyModelInference:
             headers=key_headers,
             json={"model": inference_model_name, "prompt": "Test", "max_tokens": 5},
             timeout=30,
-            verify=False,
+            verify=TLS_VERIFY,
         )
 
         assert r_revoked.status_code == 403, f"Expected 403 for revoked key, got {r_revoked.status_code}: {r_revoked.text}"
@@ -463,7 +465,7 @@ class TestAPIKeyModelInference:
                 "max_tokens": 10,
             },
             timeout=60,
-            verify=False,
+            verify=TLS_VERIFY,
         )
 
         # Chat completions may not be supported by all models
@@ -508,7 +510,7 @@ class TestAPIKeyModelInference:
                 "max_tokens": 5,
             },
             timeout=60,
-            verify=False,
+            verify=TLS_VERIFY,
         )
 
         assert r.status_code == 200, f"Expected 200 with explicit subscription, got {r.status_code}: {r.text}"
@@ -538,7 +540,7 @@ class TestAPIKeyModelInference:
                 "max_tokens": 5,
             },
             timeout=30,
-            verify=False,
+            verify=TLS_VERIFY,
         )
 
         # Should get 429 (rate limited - no valid subscription) or 403 (forbidden)

@@ -46,17 +46,6 @@ patches:
     kind: Deployment
     name: maas-api
 
-# Restrict NetworkPolicy to MaaS API pods only (ODH namespace is shared with other components).
-# The ingress podSelector fix is handled in base/maas-api/default/kustomization.yaml.
-- target:
-    kind: NetworkPolicy
-    name: maas-authorino-allow
-  patch: |
-    - op: add
-      path: /spec/podSelector/matchLabels
-      value:
-        app.kubernetes.io/name: maas-api
-
 replacements:
 # Gateway policies must be in openshift-ingress to target maas-default-gateway
 - source:

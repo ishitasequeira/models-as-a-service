@@ -406,6 +406,8 @@ run_e2e_tests() {
 
     export GATEWAY_HOST="${HOST}"
     export MAAS_NAMESPACE
+    # Skip TLS verification in CI (self-signed certs)
+    export E2E_SKIP_TLS_VERIFY=true
     # TOKEN and ADMIN_OC_TOKEN are already exported by setup_test_tokens()
 
     local test_dir="$PROJECT_ROOT/test/e2e"
@@ -487,13 +489,17 @@ setup_test_user() {
 
 setup_test_tokens() {
     # Setup dual-token environment for admin + regular user tests
-    # Admin token needs group memberships (htpasswd), regular user can use SA token
+    # Both tokens need group memberships (htpasswd users), because:
+    # - Admin: needs odh-admins group for admin operations
+    # - Regular: needs system:authenticated group for model catalog access
+    # SA tokens don't carry OpenShift group memberships, so they can't see models.
     
     echo "Setting up test tokens (admin + regular user)..."
     
-    local current_user api_server
+    local current_user api_server original_kubeconfig
     current_user=$(oc whoami)
     api_server=$(oc whoami --show-server)
+    original_kubeconfig="${KUBECONFIG:-}"
     echo "Current user: $current_user"
     
     export ADMIN_OC_TOKEN=""
@@ -505,6 +511,8 @@ setup_test_tokens() {
         source "${SHARED_DIR}/runtime_env"
         if [[ -n "${USERS:-}" ]]; then
             echo "Found htpasswd users from idp-htpasswd step"
+            
+            # Admin user: testuser-1 (added to odh-admins)
             local admin_creds
             admin_creds=$(echo "$USERS" | tr ',' '\n' | grep "^testuser-1:" | head -1)
             if [[ -n "$admin_creds" ]]; then
@@ -512,35 +520,57 @@ setup_test_tokens() {
                 admin_user="${admin_creds%%:*}"
                 admin_pass="${admin_creds#*:}"
                 
-                # Add to odh-admins and get token
                 oc adm groups add-users odh-admins "$admin_user" 2>/dev/null || true
                 if oc login "$api_server" -u "$admin_user" -p "$admin_pass" --insecure-skip-tls-verify=true &>/dev/null; then
                     ADMIN_OC_TOKEN=$(oc whoami -t)
-                    echo "✅ Admin token for $admin_user"
+                    echo "✅ Admin token for $admin_user (htpasswd)"
                 fi
-                # Restore kubeconfig
-                export KUBECONFIG="${SHARED_DIR}/kubeconfig"
             fi
+            
+            # Regular user: testuser-2 (NOT in odh-admins, but has system:authenticated)
+            local regular_creds
+            regular_creds=$(echo "$USERS" | tr ',' '\n' | grep "^testuser-2:" | head -1)
+            if [[ -n "$regular_creds" ]]; then
+                local regular_user regular_pass
+                regular_user="${regular_creds%%:*}"
+                regular_pass="${regular_creds#*:}"
+                
+                if oc login "$api_server" -u "$regular_user" -p "$regular_pass" --insecure-skip-tls-verify=true &>/dev/null; then
+                    TOKEN=$(oc whoami -t)
+                    echo "✅ Regular user token for $regular_user (htpasswd)"
+                fi
+            fi
+            
+            # Restore kubeconfig
+            export KUBECONFIG="${SHARED_DIR}/kubeconfig"
         fi
     fi
     
-    # 2. Fallback: use current user's token (local htpasswd user)
+    # 2. Fallback for admin: use current user's token (local htpasswd user)
     if [[ -z "$ADMIN_OC_TOKEN" ]]; then
         ADMIN_OC_TOKEN=$(oc whoami -t 2>/dev/null || true)
         if [[ -n "$ADMIN_OC_TOKEN" ]]; then
             oc adm groups add-users odh-admins "$current_user" 2>/dev/null || true
             echo "✅ Admin token for $current_user (added to odh-admins)"
         else
-            echo "⚠️  No htpasswd token - admin tests may fail (SA tokens lack group memberships)"
+            echo "⚠️  No htpasswd token available - using SA token (admin tests may fail)"
             setup_test_user "tester-admin-user" "cluster-admin"
             ADMIN_OC_TOKEN=$(oc create token tester-admin-user -n default --duration=1h)
         fi
     fi
     
-    # Regular user: always use SA token (doesn't need group memberships)
-    setup_test_user "tester-regular-user" "view"
-    TOKEN=$(oc create token tester-regular-user -n default --duration=1h)
-    echo "✅ Regular user token (SA: tester-regular-user)"
+    # 3. Fallback for regular user: use current user's token (same as admin for local testing)
+    # Local runs typically use the same htpasswd user for both roles
+    if [[ -z "$TOKEN" ]]; then
+        TOKEN=$(oc whoami -t 2>/dev/null || true)
+        if [[ -n "$TOKEN" ]]; then
+            echo "✅ Regular user token for $current_user (same as admin for local testing)"
+        else
+            echo "⚠️  No htpasswd token - using SA token (model catalog may be empty)"
+            setup_test_user "tester-regular-user" "view"
+            TOKEN=$(oc create token tester-regular-user -n default --duration=1h)
+        fi
+    fi
     
     echo "Token setup complete"
 }
