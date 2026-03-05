@@ -402,7 +402,8 @@ setup_premium_test_token() {
 run_e2e_tests() {
     echo "-- E2E Tests (API Keys + Subscription) --"
 
-    setup_premium_test_token
+    # Note: setup_premium_test_token() is called earlier in main execution
+    # (Phase 1: Admin Setup) while still logged in as system:admin
 
     export GATEWAY_HOST="${HOST}"
     export MAAS_NAMESPACE
@@ -492,22 +493,34 @@ setup_test_user() {
 }
 
 setup_test_tokens() {
-    # Setup dual-token environment for admin + regular user tests
-    # Both tokens need group memberships (htpasswd users), because:
-    # - Admin: needs odh-admins group for admin operations
-    # - Regular: needs system:authenticated group for model catalog access
-    # SA tokens don't carry OpenShift group memberships, so they can't see models.
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Extract test tokens WITHOUT switching the main oc session.
+    # 
+    # Architecture:
+    #   - Main oc session stays as system:admin (for any cluster operations)
+    #   - Test tokens are extracted into env vars using a TEMPORARY kubeconfig
+    #   - Tests use TOKEN/ADMIN_OC_TOKEN env vars for API authentication
+    #
+    # Why htpasswd users instead of SA tokens?
+    #   - htpasswd users have OpenShift group memberships (system:authenticated)
+    #   - SA tokens don't carry group memberships, so they can't see models
+    # ═══════════════════════════════════════════════════════════════════════════
     
     echo "Setting up test tokens (admin + regular user)..."
     
-    local current_user api_server original_kubeconfig
+    local current_user api_server
     current_user=$(oc whoami)
     api_server=$(oc whoami --show-server)
-    original_kubeconfig="${KUBECONFIG:-}"
-    echo "Current user: $current_user"
+    echo "Current admin session: $current_user (will be preserved)"
     
     export ADMIN_OC_TOKEN=""
     export TOKEN=""
+    
+    # Use a temporary kubeconfig for token extraction logins
+    # This prevents polluting the main oc session
+    local temp_kubeconfig
+    temp_kubeconfig=$(mktemp)
+    trap "rm -f '$temp_kubeconfig'" RETURN
     
     # 1. Try htpasswd users from idp-htpasswd step (Prow CI)
     if [[ -f "${SHARED_DIR:-}/runtime_env" ]]; then
@@ -524,9 +537,12 @@ setup_test_tokens() {
                 admin_user="${admin_creds%%:*}"
                 admin_pass="${admin_creds#*:}"
                 
+                # Add to odh-admins group (using main session which is system:admin)
                 oc adm groups add-users odh-admins "$admin_user" 2>/dev/null || true
-                if oc login "$api_server" -u "$admin_user" -p "$admin_pass" --insecure-skip-tls-verify=true &>/dev/null; then
-                    ADMIN_OC_TOKEN=$(oc whoami -t)
+                
+                # Extract token using temp kubeconfig (doesn't affect main session)
+                if KUBECONFIG="$temp_kubeconfig" oc login "$api_server" -u "$admin_user" -p "$admin_pass" --insecure-skip-tls-verify=true &>/dev/null; then
+                    ADMIN_OC_TOKEN=$(KUBECONFIG="$temp_kubeconfig" oc whoami -t)
                     echo "✅ Admin token for $admin_user (htpasswd)"
                 fi
             fi
@@ -539,17 +555,11 @@ setup_test_tokens() {
                 regular_user="${regular_creds%%:*}"
                 regular_pass="${regular_creds#*:}"
                 
-                if oc login "$api_server" -u "$regular_user" -p "$regular_pass" --insecure-skip-tls-verify=true &>/dev/null; then
-                    TOKEN=$(oc whoami -t)
+                # Extract token using temp kubeconfig (doesn't affect main session)
+                if KUBECONFIG="$temp_kubeconfig" oc login "$api_server" -u "$regular_user" -p "$regular_pass" --insecure-skip-tls-verify=true &>/dev/null; then
+                    TOKEN=$(KUBECONFIG="$temp_kubeconfig" oc whoami -t)
                     echo "✅ Regular user token for $regular_user (htpasswd)"
                 fi
-            fi
-            
-            # Restore original kubeconfig
-            if [[ -n "$original_kubeconfig" ]]; then
-                export KUBECONFIG="$original_kubeconfig"
-            else
-                unset KUBECONFIG
             fi
         fi
     fi
@@ -580,7 +590,7 @@ setup_test_tokens() {
         fi
     fi
     
-    echo "Token setup complete"
+    echo "Token setup complete (main session unchanged: $(oc whoami))"
 }
 
 # Main execution
@@ -608,7 +618,19 @@ patch_authorino_debug  # from auth_utils.sh
 print_header "Setting up variables for tests"
 setup_vars_for_tests
 
-# Setup test tokens (admin + regular user) for comprehensive e2e testing
+# ═══════════════════════════════════════════════════════════════════════════════
+# Phase 1: Admin Setup (runs as system:admin)
+# All cluster operations requiring admin privileges happen here BEFORE
+# we extract test tokens. This avoids context-switching issues.
+# ═══════════════════════════════════════════════════════════════════════════════
+print_header "Admin Setup (Premium Test Resources)"
+setup_premium_test_token
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Phase 2: Extract Test Tokens
+# Uses a temporary kubeconfig so the main oc session stays as system:admin.
+# Tests will use TOKEN/ADMIN_OC_TOKEN env vars for API authentication.
+# ═══════════════════════════════════════════════════════════════════════════════
 print_header "Setting up test tokens"
 setup_test_tokens
 
@@ -616,6 +638,11 @@ setup_test_tokens
 # echo "Sleeping 15 minutes for cluster debugging (Ctrl+C to skip)..."
 # sleep 900
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# Phase 3: Run Tests
+# Tests use TOKEN/ADMIN_OC_TOKEN env vars for API auth.
+# The main oc session is still system:admin for any kubectl/oc commands.
+# ═══════════════════════════════════════════════════════════════════════════════
 print_header "Running E2E Tests"
 run_e2e_tests
 

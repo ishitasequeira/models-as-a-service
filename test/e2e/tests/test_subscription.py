@@ -106,12 +106,26 @@ def _decode_jwt_payload(token: str) -> Optional[dict]:
 
 
 def _get_cluster_token():
-    """Get OC token for API key management operations (not for inference)."""
+    """Get OC token for API key management operations (not for inference).
+    
+    Priority:
+      1. TOKEN env var (set by prow script for regular user)
+      2. E2E_TEST_TOKEN_SA_* env vars (for SA-based tokens)
+      3. oc whoami -t (fallback for local testing)
+    """
+    # Priority 1: TOKEN env var (regular user token from prow script)
+    token = os.environ.get("TOKEN", "")
+    if token:
+        log.info("Using TOKEN env var for API key operations")
+        return token
+    
+    # Priority 2: SA token if configured
     sa_ns = os.environ.get("E2E_TEST_TOKEN_SA_NAMESPACE")
     sa_name = os.environ.get("E2E_TEST_TOKEN_SA_NAME")
     if sa_ns and sa_name:
         token = _create_sa_token(sa_name, namespace=sa_ns)
     else:
+        # Priority 3: oc whoami -t fallback
         token_result = subprocess.run(["oc", "whoami", "-t"], capture_output=True, text=True)
         token = token_result.stdout.strip() if token_result.returncode == 0 else ""
         if not token:
