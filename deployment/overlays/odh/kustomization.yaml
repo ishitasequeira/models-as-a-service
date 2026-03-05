@@ -9,10 +9,9 @@ metadata:
 
 namespace: opendatahub
 resources:
-  - ../../base/maas-api/overlays/tls  # maas-api with TLS (includes DestinationRule)
+  - ../../base/maas-api/overlays/tls  # maas-api with TLS (includes DestinationRule + NetworkPolicy)
   - ../../../maas-controller/config/default
   - ../../../maas-controller/config/policies  # gateway-default-auth, gateway-default-deny
-  - maas-authorino-networkpolicy.yaml
 
 configMapGenerator:
 - envs:
@@ -47,17 +46,16 @@ patches:
     kind: Deployment
     name: maas-api
 
-# Fix NetworkPolicy podSelector - the base labels transformer incorrectly adds
-# MaaS labels to the Authorino podSelector. Authorino pods only have 
-# 'authorino-resource: authorino', so we need to remove the extra labels.
+# Restrict NetworkPolicy to MaaS API pods only (ODH namespace is shared with other components).
+# The ingress podSelector fix is handled in base/maas-api/default/kustomization.yaml.
 - target:
     kind: NetworkPolicy
     name: maas-authorino-allow
   patch: |
-    - op: replace
-      path: /spec/ingress/0/from/0/podSelector/matchLabels
+    - op: add
+      path: /spec/podSelector/matchLabels
       value:
-        authorino-resource: authorino
+        app.kubernetes.io/name: maas-api
 
 replacements:
 # Gateway policies must be in openshift-ingress to target maas-default-gateway
