@@ -295,22 +295,35 @@ class TestAPIKeyExpiration:
     
     Environment Variables:
     - API_KEY_MAX_EXPIRATION_DAYS: The configured max expiration in days (set on maas-api deployment).
-      Default is 30 days. Set to 0 to explicitly disable the limit.
+      Must be explicitly set by the e2e test harness to match the maas-api deployment configuration.
+      Default is 30 days. Minimum is 1 day.
     """
 
     @pytest.fixture
     def max_expiration_days(self) -> int:
-        """Get the configured max expiration days from environment. Default: 30 days."""
-        val = os.environ.get("API_KEY_MAX_EXPIRATION_DAYS", "30")
+        """Get the configured max expiration days from environment.
+        
+        This value must be explicitly provided by the test harness via the
+        API_KEY_MAX_EXPIRATION_DAYS environment variable so that it matches
+        the maas-api deployment configuration. If not set or invalid, these
+        tests are skipped to avoid flaky behavior from configuration mismatch.
+        """
+        val = os.environ.get("API_KEY_MAX_EXPIRATION_DAYS")
+        if val is None:
+            pytest.skip(
+                "API_KEY_MAX_EXPIRATION_DAYS not set; skipping expiration policy tests "
+                "to avoid mismatch with maas-api configuration"
+            )
         try:
             return int(val)
         except ValueError:
-            return 30
+            pytest.skip(
+                f"API_KEY_MAX_EXPIRATION_DAYS={val!r} is not a valid integer; "
+                "skipping expiration policy tests"
+            )
 
     def test_create_key_within_expiration_limit(self, api_keys_base_url: str, headers: dict, max_expiration_days: int):
         """Test: Creating API key with expiration within the limit should succeed."""
-        if max_expiration_days <= 0:
-            pytest.skip("API_KEY_MAX_EXPIRATION_DAYS not configured (no limit)")
 
         # Request expiration at half the limit (e.g., 15 days if limit is 30)
         expires_in_hours = (max_expiration_days // 2) * 24
@@ -336,8 +349,6 @@ class TestAPIKeyExpiration:
 
     def test_create_key_at_expiration_limit(self, api_keys_base_url: str, headers: dict, max_expiration_days: int):
         """Test: Creating API key with expiration exactly at the limit should succeed."""
-        if max_expiration_days <= 0:
-            pytest.skip("API_KEY_MAX_EXPIRATION_DAYS not configured (no limit)")
 
         # Request expiration exactly at the limit
         expires_in_hours = max_expiration_days * 24
@@ -361,8 +372,6 @@ class TestAPIKeyExpiration:
 
     def test_create_key_exceeds_expiration_limit(self, api_keys_base_url: str, headers: dict, max_expiration_days: int):
         """Test: Creating API key with expiration exceeding the limit should fail."""
-        if max_expiration_days <= 0:
-            pytest.skip("API_KEY_MAX_EXPIRATION_DAYS not configured (no limit)")
 
         # Request expiration exceeding the limit (e.g., 2x the limit)
         exceeds_days = max_expiration_days * 2

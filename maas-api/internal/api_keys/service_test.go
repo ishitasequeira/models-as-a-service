@@ -337,21 +337,6 @@ func TestCreateAPIKey_MaxExpirationLimit(t *testing.T) {
 		require.NotNil(t, result)
 	})
 
-	t.Run("LimitExplicitlyDisabled", func(t *testing.T) {
-		store := api_keys.NewMockStore()
-		cfg := &config.Config{
-			APIKeyMaxExpirationDays: 0, // Explicitly disabled (0 = no limit)
-		}
-		svc := api_keys.NewServiceWithLogger(store, cfg, logger.Development())
-
-		// Request 365 days - should succeed when limit is explicitly disabled
-		expiresIn := 365 * 24 * time.Hour
-		result, err := svc.CreateAPIKey(ctx, "alice", []string{"users"}, "Test Key", "", &expiresIn)
-
-		require.NoError(t, err)
-		require.NotNil(t, result)
-	})
-
 	t.Run("NoExpirationRequested", func(t *testing.T) {
 		store := api_keys.NewMockStore()
 		cfg := &config.Config{

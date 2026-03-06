@@ -67,7 +67,7 @@ func (s *Service) CreateAPIKey(ctx context.Context, username string, userGroups 
 	}
 
 	// Validate against maximum expiration limit
-	if s.config != nil && s.config.APIKeyMaxExpirationDays > 0 && expiresIn != nil {
+	if s.config != nil && expiresIn != nil {
 		maxDuration := time.Duration(s.config.APIKeyMaxExpirationDays) * 24 * time.Hour
 		if *expiresIn > maxDuration {
 			return nil, fmt.Errorf("requested expiration (%v) exceeds maximum allowed (%d days)",

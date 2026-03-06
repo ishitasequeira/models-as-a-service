@@ -43,7 +43,7 @@ type Config struct {
 
 	// APIKeyMaxExpirationDays is the maximum allowed expiration in days for API keys.
 	// Users cannot create API keys with expiration longer than this value.
-	// Default: 30 days. Set to 0 to disable the limit (allow any expiration).
+	// Default: 30 days. Minimum: 1 day.
 	APIKeyMaxExpirationDays int
 
 	// Deprecated flag (backward compatibility with pre-TLS version)
@@ -131,6 +131,11 @@ func (c *Config) Validate() error {
 	// Validate API key expiration policy
 	if c.APIKeyExpirationPolicy != "optional" && c.APIKeyExpirationPolicy != "required" {
 		return errors.New("API_KEY_EXPIRATION_POLICY must be 'optional' or 'required'")
+	}
+
+	// Validate API key max expiration days
+	if c.APIKeyMaxExpirationDays < 1 {
+		return errors.New("API_KEY_MAX_EXPIRATION_DAYS must be at least 1")
 	}
 
 	return nil
