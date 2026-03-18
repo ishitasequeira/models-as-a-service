@@ -48,7 +48,7 @@ type CreateAPIKeyResponse struct {
 	Name      string  `json:"name"`
 	CreatedAt string  `json:"createdAt"`
 	ExpiresAt *string `json:"expiresAt,omitempty"` // RFC3339 timestamp
-	Ephemeral bool    `json:"ephemeral,omitempty"` // Short-lived programmatic key
+	Ephemeral bool    `json:"ephemeral"` // Short-lived programmatic key
 }
 
 // CreateAPIKey creates a new API key (sk-oai-* format).
@@ -77,8 +77,15 @@ func (s *Service) CreateAPIKey(
 		return nil, errors.New("expiration must be positive")
 	}
 
-	// Validate against maximum expiration limit (skip for ephemeral keys which have 1hr default)
-	if !ephemeral && s.config != nil && s.config.APIKeyMaxExpirationDays > 0 {
+	// Validate against maximum expiration limit
+	if ephemeral {
+		// Ephemeral keys have a strict 1-hour maximum to prevent abuse
+		maxEphemeralDuration := 1 * time.Hour
+		if *expiresIn > maxEphemeralDuration {
+			return nil, fmt.Errorf("ephemeral key expiration (%v) cannot exceed 1 hour", *expiresIn)
+		}
+	} else if s.config != nil && s.config.APIKeyMaxExpirationDays > 0 {
+		// Regular keys use configured max expiration
 		maxDuration := time.Duration(s.config.APIKeyMaxExpirationDays) * 24 * time.Hour
 		if *expiresIn > maxDuration {
 			return nil, fmt.Errorf("requested expiration (%v) exceeds maximum allowed (%d days)",

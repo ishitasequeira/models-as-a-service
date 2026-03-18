@@ -29,7 +29,7 @@ type ApiKey struct {
 	ExpirationDate string   `json:"expirationDate,omitempty"` // Empty for permanent keys
 	Status         Status   `json:"status"`                   // "active", "expired", "revoked"
 	LastUsedAt     string   `json:"lastUsedAt,omitempty"`     // Tracks when key was last used for validation
-	Ephemeral      bool     `json:"ephemeral,omitempty"`      // Short-lived programmatic token (e.g., GenAI Playground)
+	Ephemeral      bool     `json:"ephemeral"`                // Short-lived programmatic key
 }
 
 // ValidationResult holds the result of API key validation (for Authorino HTTP callback).

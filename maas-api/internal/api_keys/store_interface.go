@@ -26,7 +26,7 @@ type MetadataStore interface {
 	// AddKey stores an API key with hash-only storage (no plaintext).
 	// Keys can be permanent (expiresAt=nil) or expiring (expiresAt set).
 	// userGroups is an array of user's groups (used for authorization).
-	// ephemeral marks the key as short-lived for programmatic use (e.g., GenAI Playground).
+	// ephemeral marks the key as short-lived for programmatic use.
 	// Note: keyPrefix is NOT stored (security - reduces brute-force attack surface).
 	AddKey(ctx context.Context, username string, keyID, keyHash, name, description string, userGroups []string, expiresAt *time.Time, ephemeral bool) error
 

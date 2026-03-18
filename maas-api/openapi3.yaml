@@ -283,7 +283,7 @@ paths:
             tags:
                 - api-keys-v2
             summary: Create a new hash-based API key
-            description: Creates a new OpenAI-compatible API key (sk-oai-* format). If expiresIn is not provided, defaults to API_KEY_MAX_EXPIRATION_DAYS (default 90 days, or 1 hour for ephemeral keys). The plaintext key is shown ONLY ONCE at creation time and cannot be retrieved again.
+            description: Creates a new OpenAI-compatible API key (sk-oai-* format). Name is required for regular keys but optional for ephemeral keys. If expiresIn is not provided, defaults to API_KEY_MAX_EXPIRATION_DAYS (default 90 days) for regular keys, or 1 hour for ephemeral keys. The plaintext key is shown ONLY ONCE at creation time and cannot be retrieved again.
             operationId: api-keys-v2#create
             requestBody:
                 required: true
@@ -303,7 +303,7 @@ paths:
                                     description: Expiration duration (e.g., "30d", "90d", "1h"). Defaults to API_KEY_MAX_EXPIRATION_DAYS for regular keys, 1 hour for ephemeral keys.
                                 ephemeral:
                                     type: boolean
-                                    description: Create a short-lived programmatic token (e.g., for GenAI Playground). Defaults to false. Ephemeral keys have 1hr default expiration and optional name.
+                                    description: Create a short-lived programmatic key. Defaults to false. Ephemeral keys have 1hr default and maximum expiration (enforced), and optional name.
                                     default: false
                         examples:
                             default_expiration:
@@ -834,6 +834,7 @@ components:
                 - name
                 - creationDate
                 - status
+                - ephemeral
 
         # API Key List Response (paginated)
         ApiKeyListResponse:

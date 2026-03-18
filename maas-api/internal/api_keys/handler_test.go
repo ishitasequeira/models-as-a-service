@@ -1229,6 +1229,26 @@ func TestCreateEphemeralAPIKey(t *testing.T) {
 		require.NoError(t, err)
 		assert.Contains(t, response["error"], "name is required")
 	})
+
+	t.Run("EphemeralKeyExceedsMaxExpiration", func(t *testing.T) {
+		// Try to create ephemeral key with 2hr expiration (exceeds 1hr max)
+		requestBody := `{"ephemeral": true, "expiresIn": "2h"}`
+
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/api-keys", nil)
+		c.Request.Header.Set("Content-Type", "application/json")
+		c.Request.Body = io.NopCloser(strings.NewReader(requestBody))
+		c.Set("user", testUser)
+
+		handler.CreateAPIKey(c)
+
+		assert.Equal(t, http.StatusInternalServerError, w.Code)
+		var response map[string]string
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+		assert.Contains(t, response["error"], "cannot exceed 1 hour")
+	})
 }
 
 func TestSearchExcludesEphemeralByDefault(t *testing.T) {

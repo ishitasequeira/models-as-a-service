@@ -248,11 +248,12 @@ curl -sSk \
 
 ##### Ephemeral API Keys
 
-Ephemeral keys are short-lived programmatic keys designed for temporary access scenarios like the GenAI Playground or automated scripts. They differ from regular API keys in several ways:
+Ephemeral keys are short-lived programmatic keys designed for temporary access scenarios. They differ from regular API keys in several ways:
 
 | Feature | Regular API Keys | Ephemeral API Keys |
 |---------|------------------|-------------------|
 | Default expiration | 90 days | 1 hour |
+| Maximum expiration | 90 days (configurable) | 1 hour (enforced) |
 | Name | Required | Optional (auto-generated if not provided) |
 | Shown in list/search | Yes | No (excluded by default) |
 | Use case | Long-term application access | Short-term programmatic access |
