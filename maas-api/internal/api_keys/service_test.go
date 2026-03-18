@@ -35,7 +35,7 @@ func TestValidateAPIKey_ValidKey(t *testing.T) {
 	username := "alice"
 	groups := []string{"tier-premium", "system:authenticated"}
 
-	err := store.AddKey(ctx, username, keyID, hash, "Test Key", "", groups, nil)
+	err := store.AddKey(ctx, username, keyID, hash, "Test Key", "", groups, nil, false)
 	require.NoError(t, err)
 
 	// Validate the key
@@ -98,7 +98,7 @@ func TestValidateAPIKey_RevokedKey(t *testing.T) {
 	username := "bob"
 	groups := []string{"tier-free"}
 
-	err := store.AddKey(ctx, username, keyID, hash, "Revoked Key", "", groups, nil)
+	err := store.AddKey(ctx, username, keyID, hash, "Revoked Key", "", groups, nil, false)
 	require.NoError(t, err)
 
 	// Revoke the key
@@ -125,7 +125,7 @@ func TestValidateAPIKey_ExpiredKey(t *testing.T) {
 	groups := []string{"tier-basic"}
 	expiresAt := time.Now().Add(-24 * time.Hour) // Expired 1 day ago
 
-	err := store.AddKey(ctx, username, keyID, hash, "Expired Key", "", groups, &expiresAt)
+	err := store.AddKey(ctx, username, keyID, hash, "Expired Key", "", groups, &expiresAt, false)
 	require.NoError(t, err)
 
 	// Validate the expired key
@@ -146,7 +146,7 @@ func TestValidateAPIKey_EmptyGroups(t *testing.T) {
 	plainKey, hash := createTestAPIKey(t)
 	username := "dave"
 
-	err := store.AddKey(ctx, username, keyID, hash, "No Groups Key", "", nil, nil)
+	err := store.AddKey(ctx, username, keyID, hash, "No Groups Key", "", nil, nil, false)
 	require.NoError(t, err)
 
 	// Validate the key
@@ -170,7 +170,7 @@ func TestValidateAPIKey_UpdatesLastUsed(t *testing.T) {
 	username := "eve"
 	groups := []string{"tier-enterprise"}
 
-	err := store.AddKey(ctx, username, keyID, hash, "Last Used Test", "", groups, nil)
+	err := store.AddKey(ctx, username, keyID, hash, "Last Used Test", "", groups, nil, false)
 	require.NoError(t, err)
 
 	// Get initial metadata (last_used_at should be empty/nil)
@@ -206,7 +206,7 @@ func TestGetAPIKey(t *testing.T) {
 	username := "alice"
 	keyName := "Alice's Key"
 
-	err := store.AddKey(ctx, username, keyID, hash, keyName, "Test description", nil, nil)
+	err := store.AddKey(ctx, username, keyID, hash, keyName, "Test description", nil, nil, false)
 	require.NoError(t, err)
 
 	// Get via service layer
@@ -238,7 +238,7 @@ func TestRevokeAPIKey(t *testing.T) {
 	_, hash := createTestAPIKey(t)
 	username := "bob"
 
-	err := store.AddKey(ctx, username, keyID, hash, "Revoke Test", "", nil, nil)
+	err := store.AddKey(ctx, username, keyID, hash, "Revoke Test", "", nil, nil, false)
 	require.NoError(t, err)
 
 	// Verify it's active
@@ -272,7 +272,7 @@ func TestCreateAPIKey_MaxExpirationLimit(t *testing.T) {
 
 		// Request 7 days - should succeed
 		expiresIn := 7 * 24 * time.Hour
-		result, err := svc.CreateAPIKey(ctx, "alice", []string{"users"}, "Test Key", "", &expiresIn)
+		result, err := svc.CreateAPIKey(ctx, "alice", []string{"users"}, "Test Key", "", &expiresIn, false)
 
 		require.NoError(t, err)
 		require.NotNil(t, result)
@@ -288,7 +288,7 @@ func TestCreateAPIKey_MaxExpirationLimit(t *testing.T) {
 
 		// Request 60 days - should fail
 		expiresIn := 60 * 24 * time.Hour
-		result, err := svc.CreateAPIKey(ctx, "alice", []string{"users"}, "Test Key", "", &expiresIn)
+		result, err := svc.CreateAPIKey(ctx, "alice", []string{"users"}, "Test Key", "", &expiresIn, false)
 
 		require.Error(t, err)
 		assert.Nil(t, result)
@@ -305,7 +305,7 @@ func TestCreateAPIKey_MaxExpirationLimit(t *testing.T) {
 
 		// Request exactly 30 days - should succeed
 		expiresIn := 30 * 24 * time.Hour
-		result, err := svc.CreateAPIKey(ctx, "alice", []string{"users"}, "Test Key", "", &expiresIn)
+		result, err := svc.CreateAPIKey(ctx, "alice", []string{"users"}, "Test Key", "", &expiresIn, false)
 
 		require.NoError(t, err)
 		require.NotNil(t, result)
@@ -319,7 +319,7 @@ func TestCreateAPIKey_MaxExpirationLimit(t *testing.T) {
 		svc := api_keys.NewServiceWithLogger(store, cfg, logger.Development())
 
 		// No expiration requested - should default to APIKeyMaxExpirationDays (30 days)
-		result, err := svc.CreateAPIKey(ctx, "alice", []string{"users"}, "Test Key", "", nil)
+		result, err := svc.CreateAPIKey(ctx, "alice", []string{"users"}, "Test Key", "", nil, false)
 
 		require.NoError(t, err)
 		require.NotNil(t, result)
