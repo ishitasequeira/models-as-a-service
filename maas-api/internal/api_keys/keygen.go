@@ -23,9 +23,14 @@ const (
 	// displayPrefixLength is the number of chars to show in the display prefix (after sk-oai-).
 	displayPrefixLength = 12
 
-	// PBKDF2 security parameters following OWASP 2024 guidelines.
-	HashBytes  = 32     // 256 bits  
-	Iterations = 600000 // OWASP recommendation for 2024
+	// PBKDF2 security parameters.
+	// Per NIST 800-63B Section 5.1.2.2: For lookup secrets with ≥112 bits entropy,
+	// standard hash functions are sufficient. Our 256-bit entropy API keys exceed
+	// this threshold, making high iteration counts unnecessary for security.
+	// We use 100K iterations as a balance between real-time validation performance
+	// and defense-in-depth, while maintaining PBKDF2 structure for compatibility.
+	HashBytes  = 32     // 256 bits
+	Iterations = 100000 // Balanced iterations for 256-bit entropy keys (see NIST 800-63B)
 	
 	// Constant salt for operator deployment (acceptable for machine-generated high-entropy keys).
 	// SECURITY: This constant salt is ONLY safe for machine-generated 256-bit entropy keys.

@@ -31,8 +31,8 @@ func TestGenerateAPIKey(t *testing.T) {
 	}
 
 	// Test 4: Iterations are correct
-	if hashData.Iterations != 600000 {
-		t.Errorf("GenerateAPIKey() iterations = %d, want 600000", hashData.Iterations)
+	if hashData.Iterations != 100000 {
+		t.Errorf("GenerateAPIKey() iterations = %d, want 100000", hashData.Iterations)
 	}
 
 	// Test 5: Prefix has correct format
@@ -87,8 +87,8 @@ func TestHashAPIKey(t *testing.T) {
 	}
 
 	// Verify iterations
-	if hashData.Iterations != 600000 {
-		t.Errorf("HashAPIKey() iterations = %d, want 600000", hashData.Iterations)
+	if hashData.Iterations != 100000 {
+		t.Errorf("HashAPIKey() iterations = %d, want 100000", hashData.Iterations)
 	}
 
 	// Verify different keys produce different hashes (with constant salt)
