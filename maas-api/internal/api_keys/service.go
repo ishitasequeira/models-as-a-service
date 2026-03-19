@@ -63,6 +63,13 @@ func (s *Service) CreateAPIKey(
 	ctx context.Context, username string, userGroups []string, name, description string,
 	expiresIn *time.Duration, ephemeral bool,
 ) (*CreateAPIKeyResponse, error) {
+	// Compute max expiration days once from config-or-default (CWE-613 mitigation).
+	maxDays := constant.DefaultAPIKeyMaxExpirationDays
+	if s.config != nil && s.config.APIKeyMaxExpirationDays > 0 {
+		maxDays = s.config.APIKeyMaxExpirationDays
+	}
+	maxRegularDuration := time.Duration(maxDays) * 24 * time.Hour
+
 	// Default expiration if not provided
 	if expiresIn == nil {
 		if ephemeral {
@@ -71,12 +78,7 @@ func (s *Service) CreateAPIKey(
 			expiresIn = &d
 		} else {
 			// Regular keys default to max expiration days
-			maxDays := constant.DefaultAPIKeyMaxExpirationDays
-			if s.config != nil && s.config.APIKeyMaxExpirationDays > 0 {
-				maxDays = s.config.APIKeyMaxExpirationDays
-			}
-			defaultExpiration := time.Duration(maxDays) * 24 * time.Hour
-			expiresIn = &defaultExpiration
+			expiresIn = &maxRegularDuration
 		}
 	}
 
@@ -84,20 +86,17 @@ func (s *Service) CreateAPIKey(
 		return nil, ErrExpirationNotPositive
 	}
 
-	// Validate against maximum expiration limit
+	// Validate against maximum expiration limit (always enforced)
 	if ephemeral {
 		// Ephemeral keys have a strict 1-hour maximum to prevent abuse
 		maxEphemeralDuration := 1 * time.Hour
 		if *expiresIn > maxEphemeralDuration {
 			return nil, fmt.Errorf("ephemeral key expiration (%v) cannot exceed 1 hour: %w", *expiresIn, ErrExpirationExceedsMax)
 		}
-	} else if s.config != nil && s.config.APIKeyMaxExpirationDays > 0 {
-		// Regular keys use configured max expiration
-		maxDuration := time.Duration(s.config.APIKeyMaxExpirationDays) * 24 * time.Hour
-		if *expiresIn > maxDuration {
-			return nil, fmt.Errorf("requested expiration (%v) exceeds maximum allowed (%d days): %w",
-				*expiresIn, s.config.APIKeyMaxExpirationDays, ErrExpirationExceedsMax)
-		}
+	} else if *expiresIn > maxRegularDuration {
+		// Regular keys always enforce max expiration (config or default)
+		return nil, fmt.Errorf("requested expiration (%v) exceeds maximum allowed (%d days): %w",
+			*expiresIn, maxDays, ErrExpirationExceedsMax)
 	}
 
 	// Calculate absolute expiration timestamp (always set since we default to max)

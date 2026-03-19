@@ -461,11 +461,13 @@ paths:
                                       name: my-production-key
                                       creationDate: "2024-01-15T10:30:00Z"
                                       status: active
+                                      ephemeral: false
                                     - id: key_def456
                                       name: my-test-key
                                       creationDate: "2024-01-14T09:15:00Z"
                                       expirationDate: "2024-04-14T09:15:00Z"
                                       status: active
+                                      ephemeral: false
                                 has_more: true
                 "400":
                     description: Bad Request. Invalid search parameters.
@@ -586,6 +588,7 @@ paths:
                                 name: my-production-key
                                 creationDate: "2024-01-15T10:30:00Z"
                                 status: revoked
+                                ephemeral: false
                 "404":
                     description: Not Found. API key not found.
                 "401":

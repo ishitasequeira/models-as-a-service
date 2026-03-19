@@ -13,7 +13,7 @@ var (
 	ErrEmptyJTI      = errors.New("key ID is required and cannot be empty")
 	ErrEmptyName     = errors.New("key name is required and cannot be empty")
 
-	// Expiration validation errors
+	// Expiration validation errors.
 	ErrExpirationNotPositive = errors.New("expiration must be positive")
 	ErrExpirationExceedsMax  = errors.New("expiration exceeds maximum allowed")
 )

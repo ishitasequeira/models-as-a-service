@@ -325,6 +325,39 @@ func TestCreateAPIKey_MaxExpirationLimit(t *testing.T) {
 		require.NotNil(t, result)
 		require.NotNil(t, result.ExpiresAt, "should default to max expiration when not provided")
 	})
+
+	// Regression test for CWE-613: ensure default max is enforced when config is nil/zero
+	t.Run("DefaultConfigEnforcesMaxExpiration", func(t *testing.T) {
+		store := api_keys.NewMockStore()
+		// nil config or zero APIKeyMaxExpirationDays should fall back to DefaultAPIKeyMaxExpirationDays (90 days)
+		svc := api_keys.NewServiceWithLogger(store, nil, logger.Development())
+
+		// Request 365 days - should fail because default max is 90 days
+		expiresIn := 365 * 24 * time.Hour
+		result, err := svc.CreateAPIKey(ctx, "alice", []string{"users"}, "Test Key", "", &expiresIn, false)
+
+		require.Error(t, err, "should reject expiration exceeding default max (90 days)")
+		assert.Nil(t, result)
+		require.ErrorIs(t, err, api_keys.ErrExpirationExceedsMax)
+		assert.Contains(t, err.Error(), "90 days")
+	})
+
+	t.Run("ZeroConfigEnforcesDefaultMax", func(t *testing.T) {
+		store := api_keys.NewMockStore()
+		// Config with APIKeyMaxExpirationDays=0 should fall back to default
+		cfg := &config.Config{
+			APIKeyMaxExpirationDays: 0,
+		}
+		svc := api_keys.NewServiceWithLogger(store, cfg, logger.Development())
+
+		// Request 365 days - should fail because default max is 90 days
+		expiresIn := 365 * 24 * time.Hour
+		result, err := svc.CreateAPIKey(ctx, "alice", []string{"users"}, "Test Key", "", &expiresIn, false)
+
+		require.Error(t, err, "should reject expiration exceeding default max (90 days)")
+		assert.Nil(t, result)
+		require.ErrorIs(t, err, api_keys.ErrExpirationExceedsMax)
+	})
 }
 
 // ============================================================
@@ -419,7 +452,7 @@ func TestEphemeralKeyExpiration(t *testing.T) {
 
 			require.Error(t, err)
 			assert.Nil(t, result)
-			assert.ErrorIs(t, err, tt.expectedErr)
+			require.ErrorIs(t, err, tt.expectedErr)
 			assert.Contains(t, err.Error(), tt.errContains)
 		})
 	}
