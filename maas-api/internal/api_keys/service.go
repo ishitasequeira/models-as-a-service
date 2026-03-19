@@ -117,13 +117,6 @@ func (s *Service) CreateAPIKey(ctx context.Context, username string, userGroups 
 	return response, nil
 }
 
-// List returns a paginated list of API keys for a user with optional filtering.
-// Pagination is mandatory - no unbounded queries allowed.
-// Admins can filter by username (empty = all users) and status.
-func (s *Service) List(ctx context.Context, username string, params PaginationParams, statuses []string) (*PaginatedResult, error) {
-	return s.store.List(ctx, username, params, statuses)
-}
-
 func (s *Service) GetAPIKey(ctx context.Context, id string) (*ApiKey, error) {
 	return s.store.Get(ctx, id)
 }

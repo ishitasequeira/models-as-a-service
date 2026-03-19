@@ -78,7 +78,7 @@ pytest tests/test_api_keys.py -v \
 - `ADMIN_OC_TOKEN` - Optional admin token for authorization tests (if not set, admin tests are skipped)
 
 **Test Coverage:**
-- ✅ Create, list, revoke API keys
+- ✅ Create, search, revoke API keys
 - ✅ Admin authorization (manage other users' keys)
 - ✅ Non-admin authorization (403 on other users' keys)
 - ✅ Validation endpoint (active and revoked keys)

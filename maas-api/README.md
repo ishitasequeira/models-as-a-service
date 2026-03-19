@@ -222,13 +222,16 @@ API_KEY=$(echo $API_KEY_RESPONSE | jq -r .key)
 **Managing API Keys:**
 
 ```shell
-# List all your API keys
+# Search your API keys
 curl -sSk \
   -H "Authorization: Bearer $(oc whoami -t)" \
-  "${HOST}/maas-api/v1/api-keys" | jq .
+  -H "Content-Type: application/json" \
+  -X POST \
+  -d '{}' \
+  "${HOST}/maas-api/v1/api-keys/search" | jq .
 
 # Get specific API key by ID
-API_KEY_ID="<id-from-list>"
+API_KEY_ID="<id-from-search>"
 curl -sSk \
   -H "Authorization: Bearer $(oc whoami -t)" \
   "${HOST}/maas-api/v1/api-keys/${API_KEY_ID}" | jq .
