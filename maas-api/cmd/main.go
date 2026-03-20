@@ -152,7 +152,15 @@ func registerHandlers(ctx context.Context, log *logger.Logger, router *gin.Engin
 
 	subscriptionSelector := subscription.NewSelector(log, cluster.MaaSSubscriptionLister)
 
-	modelManager, err := models.NewManager(log)
+	clientTLSConfig, err := cfg.TLS.BuildClientTLSConfig()
+	if err != nil {
+		return fmt.Errorf("failed to build client TLS config: %w", err)
+	}
+	if cfg.TLS.ClientInsecureSkipVerify {
+		log.Warn("Client TLS verification disabled - not FIPS compliant")
+	}
+
+	modelManager, err := models.NewManager(log, clientTLSConfig)
 	if err != nil {
 		log.Fatal("Failed to create model manager", "error", err)
 	}

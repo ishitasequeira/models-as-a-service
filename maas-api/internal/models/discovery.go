@@ -44,9 +44,10 @@ type Manager struct {
 	httpClient *http.Client
 }
 
-// NewManager creates a Manager for filtering models by access. The client uses InsecureSkipVerify
-// for cluster-internal probes; auth is enforced by the gateway/model server.
-func NewManager(log *logger.Logger) (*Manager, error) {
+// NewManager creates a Manager for filtering models by access.
+// The tlsConfig parameter configures TLS certificate validation for outbound connections.
+// If tlsConfig is nil, the default system TLS configuration is used.
+func NewManager(log *logger.Logger, tlsConfig *tls.Config) (*Manager, error) {
 	if log == nil {
 		return nil, errors.New("log is required")
 	}
@@ -55,7 +56,7 @@ func NewManager(log *logger.Logger) (*Manager, error) {
 		httpClient: &http.Client{
 			Timeout: httpClientTimeout,
 			Transport: &http.Transport{
-				TLSClientConfig:     &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // cluster-internal only
+				TLSClientConfig:     tlsConfig,
 				MaxIdleConns:        httpMaxIdleConns,
 				MaxIdleConnsPerHost: maxDiscoveryConcurrency,
 				IdleConnTimeout:     httpIdleConnTimeout,

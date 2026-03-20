@@ -26,6 +26,8 @@ spec:
           value: "false"
         - name: MAAS_SUBSCRIPTION_NAMESPACE
           value: "models-as-a-service"
+        - name: CLIENT_CA_FILE
+          value: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
         resources:
           requests:
             memory: "64Mi"

@@ -313,7 +313,7 @@ func TestListingModels(t *testing.T) {
 	}
 	router, _ := fixtures.SetupTestServer(t, config)
 
-	modelMgr, errMgr := models.NewManager(testLogger)
+	modelMgr, errMgr := models.NewManager(testLogger, nil)
 	require.NoError(t, errMgr)
 
 	// Set up test fixtures
@@ -417,7 +417,7 @@ func TestListingModelsWithSubscriptionHeader(t *testing.T) {
 	}
 	router, _ := fixtures.SetupTestServer(t, config)
 
-	modelMgr, errMgr := models.NewManager(testLogger)
+	modelMgr, errMgr := models.NewManager(testLogger, nil)
 	require.NoError(t, errMgr)
 
 	_, cleanup := fixtures.StubTokenProviderAPIs(t, true)
@@ -626,7 +626,7 @@ func TestListModels_ReturnAllModels(t *testing.T) {
 		},
 	}
 
-	modelMgr, err := models.NewManager(testLogger)
+	modelMgr, err := models.NewManager(testLogger, nil)
 	require.NoError(t, err)
 
 	subscriptionSelector := subscription.NewSelector(testLogger, subscriptionLister)
@@ -832,7 +832,7 @@ func TestListModels_DeduplicationBySubscription(t *testing.T) {
 		},
 	}
 
-	modelMgr, err := models.NewManager(testLogger)
+	modelMgr, err := models.NewManager(testLogger, nil)
 	require.NoError(t, err)
 
 	subscriptionSelector := subscription.NewSelector(testLogger, subscriptionLister)
@@ -943,7 +943,7 @@ func TestListModels_DifferentModelRefsWithSameModelID(t *testing.T) {
 		},
 	}
 
-	modelMgr, err := models.NewManager(testLogger)
+	modelMgr, err := models.NewManager(testLogger, nil)
 	require.NoError(t, err)
 
 	subscriptionSelector := subscription.NewSelector(testLogger, subscriptionLister)
@@ -1043,7 +1043,7 @@ func TestListModels_DifferentModelRefsWithSameURLAndModelID(t *testing.T) {
 		},
 	}
 
-	modelMgr, err := models.NewManager(testLogger)
+	modelMgr, err := models.NewManager(testLogger, nil)
 	require.NoError(t, err)
 
 	subscriptionSelector := subscription.NewSelector(testLogger, subscriptionLister)
@@ -1136,7 +1136,7 @@ func TestListModels_DifferentModelRefsWithSameModelIDAndDifferentSubscriptions(t
 		},
 	}
 
-	modelMgr, err := models.NewManager(testLogger)
+	modelMgr, err := models.NewManager(testLogger, nil)
 	require.NoError(t, err)
 
 	subscriptionSelector := subscription.NewSelector(testLogger, subscriptionLister)
