@@ -50,6 +50,11 @@ type MetadataStore interface {
 	// Returns ErrKeyNotFound if key doesn't exist, ErrInvalidKey if revoked
 	GetByHash(ctx context.Context, keyHash string) (*ApiKey, error)
 
+	// GetByKeyValidation looks up an API key by validating against stored hashes.
+	// Supports both legacy (plain SHA-256) and new (salted) hash formats.
+	// Returns ErrKeyNotFound if key doesn't exist, ErrInvalidKey if revoked.
+	GetByKeyValidation(ctx context.Context, key string) (*ApiKey, error)
+
 	// InvalidateAll marks all active tokens for a user as revoked.
 	// Returns the count of keys that were revoked.
 	InvalidateAll(ctx context.Context, username string) (int, error)

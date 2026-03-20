@@ -3,6 +3,7 @@ package api_keys
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
 	"math/big"
@@ -20,6 +21,9 @@ const (
 
 	// displayPrefixLength is the number of chars to show in the display prefix (after sk-oai-).
 	displayPrefixLength = 12
+
+	// saltBytes is the number of random bytes to generate for salt (256 bits).
+	saltBytes = 32
 )
 
 // GenerateAPIKey creates a new API key with format: sk-oai-{base62_encoded_256bit_random}
@@ -45,8 +49,11 @@ func GenerateAPIKey() (plaintext, hash, prefix string, err error) {
 	// 3. Construct key with OpenShift AI prefix
 	plaintext = KeyPrefix + encoded
 
-	// 4. Compute SHA-256 hash for storage
-	hash = HashAPIKey(plaintext)
+	// 4. Compute salted SHA-256 hash for storage
+	hash, err = HashAPIKeyWithSalt(plaintext)
+	if err != nil {
+		return "", "", "", fmt.Errorf("failed to hash API key: %w", err)
+	}
 
 	// 5. Create display prefix (first 12 chars + ellipsis)
 	if len(encoded) >= displayPrefixLength {
@@ -58,11 +65,64 @@ func GenerateAPIKey() (plaintext, hash, prefix string, err error) {
 	return plaintext, hash, prefix, nil
 }
 
-// HashAPIKey computes SHA-256 hash of an API key (for validation and storage)
-// This is the canonical hashing function - used by both key creation and validation.
-func HashAPIKey(key string) string {
-	h := sha256.Sum256([]byte(key))
-	return hex.EncodeToString(h[:])
+// HashAPIKeyWithSalt computes salted SHA-256 hash of an API key.
+// Returns format: <salt_hex>:<hash_hex> (both 64 hex chars).
+// Uses 256-bit random salt for rainbow table protection.
+func HashAPIKeyWithSalt(key string) (string, error) {
+	// Generate cryptographically secure random salt
+	salt := make([]byte, saltBytes)
+	if _, err := rand.Read(salt); err != nil {
+		return "", fmt.Errorf("failed to generate salt: %w", err)
+	}
+
+	// Compute salted hash: SHA-256(key + salt)
+	h := sha256.New()
+	h.Write([]byte(key))
+	h.Write(salt)
+	hash := h.Sum(nil)
+
+	// Return format: <salt_hex>:<hash_hex>
+	return fmt.Sprintf("%s:%s",
+		hex.EncodeToString(salt),
+		hex.EncodeToString(hash)), nil
+}
+
+// ValidateAPIKeyHash validates an API key against its stored hash.
+// Expected format: <salt_hex>:<hash_hex> (both 64 hex chars).
+func ValidateAPIKeyHash(key, storedHash string) bool {
+	// Parse <salt_hex>:<hash_hex>
+	parts := strings.Split(storedHash, ":")
+	if len(parts) != 2 {
+		return false
+	}
+
+	saltHex, hashHex := parts[0], parts[1]
+
+	// Validate hex string lengths (32 bytes = 64 hex chars each)
+	if len(saltHex) != 64 || len(hashHex) != 64 {
+		return false
+	}
+
+	// Decode salt from hex
+	salt, err := hex.DecodeString(saltHex)
+	if err != nil {
+		return false
+	}
+
+	// Decode expected hash from hex
+	expectedHash, err := hex.DecodeString(hashHex)
+	if err != nil {
+		return false
+	}
+
+	// Compute hash of key + salt
+	h := sha256.New()
+	h.Write([]byte(key))
+	h.Write(salt)
+	computedHash := h.Sum(nil)
+
+	// Compare hashes using constant-time comparison to prevent timing attacks
+	return subtle.ConstantTimeCompare(expectedHash, computedHash) == 1
 }
 
 // IsValidKeyFormat checks if a key has the correct sk-oai-* prefix and valid base62 body.

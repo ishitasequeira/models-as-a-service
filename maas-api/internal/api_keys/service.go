@@ -153,11 +153,8 @@ func (s *Service) ValidateAPIKey(ctx context.Context, key string) (*ValidationRe
 		}, nil
 	}
 
-	// Compute hash of incoming key
-	hash := HashAPIKey(key)
-
-	// Lookup in database
-	metadata, err := s.store.GetByHash(ctx, hash)
+	// Try to find key using new validation method that supports both hash formats
+	metadata, err := s.store.GetByKeyValidation(ctx, key)
 	if err != nil {
 		if errors.Is(err, ErrKeyNotFound) {
 			return &ValidationResult{

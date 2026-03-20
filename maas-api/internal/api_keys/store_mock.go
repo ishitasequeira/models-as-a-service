@@ -400,6 +400,37 @@ func (m *MockStore) GetByHash(ctx context.Context, keyHash string) (*ApiKey, err
 	return nil, ErrKeyNotFound
 }
 
+// GetByKeyValidation looks up an API key by validating against stored hashes.
+// Supports both legacy (plain SHA-256) and new (salted) hash formats.
+func (m *MockStore) GetByKeyValidation(ctx context.Context, key string) (*ApiKey, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	
+	for _, k := range m.keys {
+		// Validate the key against this hash using our enhanced validation
+		if ValidateAPIKeyHash(key, k.keyHash) {
+			// Check expiration and auto-update status if expired
+			now := time.Now().UTC()
+			if !k.expiresAt.IsZero() && k.expiresAt.Before(now) {
+				if k.metadata.Status == StatusActive {
+					k.metadata.Status = StatusExpired
+				}
+			}
+			// Reject revoked/expired keys
+			if k.metadata.Status == StatusRevoked || k.metadata.Status == StatusExpired {
+				return nil, ErrInvalidKey
+			}
+			meta := k.metadata
+			meta.Username = k.username
+			if k.lastUsedAt != nil {
+				meta.LastUsedAt = k.lastUsedAt.Format(time.RFC3339)
+			}
+			return &meta, nil
+		}
+	}
+	return nil, ErrKeyNotFound
+}
+
 func (m *MockStore) InvalidateAll(ctx context.Context, username string) (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
