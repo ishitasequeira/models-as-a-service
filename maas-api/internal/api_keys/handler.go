@@ -60,10 +60,10 @@ func (h *Handler) getUserContext(c *gin.Context) *token.UserContext {
 }
 
 // isAdmin checks if the user has admin privileges via SubjectAccessReview.
-// Admin is determined by RBAC: can user create maasauthpolicies in models-as-a-service namespace?
+// Admin is determined by RBAC: can user create maasauthpolicies in the configured MaaS namespace?
 // Returns true if the user has admin RBAC permissions, false otherwise.
 func (h *Handler) isAdmin(ctx context.Context, user *token.UserContext) bool {
-	if h == nil || h.adminChecker == nil || user == nil {
+	if h == nil || user == nil {
 		return false
 	}
 	return h.adminChecker.IsAdmin(ctx, user)

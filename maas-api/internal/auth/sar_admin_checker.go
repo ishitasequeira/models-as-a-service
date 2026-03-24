@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"log/slog"
 
 	authv1 "k8s.io/api/authorization/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -20,8 +21,14 @@ type SARAdminChecker struct {
 }
 
 // NewSARAdminChecker creates a SAR-based admin checker.
-// The namespace parameter specifies where maasauthpolicies are checked (typically "models-as-a-service").
+// The namespace parameter specifies where maasauthpolicies are checked.
 func NewSARAdminChecker(client kubernetes.Interface, namespace string) *SARAdminChecker {
+	if client == nil {
+		panic("client cannot be nil for SARAdminChecker")
+	}
+	if namespace == "" {
+		panic("namespace cannot be empty for SARAdminChecker")
+	}
 	return &SARAdminChecker{
 		client:    client,
 		namespace: namespace,
@@ -51,7 +58,7 @@ func (s *SARAdminChecker) IsAdmin(ctx context.Context, user *token.UserContext) 
 
 	result, err := s.client.AuthorizationV1().SubjectAccessReviews().Create(ctx, sar, metav1.CreateOptions{})
 	if err != nil {
-		// Fail-closed: if SAR fails, deny admin access
+		slog.Warn("SAR admin check failed", "error", err.Error())
 		return false
 	}
 

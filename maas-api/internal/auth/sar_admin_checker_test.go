@@ -63,11 +63,24 @@ func TestSARAdminChecker_IsAdmin(t *testing.T) {
 		assert.False(t, checker.IsAdmin(context.Background(), user))
 	})
 
-	t.Run("NilClientReturnsFalse", func(t *testing.T) {
-		checker := auth.NewSARAdminChecker(nil, testNamespace)
+	t.Run("NilCheckerReturnsFalse", func(t *testing.T) {
+		var checker *auth.SARAdminChecker
 		user := &token.UserContext{Username: "admin-user", Groups: []string{"admin-group"}}
 
 		assert.False(t, checker.IsAdmin(context.Background(), user))
+	})
+
+	t.Run("NilClientPanics", func(t *testing.T) {
+		assert.Panics(t, func() {
+			auth.NewSARAdminChecker(nil, testNamespace)
+		})
+	})
+
+	t.Run("EmptyNamespacePanics", func(t *testing.T) {
+		client := fake.NewSimpleClientset()
+		assert.Panics(t, func() {
+			auth.NewSARAdminChecker(client, "")
+		})
 	})
 
 	t.Run("APIErrorReturnsFalse_FailClosed", func(t *testing.T) {

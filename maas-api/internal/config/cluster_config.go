@@ -34,7 +34,7 @@ type ClusterConfig struct {
 	MaaSSubscriptionLister subscription.Lister
 
 	// AdminChecker uses SubjectAccessReview to check if a user is an admin.
-	// Admin is determined by RBAC: can user create maasauthpolicies in models-as-a-service namespace?
+	// Admin is determined by RBAC: can user create maasauthpolicies in the configured MaaS namespace?
 	AdminChecker *auth.SARAdminChecker
 
 	informersSynced []cache.InformerSynced
