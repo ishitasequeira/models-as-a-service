@@ -31,28 +31,29 @@ const (
 )
 
 // GenerateAPIKey creates a new API key with format: sk-oai-{key_id}_{secret}
-// Returns: (plaintext_key, key_id, sha256_hash, display_prefix, error)
+// Returns: (plaintext_key, sha256_hash, display_prefix, error)
 //
 // Security properties (per Feature Refinement "Key Format & Security"):
-// - key_id: 96-bit random identifier (~16 base62 chars), used as unique salt
+// - key_id: 96-bit random identifier (~16 base62 chars, guaranteed >= 12), used as unique salt
 // - secret: 256 bits of cryptographic entropy (~43 base62 chars)
-// - Hash: SHA-256(key_id + secret) - key_id acts as per-key salt
+// - Hash: SHA-256(key_id + "\x00" + secret) - null delimiter prevents length-ambiguity attacks
 // - Base62 encoding (alphanumeric only, URL-safe)
-// - Display prefix for UI identification.
+// - Display prefix shows first 12 chars of key_id for UI identification.
+// - Use ParseAPIKey() to extract key_id and secret if needed.
 //
 //nolint:nonamedreturns // Named returns improve readability for multiple return values.
-func GenerateAPIKey() (plaintext, keyID, hash, prefix string, err error) {
+func GenerateAPIKey() (plaintext, hash, prefix string, err error) {
 	// 1. Generate key_id (96 bits → ~16 base62 chars)
 	keyIDEntropy := make([]byte, keyIDBytes)
 	if _, err := rand.Read(keyIDEntropy); err != nil {
-		return "", "", "", "", fmt.Errorf("failed to generate key_id entropy: %w", err)
+		return "", "", "", fmt.Errorf("failed to generate key_id entropy: %w", err)
 	}
-	keyID = encodeBase62(keyIDEntropy)
+	keyID := encodeBase62(keyIDEntropy)
 
 	// 2. Generate secret (256 bits → ~43 base62 chars)
 	secretEntropy := make([]byte, entropyBytes)
 	if _, err := rand.Read(secretEntropy); err != nil {
-		return "", "", "", "", fmt.Errorf("failed to generate secret entropy: %w", err)
+		return "", "", "", fmt.Errorf("failed to generate secret entropy: %w", err)
 	}
 	secret := encodeBase62(secretEntropy)
 
@@ -70,13 +71,15 @@ func GenerateAPIKey() (plaintext, keyID, hash, prefix string, err error) {
 		prefix = KeyPrefix + keyID + "..."
 	}
 
-	return plaintext, keyID, hash, prefix, nil
+	return plaintext, hash, prefix, nil
 }
 
-// hashWithSalt computes SHA-256(keyID + secret) for storage.
+// hashWithSalt computes SHA-256(keyID + "\x00" + secret) for storage.
 // The keyID serves as a unique per-key salt, providing FIPS 180-4 compliant hashing.
+// The null byte delimiter prevents length-ambiguity attacks where different keyID/secret
+// splits could produce the same hash (e.g., "ab"+"c" vs "a"+"bc").
 func hashWithSalt(keyID, secret string) string {
-	h := sha256.Sum256([]byte(keyID + secret))
+	h := sha256.Sum256([]byte(keyID + "\x00" + secret))
 	return hex.EncodeToString(h[:])
 }
 

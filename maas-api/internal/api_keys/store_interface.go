@@ -29,9 +29,14 @@ const (
 type MetadataStore interface {
 	// AddKey stores an API key with hash-only storage (no plaintext).
 	// Keys can be permanent (expiresAt=nil) or expiring (expiresAt set).
-	// keyHash is SHA-256(key_id + secret) where key_id is the per-key salt embedded in the API key.
-	// userGroups is an array of user's groups (used for authorization).
-	// ephemeral marks the key as short-lived for programmatic use.
+	//
+	// Parameters:
+	//   - keyID: Database UUID/JTI (primary key), distinct from the embedded salt in the API key
+	//   - keyHash: SHA-256(embedded_key_id + "\x00" + secret), where embedded_key_id is the
+	//     per-key salt encoded in the API key format (sk-oai-{embedded_key_id}_{secret})
+	//   - userGroups: array of user's groups (used for authorization)
+	//   - ephemeral: marks the key as short-lived for programmatic use
+	//
 	// Note: keyPrefix is NOT stored (security - reduces brute-force attack surface).
 	AddKey(ctx context.Context, username string, keyID, keyHash, name, description string, userGroups []string, subscription string, expiresAt *time.Time, ephemeral bool) error
 
@@ -48,8 +53,9 @@ type MetadataStore interface {
 	Get(ctx context.Context, jti string) (*ApiKey, error)
 
 	// GetByHash looks up an API key by its SHA-256 hash (for Authorino validation).
-	// Hash is computed as SHA-256(key_id + secret) where key_id is embedded in the API key.
-	// Returns ErrKeyNotFound if key doesn't exist, ErrInvalidKey if revoked.
+	// Hash is computed as SHA-256(embedded_key_id + "\x00" + secret) where embedded_key_id
+	// is the per-key salt encoded in the API key format (sk-oai-{embedded_key_id}_{secret}).
+	// Returns ErrKeyNotFound if key doesn't exist, ErrInvalidKey if revoked or expired.
 	GetByHash(ctx context.Context, keyHash string) (*ApiKey, error)
 
 	// InvalidateAll marks all active tokens for a user as revoked.

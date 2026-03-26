@@ -9,7 +9,7 @@ import (
 )
 
 func TestGenerateAPIKey(t *testing.T) {
-	plaintext, keyID, hash, prefix, err := api_keys.GenerateAPIKey()
+	plaintext, hash, prefix, err := api_keys.GenerateAPIKey()
 
 	if err != nil {
 		t.Fatalf("GenerateAPIKey() returned error: %v", err)
@@ -18,6 +18,12 @@ func TestGenerateAPIKey(t *testing.T) {
 	// Test 1: Key has correct format (sk-oai-{key_id}_{secret})
 	if !api_keys.IsValidKeyFormat(plaintext) {
 		t.Errorf("GenerateAPIKey() key has invalid format: got %q", plaintext)
+	}
+
+	// Extract key_id using ParseAPIKey for further tests
+	keyID, _, parseErr := api_keys.ParseAPIKey(plaintext)
+	if parseErr != nil {
+		t.Fatalf("ParseAPIKey() failed on generated key: %v", parseErr)
 	}
 
 	// Test 2: Key contains the key_id
@@ -42,18 +48,21 @@ func TestGenerateAPIKey(t *testing.T) {
 	}
 
 	// Test 6: Prefix has correct format (shows first 12 chars of key_id)
+	// Note: 96-bit key_id encodes to ~16 base62 chars (log62(2^96) ≈ 16.1), so key_id
+	// is always >= 12 chars, making the displayPrefixLength truncation always apply.
 	prefixRegex := regexp.MustCompile(`^sk-oai-[A-Za-z0-9]{12}\.\.\.$`)
 	if !prefixRegex.MatchString(prefix) {
 		t.Errorf("GenerateAPIKey() prefix format incorrect: got %q", prefix)
 	}
 
-	// Test 7: key_id is base62 and reasonable length (~16 chars from 96 bits)
+	// Test 7: key_id is base62 and expected length (~16 chars from 96 bits)
 	alphanumRegex := regexp.MustCompile("^[A-Za-z0-9]+$")
 	if !alphanumRegex.MatchString(keyID) {
 		t.Errorf("GenerateAPIKey() key_id not alphanumeric: got %q", keyID)
 	}
-	if len(keyID) < 10 {
-		t.Errorf("GenerateAPIKey() key_id too short: got %d chars, want >= 10", len(keyID))
+	// 96 bits of entropy → log62(2^96) ≈ 16.1 chars, so key_id should be 15-17 chars
+	if len(keyID) < 12 {
+		t.Errorf("GenerateAPIKey() key_id too short: got %d chars, want >= 12", len(keyID))
 	}
 }
 
@@ -64,9 +73,14 @@ func TestGenerateAPIKey_Uniqueness(t *testing.T) {
 	hashes := make(map[string]bool)
 
 	for i := range 100 {
-		plaintext, keyID, hash, _, err := api_keys.GenerateAPIKey()
+		plaintext, hash, _, err := api_keys.GenerateAPIKey()
 		if err != nil {
 			t.Fatalf("GenerateAPIKey() iteration %d returned error: %v", i, err)
+		}
+
+		keyID, _, parseErr := api_keys.ParseAPIKey(plaintext)
+		if parseErr != nil {
+			t.Fatalf("ParseAPIKey() iteration %d returned error: %v", i, parseErr)
 		}
 
 		if keys[plaintext] {
@@ -177,7 +191,7 @@ func TestParseAPIKey(t *testing.T) {
 
 func TestValidateAPIKeyHash(t *testing.T) {
 	// Generate a key and verify the hash validation works
-	plaintext, _, hash, _, err := api_keys.GenerateAPIKey()
+	plaintext, hash, _, err := api_keys.GenerateAPIKey()
 	if err != nil {
 		t.Fatalf("GenerateAPIKey() returned error: %v", err)
 	}
@@ -231,7 +245,7 @@ func TestIsValidKeyFormat(t *testing.T) {
 
 func BenchmarkGenerateAPIKey(b *testing.B) {
 	for b.Loop() {
-		_, _, _, _, _ = api_keys.GenerateAPIKey()
+		_, _, _, _ = api_keys.GenerateAPIKey()
 	}
 }
 
@@ -244,7 +258,7 @@ func BenchmarkHashAPIKey(b *testing.B) {
 }
 
 func BenchmarkValidateAPIKeyHash(b *testing.B) {
-	plaintext, _, hash, _, err := api_keys.GenerateAPIKey()
+	plaintext, hash, _, err := api_keys.GenerateAPIKey()
 	if err != nil {
 		b.Fatal(err)
 	}

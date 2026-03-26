@@ -109,9 +109,11 @@ func (s *Service) CreateAPIKey(
 	// Calculate absolute expiration timestamp (always set since we default to max)
 	expiresAt := time.Now().UTC().Add(*expiresIn)
 
-	// Generate the API key with embedded key_id (used as per-key salt)
-	// Format: sk-oai-{key_id}_{secret}, hash = SHA-256(key_id + secret)
-	plaintext, _, hash, prefix, err := GenerateAPIKey()
+	// Generate the API key with embedded key_id (used as per-key salt).
+	// Format: sk-oai-{key_id}_{secret}
+	// Hash: SHA-256(key_id + "\x00" + secret) - null delimiter prevents length-ambiguity
+	// Note: key_id here is the embedded salt in the API key, distinct from keyID (DB UUID) below.
+	plaintext, hash, prefix, err := GenerateAPIKey()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate API key: %w", err)
 	}
