@@ -2,10 +2,12 @@
 
 This document covers the observability stack for the MaaS Platform, including metrics collection, monitoring, and visualization.
 
-!!! warning "Important"
-    [User Workload Monitoring](https://docs.redhat.com/en/documentation/monitoring_stack_for_red_hat_openshift/4.19/html-single/configuring_user_workload_monitoring/index#enabling-monitoring-for-user-defined-projects_preparing-to-configure-the-monitoring-stack-uwm) must be enabled in order to collect metrics.
+!!! warning "Prerequisites"
+    The following must be configured before metrics collection will work:
 
-    Add `enableUserWorkload: true` to the `cluster-monitoring-config` in the `openshift-monitoring` namespace
+    1. **User Workload Monitoring** must be enabled. Add `enableUserWorkload: true` to the `cluster-monitoring-config` ConfigMap in the `openshift-monitoring` namespace. See [Enabling monitoring for user-defined projects](https://docs.redhat.com/en/documentation/monitoring_stack_for_red_hat_openshift/4.19/html-single/configuring_user_workload_monitoring/index#enabling-monitoring-for-user-defined-projects_preparing-to-configure-the-monitoring-stack-uwm).
+
+    2. **Kuadrant Observability** must be enabled. Set `spec.observability.enabled: true` on your Kuadrant CR in the `kuadrant-system` namespace. This creates the PodMonitor for Limitador metrics.
 
 ## Overview
 
@@ -43,8 +45,8 @@ The observability stack is defined in `deployment/base/observability/`. It inclu
 
 | Resource | Purpose |
 |----------|---------|
-| **TelemetryPolicy** (`gateway-telemetry-policy.yaml`) | Adds `user`, `tier`, and `model` labels to Limitador metrics. The `model` label (from `responseBodyJSON`) is available on `authorized_hits`; `authorized_calls` and `limited_calls` carry `user` and `tier`. |
-| **Istio Telemetry** (`istio-gateway-telemetry.yaml`) | Adds `tier` label to gateway latency (`istio_request_duration_milliseconds_bucket`) for per-tier P50/P95/P99. |
+| **TelemetryPolicy** (`gateway-telemetry-policy.yaml`) | Adds `user`, `subscription`, and `model` labels to Limitador metrics. The `model` label (from `responseBodyJSON`) is available on `authorized_hits`; `authorized_calls` and `limited_calls` carry `user` and `subscription`. |
+| **Istio Telemetry** (`istio-gateway-telemetry.yaml`) | Adds `subscription` label to gateway latency (`istio_request_duration_milliseconds_bucket`) for per-subscription P50/P95/P99. |
 
 **Deploy observability** (after Gateway and AuthPolicy are in place, so `X-MaaS-Subscription` is injected):
 
