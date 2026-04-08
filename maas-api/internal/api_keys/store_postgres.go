@@ -307,6 +307,11 @@ func (s *PostgresStore) Search(
 			key.LastUsedAt = lastUsedAt.Time.Format(time.RFC3339)
 		}
 
+		// Compute effective status for display (read-only transformation, no DB write)
+		if key.Status == StatusActive && expiresAt.Valid && time.Now().UTC().After(expiresAt.Time) {
+			key.Status = StatusExpired
+		}
+
 		keys = append(keys, key)
 	}
 
@@ -356,6 +361,11 @@ func (s *PostgresStore) Get(ctx context.Context, keyID string) (*ApiKey, error) 
 	}
 	if lastUsedAt.Valid {
 		k.LastUsedAt = lastUsedAt.Time.UTC().Format(time.RFC3339)
+	}
+
+	// Compute effective status for display (read-only transformation, no DB write)
+	if k.Status == StatusActive && expiresAt.Valid && time.Now().UTC().After(expiresAt.Time) {
+		k.Status = StatusExpired
 	}
 
 	return &k, nil
