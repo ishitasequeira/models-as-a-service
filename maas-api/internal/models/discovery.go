@@ -3,12 +3,14 @@ package models
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"sync"
 	"time"
 
@@ -38,29 +40,68 @@ const (
 	maxDiscoveryConcurrency = 10
 )
 
+// kubeServiceAccountCAPath is the path to the Kubernetes service account CA certificate.
+// This CA is used to validate TLS certificates for cluster-internal services.
+const kubeServiceAccountCAPath = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+
 // Manager runs access validation (probe model endpoints) for models listed from MaaSModelRef.
 type Manager struct {
 	logger     *logger.Logger
 	httpClient *http.Client
 }
 
-// NewManager creates a Manager for filtering models by access. The client uses InsecureSkipVerify
-// for cluster-internal probes; auth is enforced by the gateway/model server.
+// NewManager creates a Manager for filtering models by access.
+// The client uses proper TLS certificate validation via the Kubernetes service account CA
+// (when running in-cluster) or system root CAs (when running locally).
 func NewManager(log *logger.Logger) (*Manager, error) {
 	if log == nil {
 		return nil, errors.New("log is required")
 	}
+
+	tlsConfig, err := buildClusterTLSConfig(log)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build TLS config: %w", err)
+	}
+
 	return &Manager{
 		logger: log,
 		httpClient: &http.Client{
 			Timeout: httpClientTimeout,
 			Transport: &http.Transport{
-				TLSClientConfig:     &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // cluster-internal only
+				TLSClientConfig:     tlsConfig,
 				MaxIdleConns:        httpMaxIdleConns,
 				MaxIdleConnsPerHost: maxDiscoveryConcurrency,
 				IdleConnTimeout:     httpIdleConnTimeout,
 			},
 		},
+	}, nil
+}
+
+// buildClusterTLSConfig creates a TLS config for cluster-internal communication.
+// It uses the Kubernetes service account CA when running in-cluster, or falls back
+// to system root CAs when running locally (e.g., during development).
+func buildClusterTLSConfig(log *logger.Logger) (*tls.Config, error) {
+	caCert, err := os.ReadFile(kubeServiceAccountCAPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			log.Debug("Kubernetes service account CA not found, using system root CAs",
+				"path", kubeServiceAccountCAPath)
+			return &tls.Config{MinVersion: tls.VersionTLS12}, nil
+		}
+		return nil, fmt.Errorf("failed to read CA certificate: %w", err)
+	}
+
+	caCertPool := x509.NewCertPool()
+	if !caCertPool.AppendCertsFromPEM(caCert) {
+		return nil, errors.New("failed to parse Kubernetes service account CA certificate")
+	}
+
+	log.Debug("Using Kubernetes service account CA for TLS validation",
+		"path", kubeServiceAccountCAPath)
+
+	return &tls.Config{
+		RootCAs:    caCertPool,
+		MinVersion: tls.VersionTLS12,
 	}, nil
 }
 
