@@ -3,6 +3,7 @@ package models
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"sync"
 	"time"
 
@@ -44,6 +46,10 @@ const (
 	defaultAccessCheckTimeout = 15 * time.Second
 )
 
+// kubeServiceAccountCAPath is the path to the Kubernetes service account CA certificate.
+// This CA is used to validate TLS certificates for cluster-internal services.
+const kubeServiceAccountCAPath = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+
 // Manager runs access validation (probe model endpoints) for models listed from MaaSModelRef.
 type Manager struct {
 	logger              *logger.Logger
@@ -52,8 +58,9 @@ type Manager struct {
 	gatewayInternalHost string
 }
 
-// NewManager creates a Manager for filtering models by access. The client uses InsecureSkipVerify
-// for cluster-internal probes; auth is enforced by the gateway/model server.
+// NewManager creates a Manager for filtering models by access.
+// The client uses proper TLS certificate validation via the Kubernetes service account CA
+// (when running in-cluster) or system root CAs (when running locally).
 // accessCheckTimeoutSeconds controls the total duration bound for access validation;
 // if <= 0, the default of 15 seconds is used.
 // gatewayInternalHost, when non-empty, routes all probe TCP connections to this
@@ -68,8 +75,16 @@ func NewManager(log *logger.Logger, accessCheckTimeoutSeconds int, gatewayIntern
 		timeout = time.Duration(accessCheckTimeoutSeconds) * time.Second
 	}
 
+	tlsConfig, err := buildClusterTLSConfig(log)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build TLS config: %w", err)
+	}
+
+	// No per-client Timeout — each request inherits the accessCheckTimeout
+	// deadline via its context. This ensures that configuring a longer
+	// ACCESS_CHECK_TIMEOUT_SECONDS actually allows slower backends to respond.
 	transport := &http.Transport{
-		TLSClientConfig:     &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12}, //nolint:gosec // cluster-internal only
+		TLSClientConfig:     tlsConfig,
 		MaxIdleConns:        httpMaxIdleConns,
 		MaxIdleConnsPerHost: maxDiscoveryConcurrency,
 		IdleConnTimeout:     httpIdleConnTimeout,
@@ -93,6 +108,34 @@ func NewManager(log *logger.Logger, accessCheckTimeoutSeconds int, gatewayIntern
 		httpClient: &http.Client{
 			Transport: transport,
 		},
+	}, nil
+}
+
+// buildClusterTLSConfig creates a TLS config for cluster-internal communication.
+// It uses the Kubernetes service account CA when running in-cluster, or falls back
+// to system root CAs when running locally (e.g., during development).
+func buildClusterTLSConfig(log *logger.Logger) (*tls.Config, error) {
+	caCert, err := os.ReadFile(kubeServiceAccountCAPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			log.Debug("Kubernetes service account CA not found, using system root CAs",
+				"path", kubeServiceAccountCAPath)
+			return &tls.Config{MinVersion: tls.VersionTLS12}, nil
+		}
+		return nil, fmt.Errorf("failed to read CA certificate: %w", err)
+	}
+
+	caCertPool := x509.NewCertPool()
+	if !caCertPool.AppendCertsFromPEM(caCert) {
+		return nil, errors.New("failed to parse Kubernetes service account CA certificate")
+	}
+
+	log.Debug("Using Kubernetes service account CA for TLS validation",
+		"path", kubeServiceAccountCAPath)
+
+	return &tls.Config{
+		RootCAs:    caCertPool,
+		MinVersion: tls.VersionTLS12,
 	}, nil
 }
 
