@@ -301,6 +301,13 @@ func (r *MaaSSubscriptionReconciler) Reconcile(ctx context.Context, req ctrl.Req
 			r.updateStatus(ctx, subscription, maasv1alpha1.PhaseFailed, fmt.Sprintf("failed to reconcile TokenRateLimitPolicies: %v", err), statusSnapshot)
 			return ctrl.Result{}, err
 		}
+	} else {
+		// No valid models - clean up any stale TRLPs from previous reconciliations
+		if err := r.cleanupStaleTRLPs(ctx, log, subscription); err != nil {
+			log.Error(err, "failed to clean up stale TokenRateLimitPolicies")
+			r.updateStatus(ctx, subscription, maasv1alpha1.PhaseFailed, fmt.Sprintf("failed to clean up stale TokenRateLimitPolicies: %v", err), statusSnapshot)
+			return ctrl.Result{}, err
+		}
 	}
 
 	// Check TRLP health and populate status
