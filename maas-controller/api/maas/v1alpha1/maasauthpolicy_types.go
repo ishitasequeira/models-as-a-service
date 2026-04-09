@@ -85,8 +85,12 @@ type MeteringMetadata struct {
 type AuthPolicyRefStatus struct {
 	ResourceRefStatus `json:",inline"`
 	// Model is the MaaSModelRef name this AuthPolicy targets.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
 	Model string `json:"model"`
 	// ModelNamespace is the namespace of the MaaSModelRef.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
 	ModelNamespace string `json:"modelNamespace"`
 }
 

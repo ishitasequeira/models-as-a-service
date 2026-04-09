@@ -1111,12 +1111,14 @@ func TestMaaSSubscriptionReconciler_AllValidModelRefs_ActivePhase(t *testing.T) 
 	existingTRLP := newPreexistingTRLP(trlpName, namespace, modelName, map[string]string{
 		"maas.opendatahub.io/subscriptions": maasSubName,
 	})
-	_ = unstructured.SetNestedSlice(existingTRLP.Object, []any{
+	if err := unstructured.SetNestedSlice(existingTRLP.Object, []any{
 		map[string]any{
 			"type":   "Accepted",
 			"status": "True",
 		},
-	}, "status", "conditions")
+	}, "status", "conditions"); err != nil {
+		t.Fatalf("SetNestedSlice status.conditions: %v", err)
+	}
 
 	c := fake.NewClientBuilder().
 		WithScheme(scheme).

@@ -123,24 +123,33 @@ func (r *MaaSSubscriptionReconciler) checkTokenRateLimitHealth(ctx context.Conte
 		}
 		seen[key] = struct{}{}
 
-		// Find the TRLP for this model (TRLP lives in HTTPRoute namespace)
-		_, httpRouteNS, err := findHTTPRouteForModel(ctx, r.Client, ref.Namespace, ref.Name)
-		if err != nil {
-			// Model or route not found - skip TRLP check (model validation handles this)
-			continue
-		}
-
 		policyName := fmt.Sprintf("maas-trlp-%s", ref.Name)
-		trlp := &unstructured.Unstructured{}
-		trlp.SetGroupVersionKind(schema.GroupVersionKind{Group: "kuadrant.io", Version: "v1alpha1", Kind: "TokenRateLimitPolicy"})
-
 		status := maasv1alpha1.TokenRateLimitStatus{
 			ResourceRefStatus: maasv1alpha1.ResourceRefStatus{
-				Name:      policyName,
-				Namespace: httpRouteNS,
+				Name: policyName,
 			},
 			Model: ref.Name,
 		}
+
+		// Find the TRLP for this model (TRLP lives in HTTPRoute namespace)
+		_, httpRouteNS, err := findHTTPRouteForModel(ctx, r.Client, ref.Namespace, ref.Name)
+		if err != nil {
+			// Record status even when HTTPRoute not found - makes diagnosing issues easier
+			status.Ready = false
+			if errors.Is(err, ErrHTTPRouteNotFound) || errors.Is(err, ErrModelNotFound) {
+				status.Reason = maasv1alpha1.ReasonBackendNotReady
+				status.Message = fmt.Sprintf("HTTPRoute not found yet; TokenRateLimitPolicy cannot be created: %v", err)
+			} else {
+				status.Reason = maasv1alpha1.ReasonGetFailed
+				status.Message = fmt.Sprintf("failed to find HTTPRoute for model: %v", err)
+			}
+			statuses = append(statuses, status)
+			continue
+		}
+		status.Namespace = httpRouteNS
+
+		trlp := &unstructured.Unstructured{}
+		trlp.SetGroupVersionKind(schema.GroupVersionKind{Group: "kuadrant.io", Version: "v1alpha1", Kind: "TokenRateLimitPolicy"})
 
 		if err := r.Get(ctx, types.NamespacedName{Name: policyName, Namespace: httpRouteNS}, trlp); err != nil {
 			if apierrors.IsNotFound(err) {

@@ -184,15 +184,19 @@ func (r *MaaSAuthPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	return ctrl.Result{}, nil
 }
 
-// findMissingModelRefs returns a list of model refs that don't exist.
+// findMissingModelRefs returns a list of model refs that don't exist or couldn't be fetched.
+// Treats both NotFound and transient errors as "missing" to fail-safe (avoid falsely reporting Active).
 func (r *MaaSAuthPolicyReconciler) findMissingModelRefs(ctx context.Context, policy *maasv1alpha1.MaaSAuthPolicy) []maasv1alpha1.ModelRef {
+	log := logr.FromContextOrDiscard(ctx)
 	var missing []maasv1alpha1.ModelRef
 	for _, ref := range policy.Spec.ModelRefs {
 		model := &maasv1alpha1.MaaSModelRef{}
 		if err := r.Get(ctx, types.NamespacedName{Namespace: ref.Namespace, Name: ref.Name}, model); err != nil {
-			if apierrors.IsNotFound(err) {
-				missing = append(missing, ref)
+			// Treat both NotFound and transient errors as missing to fail-safe
+			if !apierrors.IsNotFound(err) {
+				log.Error(err, "transient error fetching MaaSModelRef, treating as missing", "model", ref.Namespace+"/"+ref.Name)
 			}
+			missing = append(missing, ref)
 		}
 	}
 	return missing
@@ -841,8 +845,13 @@ func (r *MaaSAuthPolicyReconciler) updateAuthPolicyRefStatus(ctx context.Context
 		if err := r.Get(ctx, client.ObjectKeyFromObject(ap), ap); err != nil {
 			log.Info("could not get AuthPolicy for status", "name", ref.Name, "namespace", ref.Namespace, "error", err)
 			status.Ready = false
-			status.Reason = maasv1alpha1.ReasonNotFound
-			status.Message = fmt.Sprintf("failed to get AuthPolicy: %v", err)
+			if apierrors.IsNotFound(err) {
+				status.Reason = maasv1alpha1.ReasonNotFound
+				status.Message = "AuthPolicy not created yet"
+			} else {
+				status.Reason = maasv1alpha1.ReasonGetFailed
+				status.Message = fmt.Sprintf("failed to get AuthPolicy: %v", err)
+			}
 			policy.Status.AuthPolicies = append(policy.Status.AuthPolicies, status)
 			continue
 		}

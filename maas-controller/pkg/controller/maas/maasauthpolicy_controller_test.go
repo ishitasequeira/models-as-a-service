@@ -1367,7 +1367,7 @@ func TestMaaSAuthPolicyReconciler_AllValidModelRefs_ActivePhase(t *testing.T) {
 	existingAP := newPreexistingAuthPolicy(authPolicyName, namespace, modelName, map[string]string{
 		"maas.opendatahub.io/auth-policies": maasAuthName,
 	})
-	_ = unstructured.SetNestedSlice(existingAP.Object, []any{
+	if err := unstructured.SetNestedSlice(existingAP.Object, []any{
 		map[string]any{
 			"type":   "Accepted",
 			"status": "True",
@@ -1376,7 +1376,9 @@ func TestMaaSAuthPolicyReconciler_AllValidModelRefs_ActivePhase(t *testing.T) {
 			"type":   "Enforced",
 			"status": "True",
 		},
-	}, "status", "conditions")
+	}, "status", "conditions"); err != nil {
+		t.Fatalf("SetNestedSlice status.conditions: %v", err)
+	}
 
 	c := fake.NewClientBuilder().
 		WithScheme(scheme).
