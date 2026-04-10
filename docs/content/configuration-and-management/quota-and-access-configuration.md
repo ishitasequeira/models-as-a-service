@@ -136,6 +136,13 @@ TRLP=$(kubectl get tokenratelimitpolicy -n ${MODEL_NS} -l maas.opendatahub.io/mo
 [[ -n "$TRLP" ]] && kubectl wait --for=condition=Enforced=true tokenratelimitpolicy/${TRLP} -n ${MODEL_NS} --timeout=120s
 ```
 
+!!! warning "Multiple model references on one HTTPRoute"
+    **This limitation affects v3.4 deployments.** More than one **MaaSModelRef** on the same route can break independent per-subscription limits—only one TokenRateLimitPolicy is fully effective while others may show **Overridden**.
+    
+    **Planning guidance:** Prefer **one HTTPRoute per model** when different subscriptions need separate limits. Tier-based route sharing does **not** help if **multiple subscriptions** each need their own limits on that **same** route.
+    
+    See [Subscription limitations and known issues](subscription-known-issues.md#token-rate-limits-when-multiple-model-references-share-one-httproute) for detection commands and workarounds.
+
 !!! note "Namespace requirements"
     Both **MaaSAuthPolicy** and **MaaSSubscription** must be installed in the `models-as-a-service` namespace. Each `modelRefs` entry must specify the `namespace` where the MaaSModelRef lives (e.g. `llm`).
 
