@@ -75,7 +75,7 @@ func NewManager(log *logger.Logger, accessCheckTimeoutSeconds int, gatewayIntern
 		timeout = time.Duration(accessCheckTimeoutSeconds) * time.Second
 	}
 
-	tlsConfig, err := buildClusterTLSConfig(log)
+	tlsConfig, err := BuildClusterTLSConfig(log)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build TLS config: %w", err)
 	}
@@ -111,26 +111,32 @@ func NewManager(log *logger.Logger, accessCheckTimeoutSeconds int, gatewayIntern
 	}, nil
 }
 
-// buildClusterTLSConfig creates a TLS config for cluster-internal communication.
-// It uses the Kubernetes service account CA when running in-cluster, or falls back
-// to system root CAs when running locally (e.g., during development).
-func buildClusterTLSConfig(log *logger.Logger) (*tls.Config, error) {
+// BuildClusterTLSConfig creates a TLS config for cluster-internal communication.
+// It starts with the system root CAs and appends the Kubernetes service account CA
+// when running in-cluster. This ensures both public CAs and cluster CAs are trusted,
+// supporting endpoints with publicly-trusted certificates as well as cluster-internal services.
+func BuildClusterTLSConfig(log *logger.Logger) (*tls.Config, error) {
+	caCertPool, err := x509.SystemCertPool()
+	if err != nil {
+		log.Debug("Failed to load system cert pool, creating empty pool", "error", err)
+		caCertPool = x509.NewCertPool()
+	}
+
 	caCert, err := os.ReadFile(kubeServiceAccountCAPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			log.Debug("Kubernetes service account CA not found, using system root CAs",
+			log.Debug("Kubernetes service account CA not found, using system root CAs only",
 				"path", kubeServiceAccountCAPath)
-			return &tls.Config{MinVersion: tls.VersionTLS12}, nil
+			return &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: caCertPool}, nil
 		}
 		return nil, fmt.Errorf("failed to read CA certificate: %w", err)
 	}
 
-	caCertPool := x509.NewCertPool()
 	if !caCertPool.AppendCertsFromPEM(caCert) {
 		return nil, errors.New("failed to parse Kubernetes service account CA certificate")
 	}
 
-	log.Debug("Using Kubernetes service account CA for TLS validation",
+	log.Debug("Using system root CAs with Kubernetes service account CA appended",
 		"path", kubeServiceAccountCAPath)
 
 	return &tls.Config{
