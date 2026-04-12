@@ -88,6 +88,7 @@ rules:
   - maasauthpolicies/finalizers
   - maasmodelrefs/finalizers
   - maassubscriptions/finalizers
+  - maastenants/finalizers
   verbs:
   - update
 - apiGroups:
@@ -96,6 +97,7 @@ rules:
   - maasauthpolicies
   - maasmodelrefs
   - maassubscriptions
+  - maastenants
   verbs:
   - create
   - delete
@@ -110,6 +112,7 @@ rules:
   - maasauthpolicies/status
   - maasmodelrefs/status
   - maassubscriptions/status
+  - maastenants/status
   verbs:
   - get
   - patch
