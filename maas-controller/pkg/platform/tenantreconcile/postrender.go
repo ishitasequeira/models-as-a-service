@@ -77,8 +77,7 @@ func configureExternalOIDC(log logr.Logger, tenant *maasv1alpha1.Tenant, resourc
 			return patchAuthPolicyWithOIDC(log, resource, oidc)
 		}
 	}
-	log.V(1).Info("maas-api AuthPolicy not found in rendered resources, skipping OIDC configuration", "expectedName", MaaSAPIAuthPolicyName)
-	return nil
+	return fmt.Errorf("rendered resources are missing AuthPolicy %q while spec.externalOIDC is configured — refusing to deploy without OIDC rules", MaaSAPIAuthPolicyName)
 }
 
 func patchAuthPolicyWithOIDC(log logr.Logger, resource *unstructured.Unstructured, oidc *maasv1alpha1.TenantExternalOIDCConfig) error {
@@ -149,8 +148,18 @@ func patchAuthPolicyWithOIDC(log logr.Logger, resource *unstructured.Unstructure
 	return nil
 }
 
+func isTelemetryEnabled(t *maasv1alpha1.TenantTelemetryConfig) bool {
+	if t == nil {
+		return true // omitted telemetry block means enabled (API default)
+	}
+	if t.Enabled == nil {
+		return true
+	}
+	return *t.Enabled
+}
+
 func configureTelemetryPolicyResources(log logr.Logger, tenant *maasv1alpha1.Tenant, resources *[]unstructured.Unstructured) error {
-	if tenant.Spec.Telemetry == nil || tenant.Spec.Telemetry.Enabled == nil || !*tenant.Spec.Telemetry.Enabled {
+	if !isTelemetryEnabled(tenant.Spec.Telemetry) {
 		return nil
 	}
 	// Caller should have checked CRD; still skip if API missing at apply time.
@@ -190,7 +199,7 @@ func configureTelemetryPolicyResources(log logr.Logger, tenant *maasv1alpha1.Ten
 }
 
 func configureIstioTelemetryResources(log logr.Logger, tenant *maasv1alpha1.Tenant, resources *[]unstructured.Unstructured) error {
-	if tenant.Spec.Telemetry == nil || tenant.Spec.Telemetry.Enabled == nil || !*tenant.Spec.Telemetry.Enabled {
+	if !isTelemetryEnabled(tenant.Spec.Telemetry) {
 		return nil
 	}
 	gatewayNamespace := tenant.Spec.GatewayRef.Namespace

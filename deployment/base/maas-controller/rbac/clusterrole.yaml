@@ -71,14 +71,6 @@ rules:
   - list
   - watch
 - apiGroups:
-  - dscinitialization.opendatahub.io
-  resources:
-  - dscinitializations
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
   - gateway.networking.k8s.io
   resources:
   - gateways

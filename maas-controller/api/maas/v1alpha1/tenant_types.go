@@ -104,6 +104,9 @@ type TenantMetricsConfig struct {
 	// +kubebuilder:validation:Optional
 	CaptureOrganization *bool `json:"captureOrganization,omitempty"`
 
+	// CaptureUser adds a "user" dimension to telemetry metrics containing
+	// the authenticated user ID. Defaults to false. Enabling this may
+	// have GDPR / privacy implications — ensure compliance before use.
 	// +kubebuilder:default=false
 	// +kubebuilder:validation:Optional
 	CaptureUser *bool `json:"captureUser,omitempty"`

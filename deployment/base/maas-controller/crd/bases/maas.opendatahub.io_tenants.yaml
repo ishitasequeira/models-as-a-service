@@ -125,6 +125,10 @@ spec:
                         type: boolean
                       captureUser:
                         default: false
+                        description: |-
+                          CaptureUser adds a "user" dimension to telemetry metrics containing
+                          the authenticated user ID. Defaults to false. Enabling this may
+                          have GDPR / privacy implications — ensure compliance before use.
                         type: boolean
                     type: object
                 type: object

@@ -90,8 +90,8 @@ func RunPlatform(ctx context.Context, log logr.Logger, c client.Client, scheme *
 }
 
 // Run executes the ODH-equivalent modelsasservice pipeline against Tenant.
-// appNamespaceFallback is used when DSCI cannot be read (e.g. RBAC), matching --maas-api-namespace.
-func Run(ctx context.Context, log logr.Logger, c client.Client, scheme *runtime.Scheme, tenant *maasv1alpha1.Tenant, manifestPath string, appNamespaceFallback string) (*RunResult, error) {
+// The application namespace is derived from tenant.Namespace (Tenant CR is co-located with workloads).
+func Run(ctx context.Context, log logr.Logger, c client.Client, scheme *runtime.Scheme, tenant *maasv1alpha1.Tenant, manifestPath string) (*RunResult, error) {
 	manifestPath, err := filepath.Abs(manifestPath)
 	if err != nil {
 		return nil, fmt.Errorf("manifest path: %w", err)
@@ -101,11 +101,7 @@ func Run(ctx context.Context, log logr.Logger, c client.Client, scheme *runtime.
 		return nil, err
 	}
 
-	appNs, err := ApplicationNamespace(ctx, c)
-	if err != nil {
-		log.V(1).Info("could not resolve application namespace from DSCI, using fallback", "error", err, "fallback", appNamespaceFallback)
-		appNs = appNamespaceFallback
-	}
+	appNs := tenant.Namespace
 	if errs := validation.IsDNS1123Subdomain(appNs); len(errs) > 0 {
 		return nil, fmt.Errorf("invalid application namespace %q: %v", appNs, errs)
 	}

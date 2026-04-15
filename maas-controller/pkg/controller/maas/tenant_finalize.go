@@ -86,8 +86,14 @@ func isOwnedByTenant(obj metav1.Object, tenant *maasv1alpha1.Tenant) bool {
 	return ownedByTenantRef(obj, tenant) || ownedByTenantLabel(obj, tenant)
 }
 
-func tenantWorkNamespaces(tenant *maasv1alpha1.Tenant, operatorNS string) []string {
+func tenantWorkNamespaces(tenant *maasv1alpha1.Tenant, operatorNS, appNS string) []string {
 	out := sets.New[string]()
+	if tenant.Namespace != "" {
+		out.Insert(tenant.Namespace)
+	}
+	if appNS != "" {
+		out.Insert(appNS)
+	}
 	if operatorNS != "" {
 		out.Insert(operatorNS)
 	}
@@ -101,7 +107,7 @@ func tenantWorkNamespaces(tenant *maasv1alpha1.Tenant, operatorNS string) []stri
 // (stillPending, err): stillPending means children are present or terminating — requeue without removing the finalizer.
 func (r *TenantReconciler) finalizeTenantDeletion(ctx context.Context, tenant *maasv1alpha1.Tenant) (bool, error) {
 	opNS := r.operatorNamespace()
-	namespaces := tenantWorkNamespaces(tenant, opNS)
+	namespaces := tenantWorkNamespaces(tenant, opNS, r.AppNamespace)
 	if len(namespaces) == 0 {
 		return false, fmt.Errorf("cannot finalize Tenant %s/%s: no work namespaces resolved (operator namespace and GatewayRef.Namespace are both empty); namespaced children may be orphaned", tenant.Namespace, tenant.Name)
 	}

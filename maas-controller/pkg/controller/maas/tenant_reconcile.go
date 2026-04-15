@@ -167,11 +167,7 @@ func (r *TenantReconciler) reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 	setDependenciesCondition(&tenant, true, "")
 
-	appNs, err := tenantreconcile.ApplicationNamespace(ctx, r.Client)
-	if err != nil {
-		log.V(1).Info("could not resolve application namespace from DSCI, using fallback", "error", err, "fallback", r.AppNamespace)
-		appNs = r.AppNamespace
-	}
+	appNs := tenant.Namespace
 	rep := tenantreconcile.CollectPrerequisiteReport(ctx, r.Client, appNs)
 	setPrerequisiteConditionsFromReport(&tenant, rep)
 	if len(rep.Blocking) > 0 {
@@ -243,8 +239,8 @@ func (r *TenantReconciler) reconcile(ctx context.Context, req ctrl.Request) (ctr
 func applyGatewayDefaults(tenant *maasv1alpha1.Tenant) error {
 	ref := &tenant.Spec.GatewayRef
 	if ref.Namespace == "" && ref.Name == "" {
-		ref.Namespace = defaultGatewayNamespace
-		ref.Name = defaultGatewayName
+		ref.Namespace = tenantreconcile.DefaultGatewayNamespace
+		ref.Name = tenantreconcile.DefaultGatewayName
 		return nil
 	}
 	if ref.Namespace == "" || ref.Name == "" {

@@ -113,13 +113,13 @@ func ApplyParams(componentPath, file string, imageParamsMap map[string]string, e
 }
 
 // ApplyRendered server-side-applies rendered objects with Tenant as controller owner (ODH deploy parity).
-// Same-namespace and cluster-scoped children get a standard ownerReference; cross-namespace children
-// get tracking labels instead (Kubernetes forbids cross-namespace ownerReferences).
+// Same-namespace children get a standard ownerReference; cluster-scoped and cross-namespace children
+// get tracking labels instead (Kubernetes forbids cross-namespace and namespaced-to-cluster ownerReferences).
 func ApplyRendered(ctx context.Context, c client.Client, scheme *runtime.Scheme, tenant *maasv1alpha1.Tenant, objs []unstructured.Unstructured) error {
 	for i := range objs {
 		u := objs[i].DeepCopy()
 		childNs := u.GetNamespace()
-		if childNs == "" || childNs == tenant.Namespace {
+		if childNs != "" && childNs == tenant.Namespace {
 			if err := controllerutil.SetControllerReference(tenant, u, scheme); err != nil {
 				return fmt.Errorf("set controller reference on %s %s/%s: %w", u.GetKind(), u.GetNamespace(), u.GetName(), err)
 			}

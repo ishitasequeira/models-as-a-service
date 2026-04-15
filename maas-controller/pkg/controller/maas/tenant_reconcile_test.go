@@ -355,7 +355,7 @@ func TestTenantReconcile_UnexpectedManagementStateSetsFailedPhase(t *testing.T) 
 	g.Expect(readyCond.Reason).To(Equal("UnexpectedManagementState"))
 }
 
-func TestTenantReconcile_DeletionFailsWhenNoNamespacesResolved(t *testing.T) {
+func TestTenantReconcile_DeletionIncludesAppNamespace(t *testing.T) {
 	g := NewWithT(t)
 	s := tenantTestScheme(t)
 
@@ -371,8 +371,8 @@ func TestTenantReconcile_DeletionFailsWhenNoNamespacesResolved(t *testing.T) {
 		},
 		Spec: maasv1alpha1.TenantSpec{
 			GatewayRef: maasv1alpha1.TenantGatewayRef{
-				Namespace: "",
-				Name:      "",
+				Namespace: "openshift-ingress",
+				Name:      "maas-default-gateway",
 			},
 		},
 	}
@@ -386,19 +386,24 @@ func TestTenantReconcile_DeletionFailsWhenNoNamespacesResolved(t *testing.T) {
 	r := &TenantReconciler{
 		Client:            cl,
 		Scheme:            s,
-		OperatorNamespace: "",
+		OperatorNamespace: "opendatahub",
 		AppNamespace:      testNS,
 	}
 
 	_, err := r.Reconcile(context.Background(), ctrl.Request{
 		NamespacedName: types.NamespacedName{Name: maasv1alpha1.TenantInstanceName, Namespace: testNS},
 	})
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("no work namespaces resolved"))
+	// Finalization should succeed (no owned resources) and the object is deleted
+	// (fake client removes the object once finalizers are cleared on a deleted resource).
+	// The reconciler may return NotFound when trying the final status update — that's OK.
+	if err != nil {
+		g.Expect(apierrors.IsNotFound(err)).To(BeTrue(), "expected NotFound (object finalized and deleted), got: %v", err)
+	}
 
 	var updated maasv1alpha1.Tenant
-	g.Expect(cl.Get(context.Background(), client.ObjectKey{Name: maasv1alpha1.TenantInstanceName, Namespace: testNS}, &updated)).To(Succeed())
-	g.Expect(updated.Finalizers).To(ContainElement(tenantFinalizer), "finalizer should NOT be removed when namespace resolution fails")
+	err = cl.Get(context.Background(), client.ObjectKey{Name: maasv1alpha1.TenantInstanceName, Namespace: testNS}, &updated)
+	// Object should be gone (finalizer removed → fake client deletes it)
+	g.Expect(apierrors.IsNotFound(err)).To(BeTrue(), "tenant should be fully deleted after finalization")
 }
 
 func TestTenantReconcile_NotFoundIsNoOp(t *testing.T) {

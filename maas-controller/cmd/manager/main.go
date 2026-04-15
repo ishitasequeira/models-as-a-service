@@ -411,11 +411,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	setupLog.Info("watching namespace for MaaS AuthPolicy and MaaSSubscription", "namespace", maasSubscriptionNamespace)
+	setupLog.Info("watching namespace for MaaS CRs", "namespace", maasSubscriptionNamespace)
+	nsCfg := map[string]cache.Config{maasSubscriptionNamespace: {}}
 	cacheOpts := cache.Options{
 		ByObject: map[client.Object]cache.ByObject{
-			&maasv1alpha1.MaaSAuthPolicy{}:   {Namespaces: map[string]cache.Config{maasSubscriptionNamespace: {}}},
-			&maasv1alpha1.MaaSSubscription{}: {Namespaces: map[string]cache.Config{maasSubscriptionNamespace: {}}},
+			&maasv1alpha1.Tenant{}:           {Namespaces: nsCfg},
+			&maasv1alpha1.MaaSAuthPolicy{}:   {Namespaces: nsCfg},
+			&maasv1alpha1.MaaSSubscription{}: {Namespaces: nsCfg},
 		},
 	}
 

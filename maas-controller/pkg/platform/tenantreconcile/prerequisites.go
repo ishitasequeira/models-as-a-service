@@ -2,9 +2,7 @@ package tenantreconcile
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"os"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -17,40 +15,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/yaml"
 )
-
-var dsciListGVK = schema.GroupVersionKind{
-	Group:   "dscinitialization.opendatahub.io",
-	Version: "v2",
-	Kind:    "DSCInitializationList",
-}
-
-// ApplicationNamespace mirrors ODH pkg/cluster.ApplicationNamespace for MaaS workloads.
-// Priority: RHAI_APPLICATIONS_NAMESPACE env, else DSCInitialization.spec.applicationsNamespace, else error if DSCI missing.
-func ApplicationNamespace(ctx context.Context, c client.Client) (string, error) {
-	if ns := os.Getenv("RHAI_APPLICATIONS_NAMESPACE"); ns != "" {
-		return ns, nil
-	}
-
-	list := &unstructured.UnstructuredList{}
-	list.SetGroupVersionKind(dsciListGVK)
-	if err := c.List(ctx, list); err != nil {
-		return "", fmt.Errorf("list DSCInitialization: %w", err)
-	}
-	if len(list.Items) == 0 {
-		return "", apierrors.NewNotFound(schema.GroupResource{Group: dsciListGVK.Group, Resource: "dscinitializations"}, "")
-	}
-	if len(list.Items) != 1 {
-		return "", fmt.Errorf("expected exactly one DSCInitialization, found %d", len(list.Items))
-	}
-	ns, found, err := unstructured.NestedString(list.Items[0].Object, "spec", "applicationsNamespace")
-	if err != nil {
-		return "", fmt.Errorf("reading spec.applicationsNamespace from DSCInitialization: %w", err)
-	}
-	if !found || ns == "" {
-		return "", errors.New("DSCInitialization has no spec.applicationsNamespace")
-	}
-	return ns, nil
-}
 
 // IsGVKAvailable uses the REST mapper (same spirit as ODH dependency checks).
 func IsGVKAvailable(c client.Client, gvk schema.GroupVersionKind) (bool, error) {
@@ -152,8 +116,16 @@ func checkAuthorinoTLS(ctx context.Context, c client.Client) string {
 
 	for i := range authorinoList.Items {
 		item := &authorinoList.Items[i]
-		enabled, _, _ := unstructured.NestedBool(item.Object, "spec", "listener", "tls", "enabled")
-		certName, _, _ := unstructured.NestedString(item.Object, "spec", "listener", "tls", "certSecretRef", "name")
+		enabled, _, err := unstructured.NestedBool(item.Object, "spec", "listener", "tls", "enabled")
+		if err != nil {
+			log.FromContext(ctx).Error(err, "failed to read spec.listener.tls.enabled from Authorino", "name", item.GetName())
+			continue
+		}
+		certName, _, err := unstructured.NestedString(item.Object, "spec", "listener", "tls", "certSecretRef", "name")
+		if err != nil {
+			log.FromContext(ctx).Error(err, "failed to read spec.listener.tls.certSecretRef.name from Authorino", "name", item.GetName())
+			continue
+		}
 		if enabled && certName != "" {
 			return ""
 		}
