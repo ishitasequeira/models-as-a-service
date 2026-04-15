@@ -37,9 +37,9 @@ import (
 	"github.com/opendatahub-io/models-as-a-service/maas-controller/pkg/platform/tenantreconcile"
 )
 
-// MaaSTenantReconciler reconciles cluster MaaSTenant (platform singleton).
+// TenantReconciler reconciles cluster Tenant (platform singleton).
 // Platform manifest logic mirrors opendatahub-operator modelsasservice (kustomize + post-render + SSA apply).
-type MaaSTenantReconciler struct {
+type TenantReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 	// OperatorNamespace overrides POD_NAMESPACE / WATCH_NAMESPACE when discovering namespaced platform workloads (tests).
@@ -50,31 +50,35 @@ type MaaSTenantReconciler struct {
 	AppNamespace string
 }
 
-// +kubebuilder:rbac:groups=maas.opendatahub.io,resources=maastenants,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=maas.opendatahub.io,resources=maastenants/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=maas.opendatahub.io,resources=maastenants/finalizers,verbs=update
+// +kubebuilder:rbac:groups=maas.opendatahub.io,resources=tenants,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=maas.opendatahub.io,resources=tenants/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=maas.opendatahub.io,resources=tenants/finalizers,verbs=update
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=gateways,verbs=get;list;watch
-// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;delete
+// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;patch;delete
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
-// +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;delete
-// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;delete
-// +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;delete
-// +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=httproutes,verbs=get;list;watch;delete
-// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=get;list;watch;delete
-// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings,verbs=get;list;watch;delete
+// +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;create;patch;delete
+// +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;patch;delete
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;patch;delete
+// +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;patch;delete
+// +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=httproutes,verbs=get;list;watch;create;patch;delete
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=get;list;watch;create;patch;delete
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings,verbs=get;list;watch;create;patch;delete
 // +kubebuilder:rbac:groups=dscinitialization.opendatahub.io,resources=dscinitializations,verbs=get;list;watch
 // +kubebuilder:rbac:groups=config.openshift.io,resources=authentications,verbs=get;list;watch
 // +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=get;list;watch
 
-// Reconcile drives MaaSTenant platform lifecycle (ODH no longer runs the modelsasservice deploy pipeline).
-func (r *MaaSTenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+// Reconcile drives Tenant platform lifecycle (ODH no longer runs the modelsasservice deploy pipeline).
+func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	return r.reconcile(ctx, req)
 }
 
 const openshiftAuthenticationClusterName = "cluster"
 
-func enqueueDefaultMaaSTenant(context.Context, client.Object) []reconcile.Request {
-	return []reconcile.Request{{NamespacedName: types.NamespacedName{Name: maasv1alpha1.MaaSTenantInstanceName}}}
+func (r *TenantReconciler) enqueueDefaultTenant(_ context.Context, _ client.Object) []reconcile.Request {
+	return []reconcile.Request{{NamespacedName: types.NamespacedName{
+		Name:      maasv1alpha1.TenantInstanceName,
+		Namespace: r.AppNamespace,
+	}}}
 }
 
 // crdLabeledForMaaSComponent matches ODH modelsasservice watch: app.opendatahub.io/modelsasservice=true.
@@ -89,6 +93,15 @@ func crdLabeledForMaaSComponent() predicate.Predicate {
 func secretNamedMaaSDB() predicate.Predicate {
 	return predicate.NewPredicateFuncs(func(o client.Object) bool {
 		return o.GetName() == tenantreconcile.MaaSDBSecretName
+	})
+}
+
+// inTenantWorkNamespaces limits watches to the namespaces where Tenant children live,
+// avoiding cluster-wide informer noise on busy clusters.
+func (r *TenantReconciler) inTenantWorkNamespaces() predicate.Predicate {
+	return predicate.NewPredicateFuncs(func(o client.Object) bool {
+		ns := o.GetNamespace()
+		return ns == r.AppNamespace || ns == r.operatorNamespace()
 	})
 }
 
@@ -116,8 +129,8 @@ func deletedConfigMapOnly() predicate.Predicate {
 	}
 }
 
-// SetupWithManager registers the MaaSTenant controller.
-func (r *MaaSTenantReconciler) SetupWithManager(mgr ctrl.Manager) error {
+// SetupWithManager registers the Tenant controller.
+func (r *TenantReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	authMeta := &metav1.PartialObjectMetadata{}
 	authMeta.SetGroupVersionKind(schema.GroupVersionKind{
 		Group:   "config.openshift.io",
@@ -126,25 +139,25 @@ func (r *MaaSTenantReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	})
 
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&maasv1alpha1.MaaSTenant{}).
+		For(&maasv1alpha1.Tenant{}).
 		Watches(
 			&extv1.CustomResourceDefinition{},
-			handler.EnqueueRequestsFromMapFunc(enqueueDefaultMaaSTenant),
+			handler.EnqueueRequestsFromMapFunc(r.enqueueDefaultTenant),
 			builder.WithPredicates(crdLabeledForMaaSComponent()),
 		).
 		Watches(
 			&corev1.ConfigMap{},
-			handler.EnqueueRequestsFromMapFunc(enqueueDefaultMaaSTenant),
-			builder.WithPredicates(deletedConfigMapOnly()),
+			handler.EnqueueRequestsFromMapFunc(r.enqueueDefaultTenant),
+			builder.WithPredicates(deletedConfigMapOnly(), r.inTenantWorkNamespaces()),
 		).
 		Watches(
 			&corev1.Secret{},
-			handler.EnqueueRequestsFromMapFunc(enqueueDefaultMaaSTenant),
-			builder.WithPredicates(secretNamedMaaSDB()),
+			handler.EnqueueRequestsFromMapFunc(r.enqueueDefaultTenant),
+			builder.WithPredicates(secretNamedMaaSDB(), r.inTenantWorkNamespaces()),
 		).
 		WatchesMetadata(
 			authMeta,
-			handler.EnqueueRequestsFromMapFunc(enqueueDefaultMaaSTenant),
+			handler.EnqueueRequestsFromMapFunc(r.enqueueDefaultTenant),
 			builder.WithPredicates(authenticationClusterSingleton()),
 		).
 		Complete(r)

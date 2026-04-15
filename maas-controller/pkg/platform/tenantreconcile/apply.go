@@ -112,19 +112,39 @@ func ApplyParams(componentPath, file string, imageParamsMap map[string]string, e
 	return nil
 }
 
-// ApplyRendered server-side-applies rendered objects with MaaSTenant as controller owner (ODH deploy parity).
-func ApplyRendered(ctx context.Context, c client.Client, scheme *runtime.Scheme, tenant *maasv1alpha1.MaaSTenant, objs []unstructured.Unstructured) error {
+// ApplyRendered server-side-applies rendered objects with Tenant as controller owner (ODH deploy parity).
+// Same-namespace and cluster-scoped children get a standard ownerReference; cross-namespace children
+// get tracking labels instead (Kubernetes forbids cross-namespace ownerReferences).
+func ApplyRendered(ctx context.Context, c client.Client, scheme *runtime.Scheme, tenant *maasv1alpha1.Tenant, objs []unstructured.Unstructured) error {
 	for i := range objs {
 		u := objs[i].DeepCopy()
-		if err := controllerutil.SetControllerReference(tenant, u, scheme); err != nil {
-			return fmt.Errorf("set controller reference on %s %s/%s: %w", u.GetKind(), u.GetNamespace(), u.GetName(), err)
+		childNs := u.GetNamespace()
+		if childNs == "" || childNs == tenant.Namespace {
+			if err := controllerutil.SetControllerReference(tenant, u, scheme); err != nil {
+				return fmt.Errorf("set controller reference on %s %s/%s: %w", u.GetKind(), u.GetNamespace(), u.GetName(), err)
+			}
+		} else {
+			setTenantTrackingLabels(u, tenant)
 		}
 		unstructured.RemoveNestedField(u.Object, "metadata", "managedFields")
 		unstructured.RemoveNestedField(u.Object, "metadata", "resourceVersion")
 		unstructured.RemoveNestedField(u.Object, "status")
+		// ForceOwnership is intentional: maas-controller is the sole manager for
+		// Tenant platform resources. During migration from the ODH modelsasservice
+		// pipeline, force ensures a clean field-manager handoff without conflicts.
 		if err := c.Patch(ctx, u, client.Apply, client.FieldOwner(ssaFieldOwner), client.ForceOwnership); err != nil {
 			return fmt.Errorf("apply %s %s/%s: %w", u.GetKind(), u.GetNamespace(), u.GetName(), err)
 		}
 	}
 	return nil
+}
+
+func setTenantTrackingLabels(obj *unstructured.Unstructured, tenant *maasv1alpha1.Tenant) {
+	labels := obj.GetLabels()
+	if labels == nil {
+		labels = make(map[string]string)
+	}
+	labels[LabelTenantName] = tenant.Name
+	labels[LabelTenantNamespace] = tenant.Namespace
+	obj.SetLabels(labels)
 }

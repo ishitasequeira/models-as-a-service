@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"sigs.k8s.io/kustomize/api/builtins"
+	"sigs.k8s.io/kustomize/api/builtins" //nolint:staticcheck // no replacement until kustomize API v1
 	"sigs.k8s.io/kustomize/api/filters/namespace"
 	"sigs.k8s.io/kustomize/api/krusty"
 	"sigs.k8s.io/kustomize/api/types"
@@ -106,7 +106,7 @@ func DefaultManifestPath() string {
 }
 
 // EnsureTenantGatewayDefaults applies the same default gateway ref as ODH when unset.
-func EnsureTenantGatewayDefaults(t *maasv1alpha1.MaaSTenant) {
+func EnsureTenantGatewayDefaults(t *maasv1alpha1.Tenant) {
 	if t.Spec.GatewayRef.Namespace == "" && t.Spec.GatewayRef.Name == "" {
 		t.Spec.GatewayRef.Namespace = DefaultGatewayNamespace
 		t.Spec.GatewayRef.Name = DefaultGatewayName

@@ -45,7 +45,7 @@ const (
 )
 
 const (
-	maasTenantFinalizer = "maas.opendatahub.io/maastenant-finalizer"
+	tenantFinalizer = "maas.opendatahub.io/tenant-finalizer"
 )
 
 func managementState(ann map[string]string) string {
@@ -55,10 +55,10 @@ func managementState(ann map[string]string) string {
 	return ann[managementStateAnnotation]
 }
 
-func (r *MaaSTenantReconciler) reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *TenantReconciler) reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 
-	var tenant maasv1alpha1.MaaSTenant
+	var tenant maasv1alpha1.Tenant
 	if err := r.Get(ctx, req.NamespacedName, &tenant); err != nil {
 		if apierrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
@@ -66,13 +66,13 @@ func (r *MaaSTenantReconciler) reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, err
 	}
 
-	if tenant.Name != maasv1alpha1.MaaSTenantInstanceName {
+	if tenant.Name != maasv1alpha1.TenantInstanceName {
 		return ctrl.Result{}, nil
 	}
 
 	// Handle delete before Removed/Unmanaged idle so we still run teardown when the CR is being deleted.
 	if !tenant.DeletionTimestamp.IsZero() {
-		if !controllerutil.ContainsFinalizer(&tenant, maasTenantFinalizer) {
+		if !controllerutil.ContainsFinalizer(&tenant, tenantFinalizer) {
 			return ctrl.Result{}, nil
 		}
 		pending, err := r.finalizeTenantDeletion(ctx, &tenant)
@@ -83,7 +83,7 @@ func (r *MaaSTenantReconciler) reconcile(ctx context.Context, req ctrl.Request) 
 			return ctrl.Result{RequeueAfter: finalizeRequeueInterval}, nil
 		}
 		patchBase := client.MergeFrom(tenant.DeepCopy())
-		controllerutil.RemoveFinalizer(&tenant, maasTenantFinalizer)
+		controllerutil.RemoveFinalizer(&tenant, tenantFinalizer)
 		if err := r.Patch(ctx, &tenant, patchBase); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -92,13 +92,13 @@ func (r *MaaSTenantReconciler) reconcile(ctx context.Context, req ctrl.Request) 
 
 	ms := managementState(tenant.Annotations)
 	if ms == managementStateRemoved || ms == managementStateUnmanaged {
-		if err := r.patchStatus(ctx, &tenant, metav1.ConditionFalse, "ManagementStateIdle",
+		if err := r.patchStatus(ctx, &tenant, "", metav1.ConditionFalse, "ManagementStateIdle",
 			fmt.Sprintf("management state is %q; platform workloads are not driven by this reconciler in this state", ms)); err != nil {
 			return ctrl.Result{}, err
 		}
-		if controllerutil.ContainsFinalizer(&tenant, maasTenantFinalizer) {
+		if controllerutil.ContainsFinalizer(&tenant, tenantFinalizer) {
 			patchBase := client.MergeFrom(tenant.DeepCopy())
-			controllerutil.RemoveFinalizer(&tenant, maasTenantFinalizer)
+			controllerutil.RemoveFinalizer(&tenant, tenantFinalizer)
 			if err := r.Patch(ctx, &tenant, patchBase); err != nil {
 				return ctrl.Result{}, err
 			}
@@ -106,9 +106,9 @@ func (r *MaaSTenantReconciler) reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, nil
 	}
 
-	if !controllerutil.ContainsFinalizer(&tenant, maasTenantFinalizer) {
+	if !controllerutil.ContainsFinalizer(&tenant, tenantFinalizer) {
 		patchBase := client.MergeFrom(tenant.DeepCopy())
-		controllerutil.AddFinalizer(&tenant, maasTenantFinalizer)
+		controllerutil.AddFinalizer(&tenant, tenantFinalizer)
 		if err := r.Patch(ctx, &tenant, patchBase); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -116,7 +116,7 @@ func (r *MaaSTenantReconciler) reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	if ms != "" && ms != managementStateManaged {
-		if err := r.patchStatus(ctx, &tenant, metav1.ConditionFalse, "UnexpectedManagementState",
+		if err := r.patchStatus(ctx, &tenant, "Failed", metav1.ConditionFalse, "UnexpectedManagementState",
 			fmt.Sprintf("unsupported %s=%q", managementStateAnnotation, ms)); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -125,7 +125,7 @@ func (r *MaaSTenantReconciler) reconcile(ctx context.Context, req ctrl.Request) 
 
 	orig := tenant.DeepCopy()
 	if err := applyGatewayDefaults(&tenant); err != nil {
-		if err2 := r.patchStatus(ctx, &tenant, metav1.ConditionFalse, "InvalidGateway", err.Error()); err2 != nil {
+		if err2 := r.patchStatus(ctx, &tenant, "Failed", metav1.ConditionFalse, "InvalidGateway", err.Error()); err2 != nil {
 			return ctrl.Result{}, err2
 		}
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
@@ -141,14 +141,14 @@ func (r *MaaSTenantReconciler) reconcile(ctx context.Context, req ctrl.Request) 
 
 	if err := validateGatewayExists(ctx, r.Client, tenant.Spec.GatewayRef.Namespace, tenant.Spec.GatewayRef.Name); err != nil {
 		log.Info("gateway validation failed", "error", err)
-		if err2 := r.patchStatus(ctx, &tenant, metav1.ConditionFalse, "GatewayNotReady", err.Error()); err2 != nil {
+		if err2 := r.patchStatus(ctx, &tenant, "Pending", metav1.ConditionFalse, "GatewayNotReady", err.Error()); err2 != nil {
 			return ctrl.Result{}, err2
 		}
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 
 	if r.ManifestPath == "" {
-		if err := r.patchStatus(ctx, &tenant, metav1.ConditionFalse, "ManifestPathUnset",
+		if err := r.patchStatus(ctx, &tenant, "Failed", metav1.ConditionFalse, "ManifestPathUnset",
 			"MAAS_PLATFORM_MANIFESTS is not set and no default kustomize path resolved; cannot apply platform manifests"); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -156,12 +156,11 @@ func (r *MaaSTenantReconciler) reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	if err := tenantreconcile.CheckDependencies(ctx, r.Client); err != nil {
-		log.Info("MaaSTenant dependency check failed", "error", err)
-		tenant.Status.Phase = "Pending"
+		log.Info("Tenant dependency check failed", "error", err)
 		setDependenciesCondition(&tenant, false, err.Error())
 		setDeploymentsAvailableCondition(&tenant, false, "DependenciesNotMet", err.Error())
 		prerequisitesUnevaluatedCondition(&tenant, "Prerequisites were not evaluated because required dependencies are not met")
-		if err2 := r.patchStatus(ctx, &tenant, metav1.ConditionFalse, "DependenciesNotAvailable", err.Error()); err2 != nil {
+		if err2 := r.patchStatus(ctx, &tenant, "Pending", metav1.ConditionFalse, "DependenciesNotAvailable", err.Error()); err2 != nil {
 			return ctrl.Result{}, err2
 		}
 		return ctrl.Result{RequeueAfter: 45 * time.Second}, nil
@@ -195,10 +194,9 @@ func (r *MaaSTenantReconciler) reconcile(ctx context.Context, req ctrl.Request) 
 
 	runRes, err := tenantreconcile.RunPlatform(ctx, log, r.Client, r.Scheme, &tenant, r.ManifestPath, appNs)
 	if err != nil {
-		log.Error(err, "MaaSTenant platform reconcile failed")
-		tenant.Status.Phase = "Failed"
+		log.Error(err, "Tenant platform reconcile failed")
 		setDeploymentsAvailableCondition(&tenant, false, "PlatformReconcileFailed", err.Error())
-		if err2 := r.patchStatus(ctx, &tenant, metav1.ConditionFalse, "PlatformReconcileFailed", err.Error()); err2 != nil {
+		if err2 := r.patchStatus(ctx, &tenant, "Failed", metav1.ConditionFalse, "PlatformReconcileFailed", err.Error()); err2 != nil {
 			return ctrl.Result{}, err2
 		}
 		return ctrl.Result{RequeueAfter: 45 * time.Second}, nil
@@ -238,11 +236,11 @@ func (r *MaaSTenantReconciler) reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, err
 	}
 
-	log.V(1).Info("MaaSTenant platform reconciled", "name", tenant.Name)
+	log.V(1).Info("Tenant platform reconciled", "name", tenant.Name)
 	return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
 }
 
-func applyGatewayDefaults(tenant *maasv1alpha1.MaaSTenant) error {
+func applyGatewayDefaults(tenant *maasv1alpha1.Tenant) error {
 	ref := &tenant.Spec.GatewayRef
 	if ref.Namespace == "" && ref.Name == "" {
 		ref.Namespace = defaultGatewayNamespace
@@ -267,7 +265,8 @@ func validateGatewayExists(ctx context.Context, c client.Client, namespace, name
 	return nil
 }
 
-func (r *MaaSTenantReconciler) patchStatus(ctx context.Context, tenant *maasv1alpha1.MaaSTenant, status metav1.ConditionStatus, reason, message string) error {
+func (r *TenantReconciler) patchStatus(ctx context.Context, tenant *maasv1alpha1.Tenant, phase string, status metav1.ConditionStatus, reason, message string) error {
+	tenant.Status.Phase = phase
 	apimeta.SetStatusCondition(&tenant.Status.Conditions, metav1.Condition{
 		Type:               tenantreconcile.ReadyConditionType,
 		Status:             status,

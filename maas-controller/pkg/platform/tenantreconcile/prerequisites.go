@@ -2,6 +2,7 @@ package tenantreconcile
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -42,8 +43,11 @@ func ApplicationNamespace(ctx context.Context, c client.Client) (string, error) 
 		return "", fmt.Errorf("expected exactly one DSCInitialization, found %d", len(list.Items))
 	}
 	ns, found, err := unstructured.NestedString(list.Items[0].Object, "spec", "applicationsNamespace")
-	if err != nil || !found || ns == "" {
-		return "", fmt.Errorf("DSCInitialization has no spec.applicationsNamespace")
+	if err != nil {
+		return "", fmt.Errorf("reading spec.applicationsNamespace from DSCInitialization: %w", err)
+	}
+	if !found || ns == "" {
+		return "", errors.New("DSCInitialization has no spec.applicationsNamespace")
 	}
 	return ns, nil
 }
@@ -71,7 +75,10 @@ func GetClusterServiceAccountIssuer(ctx context.Context, c client.Reader) (strin
 		return "", err
 	}
 	issuer, found, err := unstructured.NestedString(u.Object, "spec", "serviceAccountIssuer")
-	if err != nil || !found {
+	if err != nil {
+		return "", fmt.Errorf("reading spec.serviceAccountIssuer: %w", err)
+	}
+	if !found {
 		return "", nil
 	}
 	return issuer, nil

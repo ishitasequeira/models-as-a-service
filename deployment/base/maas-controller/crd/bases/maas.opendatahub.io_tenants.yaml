@@ -4,15 +4,15 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.16.4
-  name: maastenants.maas.opendatahub.io
+  name: tenants.maas.opendatahub.io
 spec:
   group: maas.opendatahub.io
   names:
-    kind: MaaSTenant
-    listKind: MaaSTenantList
-    plural: maastenants
-    singular: maastenant
-  scope: Cluster
+    kind: Tenant
+    listKind: TenantList
+    plural: tenants
+    singular: tenant
+  scope: Namespaced
   versions:
   - additionalPrinterColumns:
     - description: Ready
@@ -29,8 +29,11 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: MaaSTenant is the cluster-scoped API for the MaaS platform tenant
-          (replaces ModelsAsService for control-plane ownership).
+        description: |-
+          Tenant is the namespace-scoped API for the MaaS platform tenant.
+          The CEL validation above enforces a singleton (name == "default-tenant") during v1alpha1.
+          To enable multi-tenancy later, remove the XValidation rule — no CRD migration required
+          because removing a validation is a non-breaking schema change.
         properties:
           apiVersion:
             description: |-
@@ -50,8 +53,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: MaaSTenantSpec defines the desired state of MaaSTenant (spec
-              parity with ModelsAsService).
+            description: TenantSpec defines the desired state of Tenant.
             properties:
               apiKeys:
                 description: APIKeys contains configuration for API key management.
@@ -128,10 +130,13 @@ spec:
                 type: object
             type: object
           status:
-            description: MaaSTenantStatus defines the observed state of MaaSTenant.
+            description: TenantStatus defines the observed state of Tenant.
             properties:
               conditions:
-                description: Conditions represent the latest available observations.
+                description: |-
+                  Conditions represent the latest available observations.
+                  Types mirror ODH modelsasservice / internal controller status for DSC aggregation: Ready,
+                  DependenciesAvailable, MaaSPrerequisitesAvailable, DeploymentsAvailable, Degraded.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -199,8 +204,8 @@ spec:
             type: object
         type: object
         x-kubernetes-validations:
-        - message: MaaSTenant name must be default-maastenant
-          rule: self.metadata.name == 'default-maastenant'
+        - message: Tenant name must be default-tenant
+          rule: self.metadata.name == 'default-tenant'
     served: true
     storage: true
     subresources:

@@ -8,8 +8,10 @@ const (
 	// ComponentName matches the ODH modelsasservice component label key suffix (app.opendatahub.io/<name>).
 	ComponentName = "modelsasservice"
 
-	LabelODHAppPrefix = "app.opendatahub.io"
-	LabelK8sPartOf    = "app.kubernetes.io/part-of"
+	LabelODHAppPrefix    = "app.opendatahub.io"
+	LabelK8sPartOf       = "app.kubernetes.io/part-of"
+	LabelTenantName      = "maas.opendatahub.io/tenant-name"
+	LabelTenantNamespace = "maas.opendatahub.io/tenant-namespace"
 
 	DefaultGatewayNamespace = "openshift-ingress"
 	DefaultGatewayName      = "maas-default-gateway"
@@ -21,7 +23,7 @@ const (
 	IstioTelemetryName          = "latency-per-subscription"
 	MaaSParametersConfigMapName = "maas-parameters"
 	MaaSAPIDeploymentName       = "maas-api"
-	MaaSDBSecretName            = "maas-db-config"
+	MaaSDBSecretName            = "maas-db-config" //nolint:gosec // secret name reference, not a credential
 	MaaSDBSecretKey             = "DB_CONNECTION_URL"
 
 	MonitoringNamespace         = "openshift-monitoring"

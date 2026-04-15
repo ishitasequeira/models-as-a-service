@@ -21,31 +21,34 @@ import (
 )
 
 const (
-	// MaaSTenantKind is the API kind for the cluster MaaS tenant / platform singleton.
-	MaaSTenantKind = "MaaSTenant"
-	// MaaSTenantInstanceName is the singleton resource name enforced by the API.
-	MaaSTenantInstanceName = "default-maastenant"
+	// TenantKind is the API kind for the cluster MaaS tenant / platform singleton.
+	TenantKind = "Tenant"
+	// TenantInstanceName is the singleton resource name enforced by the API.
+	TenantInstanceName = "default-tenant"
 )
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=Cluster
-// +kubebuilder:validation:XValidation:rule="self.metadata.name == 'default-maastenant'",message="MaaSTenant name must be default-maastenant"
+// +kubebuilder:resource:scope=Namespaced
+// +kubebuilder:validation:XValidation:rule="self.metadata.name == 'default-tenant'",message="Tenant name must be default-tenant"
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`,description="Ready"
 // +kubebuilder:printcolumn:name="Reason",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].reason`,description="Reason"
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
-// MaaSTenant is the cluster-scoped API for the MaaS platform tenant (replaces ModelsAsService for control-plane ownership).
-type MaaSTenant struct {
+// Tenant is the namespace-scoped API for the MaaS platform tenant.
+// The CEL validation above enforces a singleton (name == "default-tenant") during v1alpha1.
+// To enable multi-tenancy later, remove the XValidation rule — no CRD migration required
+// because removing a validation is a non-breaking schema change.
+type Tenant struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   MaaSTenantSpec   `json:"spec,omitempty"`
-	Status MaaSTenantStatus `json:"status,omitempty"`
+	Spec   TenantSpec   `json:"spec,omitempty"`
+	Status TenantStatus `json:"status,omitempty"`
 }
 
-// MaaSTenantSpec defines the desired state of MaaSTenant (spec parity with ModelsAsService).
-type MaaSTenantSpec struct {
+// TenantSpec defines the desired state of Tenant.
+type TenantSpec struct {
 	// GatewayRef specifies which Gateway (Gateway API) to use for exposing model endpoints.
 	// If omitted, defaults to openshift-ingress/maas-default-gateway.
 	// +kubebuilder:validation:Optional
@@ -134,8 +137,8 @@ type TenantGatewayRef struct {
 	Name string `json:"name,omitempty"`
 }
 
-// MaaSTenantStatus defines the observed state of MaaSTenant.
-type MaaSTenantStatus struct {
+// TenantStatus defines the observed state of Tenant.
+type TenantStatus struct {
 	// Phase is a high-level lifecycle phase for the platform reconcile.
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:validation:Enum=Pending;Active;Degraded;Failed
@@ -150,13 +153,13 @@ type MaaSTenantStatus struct {
 
 // +kubebuilder:object:root=true
 
-// MaaSTenantList contains a list of MaaSTenant.
-type MaaSTenantList struct {
+// TenantList contains a list of Tenant.
+type TenantList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []MaaSTenant `json:"items"`
+	Items           []Tenant `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&MaaSTenant{}, &MaaSTenantList{})
+	SchemeBuilder.Register(&Tenant{}, &TenantList{})
 }

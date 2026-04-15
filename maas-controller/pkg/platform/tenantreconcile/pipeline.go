@@ -2,6 +2,7 @@ package tenantreconcile
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 
@@ -28,14 +29,14 @@ func CheckDependencies(ctx context.Context, c client.Client) error {
 	if ok, err := IsGVKAvailable(c, GVKAuthConfig); err != nil {
 		return fmt.Errorf("dependencies: %w", err)
 	} else if !ok {
-		return fmt.Errorf("dependency missing: AuthConfig CRD (authorino.kuadrant.io/v1beta3) not available on cluster")
+		return errors.New("dependency missing: AuthConfig CRD (authorino.kuadrant.io/v1beta3) not available on cluster")
 	}
 	return nil
 }
 
 // RunPlatform runs kustomize render, apply, and deployment readiness after dependencies and prerequisites
 // have succeeded and gateway ref is valid (caller validates gateway existence).
-func RunPlatform(ctx context.Context, log logr.Logger, c client.Client, scheme *runtime.Scheme, tenant *maasv1alpha1.MaaSTenant, manifestPath string, appNs string) (*RunResult, error) {
+func RunPlatform(ctx context.Context, log logr.Logger, c client.Client, scheme *runtime.Scheme, tenant *maasv1alpha1.Tenant, manifestPath string, appNs string) (*RunResult, error) {
 	manifestPath, err := filepath.Abs(manifestPath)
 	if err != nil {
 		return nil, fmt.Errorf("manifest path: %w", err)
@@ -46,7 +47,7 @@ func RunPlatform(ctx context.Context, log logr.Logger, c client.Client, scheme *
 	}
 
 	if tenant.Spec.GatewayRef.Namespace == "" || tenant.Spec.GatewayRef.Name == "" {
-		return nil, fmt.Errorf("gateway ref must be set (reconciler should default gateway before calling RunPlatform)")
+		return nil, errors.New("gateway ref must be set (reconciler should default gateway before calling RunPlatform)")
 	}
 	gw := &gwapiv1.Gateway{}
 	if err := c.Get(ctx, types.NamespacedName{Namespace: tenant.Spec.GatewayRef.Namespace, Name: tenant.Spec.GatewayRef.Name}, gw); err != nil {
@@ -88,9 +89,9 @@ func RunPlatform(ctx context.Context, log logr.Logger, c client.Client, scheme *
 	return &RunResult{}, nil
 }
 
-// Run executes the ODH-equivalent modelsasservice pipeline against MaaSTenant.
+// Run executes the ODH-equivalent modelsasservice pipeline against Tenant.
 // appNamespaceFallback is used when DSCI cannot be read (e.g. RBAC), matching --maas-api-namespace.
-func Run(ctx context.Context, log logr.Logger, c client.Client, scheme *runtime.Scheme, tenant *maasv1alpha1.MaaSTenant, manifestPath string, appNamespaceFallback string) (*RunResult, error) {
+func Run(ctx context.Context, log logr.Logger, c client.Client, scheme *runtime.Scheme, tenant *maasv1alpha1.Tenant, manifestPath string, appNamespaceFallback string) (*RunResult, error) {
 	manifestPath, err := filepath.Abs(manifestPath)
 	if err != nil {
 		return nil, fmt.Errorf("manifest path: %w", err)

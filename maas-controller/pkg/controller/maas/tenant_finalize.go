@@ -24,7 +24,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	networkingv1 "k8s.io/api/networking/v1"
+	netwv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -36,13 +36,14 @@ import (
 	gwapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	maasv1alpha1 "github.com/opendatahub-io/models-as-a-service/maas-controller/api/maas/v1alpha1"
+	"github.com/opendatahub-io/models-as-a-service/maas-controller/pkg/platform/tenantreconcile"
 )
 
-// deletePropagation is used for child deletes so the MaaSTenant finalizer does not block on foreground chains.
+// deletePropagation is used for child deletes so the Tenant finalizer does not block on foreground chains.
 var deletePropagation = client.PropagationPolicy(metav1.DeletePropagationBackground)
 
 // optionalPlatformGVKs are extension resources created by the legacy ODH modelsasservice pipeline (and future
-// maas-controller apply) that may reference MaaSTenant as controller owner. List failures are ignored when the
+// maas-controller apply) that may reference Tenant as controller owner. List failures are ignored when the
 // API is not installed.
 var optionalPlatformGVKs = []schema.GroupVersionKind{
 	{Group: "kuadrant.io", Version: "v1", Kind: "AuthPolicy"},
@@ -53,7 +54,7 @@ var optionalPlatformGVKs = []schema.GroupVersionKind{
 	{Group: "telemetry.istio.io", Version: "v1", Kind: "Telemetry"},
 }
 
-func (r *MaaSTenantReconciler) operatorNamespace() string {
+func (r *TenantReconciler) operatorNamespace() string {
 	if r.OperatorNamespace != "" {
 		return r.OperatorNamespace
 	}
@@ -63,10 +64,10 @@ func (r *MaaSTenantReconciler) operatorNamespace() string {
 	return os.Getenv("WATCH_NAMESPACE")
 }
 
-func ownedByMaaSTenant(obj metav1.Object, tenant *maasv1alpha1.MaaSTenant) bool {
+func ownedByTenantRef(obj metav1.Object, tenant *maasv1alpha1.Tenant) bool {
 	for _, ref := range obj.GetOwnerReferences() {
 		if ref.UID == tenant.UID &&
-			ref.Kind == maasv1alpha1.MaaSTenantKind &&
+			ref.Kind == maasv1alpha1.TenantKind &&
 			ref.APIVersion == maasv1alpha1.GroupVersion.String() {
 			return true
 		}
@@ -74,7 +75,18 @@ func ownedByMaaSTenant(obj metav1.Object, tenant *maasv1alpha1.MaaSTenant) bool 
 	return false
 }
 
-func tenantWorkNamespaces(tenant *maasv1alpha1.MaaSTenant, operatorNS string) []string {
+func ownedByTenantLabel(obj metav1.Object, tenant *maasv1alpha1.Tenant) bool {
+	labels := obj.GetLabels()
+	return labels != nil &&
+		labels[tenantreconcile.LabelTenantName] == tenant.Name &&
+		labels[tenantreconcile.LabelTenantNamespace] == tenant.Namespace
+}
+
+func isOwnedByTenant(obj metav1.Object, tenant *maasv1alpha1.Tenant) bool {
+	return ownedByTenantRef(obj, tenant) || ownedByTenantLabel(obj, tenant)
+}
+
+func tenantWorkNamespaces(tenant *maasv1alpha1.Tenant, operatorNS string) []string {
 	out := sets.New[string]()
 	if operatorNS != "" {
 		out.Insert(operatorNS)
@@ -87,12 +99,11 @@ func tenantWorkNamespaces(tenant *maasv1alpha1.MaaSTenant, operatorNS string) []
 
 // finalizeTenantDeletion deletes API objects owned by the tenant (owner refs). It returns
 // (stillPending, err): stillPending means children are present or terminating — requeue without removing the finalizer.
-func (r *MaaSTenantReconciler) finalizeTenantDeletion(ctx context.Context, tenant *maasv1alpha1.MaaSTenant) (bool, error) {
+func (r *TenantReconciler) finalizeTenantDeletion(ctx context.Context, tenant *maasv1alpha1.Tenant) (bool, error) {
 	opNS := r.operatorNamespace()
 	namespaces := tenantWorkNamespaces(tenant, opNS)
 	if len(namespaces) == 0 {
-		// Without a target namespace we cannot discover namespaced children; drop finalizer to avoid deadlock.
-		return false, nil
+		return false, fmt.Errorf("cannot finalize Tenant %s/%s: no work namespaces resolved (operator namespace and GatewayRef.Namespace are both empty); namespaced children may be orphaned", tenant.Namespace, tenant.Name)
 	}
 
 	pending := false
@@ -114,7 +125,7 @@ func (r *MaaSTenantReconciler) finalizeTenantDeletion(ctx context.Context, tenan
 	return pending, nil
 }
 
-func (r *MaaSTenantReconciler) deleteOwnedInNamespace(ctx context.Context, tenant *maasv1alpha1.MaaSTenant, ns string) (bool, error) {
+func (r *TenantReconciler) deleteOwnedInNamespace(ctx context.Context, tenant *maasv1alpha1.Tenant, ns string) (bool, error) {
 	pending := false
 
 	var cmList corev1.ConfigMapList
@@ -123,7 +134,7 @@ func (r *MaaSTenantReconciler) deleteOwnedInNamespace(ctx context.Context, tenan
 	}
 	for i := range cmList.Items {
 		item := &cmList.Items[i]
-		if !ownedByMaaSTenant(item, tenant) {
+		if !isOwnedByTenant(item, tenant) {
 			continue
 		}
 		if !item.GetDeletionTimestamp().IsZero() {
@@ -142,7 +153,7 @@ func (r *MaaSTenantReconciler) deleteOwnedInNamespace(ctx context.Context, tenan
 	}
 	for i := range svcList.Items {
 		item := &svcList.Items[i]
-		if !ownedByMaaSTenant(item, tenant) {
+		if !isOwnedByTenant(item, tenant) {
 			continue
 		}
 		if !item.GetDeletionTimestamp().IsZero() {
@@ -161,7 +172,7 @@ func (r *MaaSTenantReconciler) deleteOwnedInNamespace(ctx context.Context, tenan
 	}
 	for i := range saList.Items {
 		item := &saList.Items[i]
-		if !ownedByMaaSTenant(item, tenant) {
+		if !isOwnedByTenant(item, tenant) {
 			continue
 		}
 		if !item.GetDeletionTimestamp().IsZero() {
@@ -180,7 +191,7 @@ func (r *MaaSTenantReconciler) deleteOwnedInNamespace(ctx context.Context, tenan
 	}
 	for i := range depList.Items {
 		item := &depList.Items[i]
-		if !ownedByMaaSTenant(item, tenant) {
+		if !isOwnedByTenant(item, tenant) {
 			continue
 		}
 		if !item.GetDeletionTimestamp().IsZero() {
@@ -193,13 +204,13 @@ func (r *MaaSTenantReconciler) deleteOwnedInNamespace(ctx context.Context, tenan
 		pending = true
 	}
 
-	var npList networkingv1.NetworkPolicyList
+	var npList netwv1.NetworkPolicyList
 	if err := r.List(ctx, &npList, client.InNamespace(ns)); err != nil {
 		return false, fmt.Errorf("list NetworkPolicies in %q: %w", ns, err)
 	}
 	for i := range npList.Items {
 		item := &npList.Items[i]
-		if !ownedByMaaSTenant(item, tenant) {
+		if !isOwnedByTenant(item, tenant) {
 			continue
 		}
 		if !item.GetDeletionTimestamp().IsZero() {
@@ -218,7 +229,7 @@ func (r *MaaSTenantReconciler) deleteOwnedInNamespace(ctx context.Context, tenan
 	}
 	for i := range hrList.Items {
 		item := &hrList.Items[i]
-		if !ownedByMaaSTenant(item, tenant) {
+		if !isOwnedByTenant(item, tenant) {
 			continue
 		}
 		if !item.GetDeletionTimestamp().IsZero() {
@@ -242,7 +253,7 @@ func (r *MaaSTenantReconciler) deleteOwnedInNamespace(ctx context.Context, tenan
 	return pending, nil
 }
 
-func (r *MaaSTenantReconciler) deleteOwnedUnstructured(ctx context.Context, tenant *maasv1alpha1.MaaSTenant, ns string, gvk schema.GroupVersionKind) (bool, error) {
+func (r *TenantReconciler) deleteOwnedUnstructured(ctx context.Context, tenant *maasv1alpha1.Tenant, ns string, gvk schema.GroupVersionKind) (bool, error) {
 	listGVK := gvk
 	listGVK.Kind = gvk.Kind + "List"
 
@@ -259,7 +270,7 @@ func (r *MaaSTenantReconciler) deleteOwnedUnstructured(ctx context.Context, tena
 	pending := false
 	for i := range ul.Items {
 		obj := &ul.Items[i]
-		if !ownedByMaaSTenant(obj, tenant) {
+		if !isOwnedByTenant(obj, tenant) {
 			continue
 		}
 		if !obj.GetDeletionTimestamp().IsZero() {
@@ -274,7 +285,7 @@ func (r *MaaSTenantReconciler) deleteOwnedUnstructured(ctx context.Context, tena
 	return pending, nil
 }
 
-func (r *MaaSTenantReconciler) deleteOwnedClusterScoped(ctx context.Context, tenant *maasv1alpha1.MaaSTenant) (bool, error) {
+func (r *TenantReconciler) deleteOwnedClusterScoped(ctx context.Context, tenant *maasv1alpha1.Tenant) (bool, error) {
 	pending := false
 
 	var crList rbacv1.ClusterRoleList
@@ -283,7 +294,7 @@ func (r *MaaSTenantReconciler) deleteOwnedClusterScoped(ctx context.Context, ten
 	}
 	for i := range crList.Items {
 		item := &crList.Items[i]
-		if !ownedByMaaSTenant(item, tenant) {
+		if !isOwnedByTenant(item, tenant) {
 			continue
 		}
 		if !item.GetDeletionTimestamp().IsZero() {
@@ -302,7 +313,7 @@ func (r *MaaSTenantReconciler) deleteOwnedClusterScoped(ctx context.Context, ten
 	}
 	for i := range crbList.Items {
 		item := &crbList.Items[i]
-		if !ownedByMaaSTenant(item, tenant) {
+		if !isOwnedByTenant(item, tenant) {
 			continue
 		}
 		if !item.GetDeletionTimestamp().IsZero() {

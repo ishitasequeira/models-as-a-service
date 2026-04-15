@@ -12,7 +12,6 @@ import (
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 
@@ -20,7 +19,7 @@ import (
 )
 
 // PostRender mutates rendered resources the same way as ODH modelsasservice post-kustomize actions.
-func PostRender(ctx context.Context, log logr.Logger, tenant *maasv1alpha1.MaaSTenant, resources []unstructured.Unstructured) ([]unstructured.Unstructured, error) {
+func PostRender(ctx context.Context, log logr.Logger, tenant *maasv1alpha1.Tenant, resources []unstructured.Unstructured) ([]unstructured.Unstructured, error) {
 	gatewayNamespace := tenant.Spec.GatewayRef.Namespace
 	gatewayName := tenant.Spec.GatewayRef.Name
 
@@ -67,7 +66,7 @@ func configureDestinationRule(log logr.Logger, resource *unstructured.Unstructur
 	resource.SetNamespace(gatewayNamespace)
 }
 
-func configureExternalOIDC(log logr.Logger, tenant *maasv1alpha1.MaaSTenant, resources []unstructured.Unstructured) error {
+func configureExternalOIDC(log logr.Logger, tenant *maasv1alpha1.Tenant, resources []unstructured.Unstructured) error {
 	if tenant.Spec.ExternalOIDC == nil {
 		return nil
 	}
@@ -87,13 +86,13 @@ func patchAuthPolicyWithOIDC(log logr.Logger, resource *unstructured.Unstructure
 	if ttl == 0 {
 		ttl = 300
 	}
-	if err := unstructured.SetNestedField(resource.Object, map[string]interface{}{
-		"when": []interface{}{
-			map[string]interface{}{
+	if err := unstructured.SetNestedField(resource.Object, map[string]any{
+		"when": []any{
+			map[string]any{
 				"predicate": `!request.headers.authorization.startsWith("Bearer sk-oai-") && request.headers.authorization.matches("^Bearer [^.]+\\.[^.]+\\.[^.]+$")`,
 			},
 		},
-		"jwt": map[string]interface{}{
+		"jwt": map[string]any{
 			"issuerUrl": oidc.IssuerURL,
 			"ttl":       ttl,
 		},
@@ -105,22 +104,22 @@ func patchAuthPolicyWithOIDC(log logr.Logger, resource *unstructured.Unstructure
 		"spec", "rules", "authentication", "openshift-identities", "priority"); err != nil {
 		return fmt.Errorf("failed to set openshift-identities priority: %w", err)
 	}
-	if err := unstructured.SetNestedField(resource.Object, []interface{}{
-		map[string]interface{}{
+	if err := unstructured.SetNestedField(resource.Object, []any{
+		map[string]any{
 			"predicate": `!request.headers.authorization.startsWith("Bearer sk-oai-")`,
 		},
 	}, "spec", "rules", "authentication", "openshift-identities", "when"); err != nil {
 		return fmt.Errorf("failed to set openshift-identities when: %w", err)
 	}
-	if err := unstructured.SetNestedField(resource.Object, map[string]interface{}{
-		"when": []interface{}{
-			map[string]interface{}{
+	if err := unstructured.SetNestedField(resource.Object, map[string]any{
+		"when": []any{
+			map[string]any{
 				"predicate": `!request.headers.authorization.startsWith("Bearer sk-oai-") && request.headers.authorization.matches("^Bearer [^.]+\\.[^.]+\\.[^.]+$")`,
 			},
 		},
-		"patternMatching": map[string]interface{}{
-			"patterns": []interface{}{
-				map[string]interface{}{
+		"patternMatching": map[string]any{
+			"patterns": []any{
+				map[string]any{
 					"selector": "auth.identity.azp",
 					"operator": "eq",
 					"value":    oidc.ClientID,
@@ -131,7 +130,7 @@ func patchAuthPolicyWithOIDC(log logr.Logger, resource *unstructured.Unstructure
 	}, "spec", "rules", "authorization", "oidc-client-bound"); err != nil {
 		return fmt.Errorf("failed to set oidc-client-bound: %w", err)
 	}
-	if err := unstructured.SetNestedField(resource.Object, map[string]interface{}{
+	if err := unstructured.SetNestedField(resource.Object, map[string]any{
 		"expression": `has(auth.identity.preferred_username) ? auth.identity.preferred_username : (has(auth.identity.sub) ? auth.identity.sub : auth.identity.user.username)`,
 	}, "spec", "rules", "response", "success", "headers", "X-MaaS-Username-OC", "plain"); err != nil {
 		return fmt.Errorf("failed to set X-MaaS-Username-OC: %w", err)
@@ -141,7 +140,7 @@ func patchAuthPolicyWithOIDC(log logr.Logger, resource *unstructured.Unstructure
 		`'["system:authenticated","' + auth.identity.groups.join('","') + '"]' : ` +
 		`'["system:authenticated"]') : ` +
 		`'["' + auth.identity.user.groups.join('","') + '"]'`
-	if err := unstructured.SetNestedField(resource.Object, map[string]interface{}{
+	if err := unstructured.SetNestedField(resource.Object, map[string]any{
 		"expression": groupsExpr,
 	}, "spec", "rules", "response", "success", "headers", "X-MaaS-Group-OC", "plain"); err != nil {
 		return fmt.Errorf("failed to set X-MaaS-Group-OC: %w", err)
@@ -150,7 +149,7 @@ func patchAuthPolicyWithOIDC(log logr.Logger, resource *unstructured.Unstructure
 	return nil
 }
 
-func configureTelemetryPolicyResources(log logr.Logger, tenant *maasv1alpha1.MaaSTenant, resources *[]unstructured.Unstructured) error {
+func configureTelemetryPolicyResources(log logr.Logger, tenant *maasv1alpha1.Tenant, resources *[]unstructured.Unstructured) error {
 	if tenant.Spec.Telemetry == nil || tenant.Spec.Telemetry.Enabled == nil || !*tenant.Spec.Telemetry.Enabled {
 		return nil
 	}
@@ -158,15 +157,6 @@ func configureTelemetryPolicyResources(log logr.Logger, tenant *maasv1alpha1.Maa
 	gatewayNamespace := tenant.Spec.GatewayRef.Namespace
 	gatewayName := tenant.Spec.GatewayRef.Name
 	metricLabels := buildTelemetryLabels(log, tenant.Spec.Telemetry)
-	t := true
-	ownerRef := metav1.OwnerReference{
-		APIVersion:         maasv1alpha1.GroupVersion.String(),
-		Kind:               maasv1alpha1.MaaSTenantKind,
-		Name:               tenant.Name,
-		UID:                tenant.UID,
-		Controller:         &t,
-		BlockOwnerDeletion: &t,
-	}
 	tp := &unstructured.Unstructured{
 		Object: map[string]any{
 			"apiVersion": "extensions.kuadrant.io/v1alpha1",
@@ -176,6 +166,8 @@ func configureTelemetryPolicyResources(log logr.Logger, tenant *maasv1alpha1.Maa
 				"namespace": gatewayNamespace,
 				"labels": map[string]any{
 					"app.kubernetes.io/part-of": "maas-observability",
+					LabelTenantName:             tenant.Name,
+					LabelTenantNamespace:        tenant.Namespace,
 				},
 			},
 			"spec": map[string]any{
@@ -192,27 +184,17 @@ func configureTelemetryPolicyResources(log logr.Logger, tenant *maasv1alpha1.Maa
 			},
 		},
 	}
-	tp.SetOwnerReferences([]metav1.OwnerReference{ownerRef})
 	log.V(2).Info("Appending TelemetryPolicy", "name", TelemetryPolicyName, "namespace", gatewayNamespace)
 	*resources = append(*resources, *tp)
 	return nil
 }
 
-func configureIstioTelemetryResources(log logr.Logger, tenant *maasv1alpha1.MaaSTenant, resources *[]unstructured.Unstructured) error {
+func configureIstioTelemetryResources(log logr.Logger, tenant *maasv1alpha1.Tenant, resources *[]unstructured.Unstructured) error {
 	if tenant.Spec.Telemetry == nil || tenant.Spec.Telemetry.Enabled == nil || !*tenant.Spec.Telemetry.Enabled {
 		return nil
 	}
 	gatewayNamespace := tenant.Spec.GatewayRef.Namespace
 	gatewayName := tenant.Spec.GatewayRef.Name
-	t := true
-	ownerRef := metav1.OwnerReference{
-		APIVersion:         maasv1alpha1.GroupVersion.String(),
-		Kind:               maasv1alpha1.MaaSTenantKind,
-		Name:               tenant.Name,
-		UID:                tenant.UID,
-		Controller:         &t,
-		BlockOwnerDeletion: &t,
-	}
 	istioTelemetry := &unstructured.Unstructured{
 		Object: map[string]any{
 			"apiVersion": "telemetry.istio.io/v1",
@@ -222,6 +204,8 @@ func configureIstioTelemetryResources(log logr.Logger, tenant *maasv1alpha1.MaaS
 				"namespace": gatewayNamespace,
 				"labels": map[string]any{
 					"app.kubernetes.io/part-of": "maas-observability",
+					LabelTenantName:             tenant.Name,
+					LabelTenantNamespace:        tenant.Namespace,
 				},
 			},
 			"spec": map[string]any{
@@ -249,7 +233,6 @@ func configureIstioTelemetryResources(log logr.Logger, tenant *maasv1alpha1.MaaS
 			},
 		},
 	}
-	istioTelemetry.SetOwnerReferences([]metav1.OwnerReference{ownerRef})
 	log.V(2).Info("Appending Istio Telemetry", "name", IstioTelemetryName, "namespace", gatewayNamespace)
 	*resources = append(*resources, *istioTelemetry)
 	return nil
@@ -369,7 +352,7 @@ func hashConfigMapData(data map[string]string) string {
 
 // CustomizeParams writes gateway/app-namespace/cluster-audience and optional API key days into overlay params.env
 // (same keys as ODH customizeManifests; images use RELATED_IMAGE_* like ODH Init + ApplyParams).
-func CustomizeParams(manifestDir string, tenant *maasv1alpha1.MaaSTenant, appNamespace string, clusterAudience string) error {
+func CustomizeParams(manifestDir string, tenant *maasv1alpha1.Tenant, appNamespace string, clusterAudience string) error {
 	params := map[string]string{
 		"gateway-namespace": tenant.Spec.GatewayRef.Namespace,
 		"gateway-name":      tenant.Spec.GatewayRef.Name,
