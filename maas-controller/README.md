@@ -1,10 +1,26 @@
 # MaaS Controller
 
-Control plane for the Models-as-a-Service (MaaS) subscription model. It reconciles **MaaSModelRef**, **MaaSAuthPolicy**, and **MaaSSubscription** custom resources and creates the corresponding Kuadrant AuthPolicies and TokenRateLimitPolicies, plus HTTPRoutes where needed.
+Control plane for the Models-as-a-Service (MaaS) platform. The controller has two main responsibilities:
+
+1. **Tenant reconciler** — deploys and manages `maas-api` via Server-Side Apply (SSA). The controller image includes the kustomize manifests and renders them at runtime, applying namespace, image, and configuration overrides from the `Tenant` CR and environment variables.
+2. **Subscription reconciler** — reconciles **MaaSModelRef**, **MaaSAuthPolicy**, and **MaaSSubscription** custom resources and creates the corresponding Kuadrant AuthPolicies and TokenRateLimitPolicies, plus HTTPRoutes where needed.
 
 For a comparison of the old tier-based flow vs the new subscription flow, see [docs/old-vs-new-flow.md](docs/old-vs-new-flow.md).
 
 ## Architecture
+
+### Tenant reconciler
+
+The Tenant reconciler watches `Tenant` CRs and deploys `maas-api` into the target namespace. On startup the controller creates a `default-tenant` CR if one does not exist. The reconciler:
+
+- Renders the embedded kustomize overlay (`maas-api/deploy/overlays/odh`) with runtime parameters (namespace, image, TLS settings)
+- Applies the rendered manifests via SSA with `ForceOwnership`, so the controller is the sole owner
+- Deploys gateway default policies (`AuthPolicy` for deny-unauthenticated, `TokenRateLimitPolicy` for deny-unsubscribed)
+- Annotates the `maas-api` AuthPolicy with `opendatahub.io/managed=false` to prevent the ODH operator from reverting customizations
+
+The `RELATED_IMAGE_ODH_MAAS_API_IMAGE` environment variable controls which `maas-api` image the Tenant reconciler deploys. When set on the controller Deployment, it overrides the default image in the kustomize manifests.
+
+### Subscription model
 
 The controller implements a **dual-gate** model where both gates must pass for a request to succeed:
 
@@ -213,18 +229,15 @@ Common groups: `dedicated-admins`, `system:authenticated`, `system:authenticated
 
 All commands below are meant to be run from the **repository root** (the directory containing `maas-controller/`).
 
-### Option A: Full deploy with subscription controller (recommended)
+### Option A: Full deploy (recommended)
 
-Deploy the entire MaaS stack including the subscription controller in one command:
+Deploy the entire MaaS stack in one command. The script installs prerequisites (policy engine, Gateway, PostgreSQL, Authorino TLS) and deploys `maas-controller`, which then deploys `maas-api` via the Tenant reconciler:
 
 ```bash
 ./scripts/deploy.sh --operator-type odh
 ```
 
-This installs all infrastructure (cert-manager, LWS, Kuadrant, ODH, gateway, policies)
-plus the subscription controller.
-
-### Option B: Add subscription controller to an existing deployment
+### Option B: Add controller to an existing deployment
 
 If MaaS infrastructure is already deployed, install just the controller:
 
@@ -249,11 +262,12 @@ kubectl get crd | grep maas.opendatahub.io
 
 | Component | Path | Description |
 | --------- | ---- | ----------- |
-| CRDs | `deployment/base/maas-controller/crd/` | MaaSModelRef, MaaSAuthPolicy, MaaSSubscription |
+| CRDs | `deployment/base/maas-controller/crd/` | MaaSModelRef, MaaSAuthPolicy, MaaSSubscription, Tenant |
 | RBAC | `deployment/base/maas-controller/rbac/` | ClusterRole, ServiceAccount, bindings |
 | Controller | `deployment/base/maas-controller/manager/` | Deployment (`quay.io/opendatahub/maas-controller:latest`) |
 | Default auth policy | `deployment/base/maas-controller/policies/` | Gateway-level AuthPolicy (deny unauthenticated, 401/403) |
 | Default deny policy | `deployment/base/maas-controller/policies/` | Gateway-level TokenRateLimitPolicy with 0 tokens (deny unsubscribed, 429) |
+| maas-api (via Tenant) | Embedded kustomize manifests | Deployed at runtime by the Tenant reconciler |
 
 ## Examples
 
@@ -352,8 +366,10 @@ kubectl annotate tokenratelimitpolicy <name> -n <namespace> opendatahub.io/manag
 
 The default deployment uses `quay.io/opendatahub/maas-controller:latest`.
 
+The Dockerfile builds from the **repository root** context (not `maas-controller/`) because the controller image includes kustomize manifests from `maas-api/deploy/` and `deployment/`.
+
 ```bash
-make -C maas-controller image-build                    # build with podman/buildah/docker
+make -C maas-controller image-build                    # build with podman/buildah/docker (from repo root)
 make -C maas-controller image-push                     # push to quay.io/opendatahub/maas-controller:latest (this image is created automatically on main branch, so preferably push images with different tag and/or to your temp registry if you are doing some testing and verification)
 
 # Custom image/tag
