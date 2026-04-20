@@ -111,8 +111,9 @@ kubectl get tokenratelimitpolicy -A
 kubectl get ratelimitpolicy -A
 
 # Check MaaS API (deployed by Tenant reconciler in the application namespace)
-kubectl get pods -n opendatahub -l app.kubernetes.io/name=maas-api
-kubectl get svc -n opendatahub maas-api
+# APP_NS is "opendatahub" for ODH or "redhat-ods-applications" for RHOAI
+kubectl get pods -n ${APP_NS} -l app.kubernetes.io/name=maas-api
+kubectl get svc -n ${APP_NS} maas-api
 
 # Check Kuadrant operators
 kubectl get pods -n kuadrant-system
@@ -122,7 +123,7 @@ kubectl get tenant default-tenant -n models-as-a-service
 
 # Check RHOAI/KServe
 kubectl get pods -n kserve
-kubectl get pods -n opendatahub
+kubectl get pods -n ${APP_NS}
 ```
 
 !!! tip "TLS Configuration"

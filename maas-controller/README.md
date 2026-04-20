@@ -26,7 +26,7 @@ The `RELATED_IMAGE_ODH_MAAS_API_IMAGE` environment variable controls which `maas
 
 **Self-bootstrap singleton.** The controller creates `default-tenant` on startup if it does not exist. A CEL validation rule (`self.metadata.name == 'default-tenant'`) enforces exactly one Tenant per namespace. This is consistent with the ODH component lifecycle (DSC enables → operator deploys controller → controller creates CR) while keeping the platform workload lifecycle inside `maas-controller`.
 
-**Cross-namespace ownership.** The Tenant CR lives in the app namespace but four resources are created in the gateway namespace (`openshift-ingress`): `AuthPolicy`, `TokenRateLimitPolicy`, `DestinationRule`, `TelemetryPolicy`, and `Istio Telemetry`. Kubernetes rejects cross-namespace `ownerReference`, so these use tracking labels instead:
+**Cross-namespace ownership.** The Tenant CR lives in the app namespace but five resources are created in the gateway namespace (`openshift-ingress`): `AuthPolicy`, `TokenRateLimitPolicy`, `DestinationRule`, `TelemetryPolicy`, and `Istio Telemetry`. Kubernetes rejects cross-namespace `ownerReference`, so these use tracking labels instead:
 
 ```yaml
 labels:
@@ -34,7 +34,7 @@ labels:
   maas.opendatahub.io/tenant-namespace: models-as-a-service
 ```
 
-Same-namespace and cluster-scoped children use standard `ownerReference` (automatic GC). Cross-namespace children are cleaned up by the Tenant finalizer via label queries.
+Same-namespace children use standard `ownerReference` (automatic GC). Cluster-scoped and cross-namespace children use tracking labels and are cleaned up by the Tenant finalizer via label queries.
 
 ### Subscription model
 

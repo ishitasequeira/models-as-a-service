@@ -2,9 +2,6 @@
 
 This document describes the **MaaS Controller**: what was built, how it fits into the Models-as-a-Service (MaaS) stack, and how the pieces work together. It is intended for presentations, onboarding, and technical deep-dives.
 
-!!! todo "Documentation cleanup"
-    TODO: Clean up this documentation.
-
 ---
 
 ## 1. What Is the MaaS Controller?
@@ -85,7 +82,7 @@ The **MaaS API** GET /v1/models endpoint uses MaaSModelRef CRs as its primary so
 
 ## 2.1. Tenant Resource Layout
 
-The `Tenant` CR is namespace-scoped (lives in `models-as-a-service`). It owns resources across three scopes — same-namespace children use standard `ownerReference`, cluster-scoped resources use `ownerReference`, and cross-namespace children in the gateway namespace use **tracking labels** (Kubernetes rejects cross-namespace ownerRefs).
+The `Tenant` CR is namespace-scoped (lives in `models-as-a-service`). It owns resources across three scopes — same-namespace children use standard `ownerReference`, while cluster-scoped and cross-namespace children use **tracking labels** (Kubernetes rejects cross-namespace and namespaced-to-cluster ownerRefs).
 
 ```mermaid
 graph TB
@@ -119,8 +116,8 @@ graph TB
     Tenant -->|ownerRef| NP
     Tenant -->|ownerRef| HR
     Tenant -->|ownerRef| AP2
-    Tenant -->|ownerRef| CR
-    Tenant -->|ownerRef| CRB
+    Tenant -.->|tracking labels| CR
+    Tenant -.->|tracking labels| CRB
     Tenant -.->|tracking labels| AP
     Tenant -.->|tracking labels| DR
     Tenant -.->|tracking labels| TP
