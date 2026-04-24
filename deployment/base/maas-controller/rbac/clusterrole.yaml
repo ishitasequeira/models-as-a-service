@@ -39,16 +39,9 @@ rules:
   resources:
   - secrets
   verbs:
+  - get
   - list
   - watch
-- apiGroups:
-  - ""
-  resourceNames:
-  - maas-db-config
-  resources:
-  - secrets
-  verbs:
-  - get
 - apiGroups:
   - ""
   resources:
