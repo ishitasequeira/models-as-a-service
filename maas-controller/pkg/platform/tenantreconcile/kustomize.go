@@ -70,7 +70,9 @@ func postBuildTransform(resMap resmap.ResMap, appNamespace string) error {
 		if appNamespace != "" {
 			ns := res.GetNamespace()
 			if ns == overlayDefaultNamespace {
-				res.SetNamespace(appNamespace)
+				if err := res.SetNamespace(appNamespace); err != nil {
+					return fmt.Errorf("set namespace on %s %s: %w", res.GetKind(), res.GetName(), err)
+				}
 			}
 		}
 
@@ -83,9 +85,9 @@ func postBuildTransform(resMap resmap.ResMap, appNamespace string) error {
 		if appNamespace != "" {
 			kind := res.GetKind()
 			if kind == "ClusterRoleBinding" || kind == "RoleBinding" {
-				if subjects, ok := m["subjects"].([]interface{}); ok {
+				if subjects, ok := m["subjects"].([]any); ok {
 					for _, s := range subjects {
-						if subj, ok := s.(map[string]interface{}); ok {
+						if subj, ok := s.(map[string]any); ok {
 							if sns, ok := subj["namespace"].(string); ok && sns == overlayDefaultNamespace {
 								subj["namespace"] = appNamespace
 							}
