@@ -25,7 +25,7 @@
     
     
       
-        <title>Observability - ODH Models-as-a-Service Documentation</title>
+        <title>Observability Dashboard - ODH Models-as-a-Service Documentation</title>
       
     
     
@@ -76,7 +76,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#observability" class="md-skip">
+        <a href="#observability-dashboard" class="md-skip">
           Skip to content
         </a>
       
@@ -113,7 +113,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Observability
+              Observability Dashboard
             
           </span>
         </div>
@@ -327,7 +327,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../user-guide/self-service-model-access/" class="md-tabs__link">
+        <a href="../../user-guide/api-key-management/" class="md-tabs__link">
           
   
   
@@ -783,6 +783,62 @@
     
   
     Model Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/api-key-authentication/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Key Authentication
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/model-access-control/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Access Control
   
 
     
@@ -1361,14 +1417,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../configuration-and-management/token-management/" class="md-nav__link">
+      <a href="../../configuration-and-management/api-key-administration/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Token Management
+    API Key Administration
   
 
     
@@ -1425,34 +1481,6 @@
     
   
     TLS Configuration
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../configuration-and-management/subscription-known-issues/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Subscription limitations & known issues
   
 
     
@@ -1824,7 +1852,7 @@
   <span class="md-ellipsis">
     
   
-    Observability
+    Observability Dashboard
   
 
     
@@ -1842,7 +1870,7 @@
   <span class="md-ellipsis">
     
   
-    Observability
+    Observability Dashboard
   
 
     
@@ -2490,34 +2518,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../subscription-cardinality/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Subscription Cardinality
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../../configuration-and-management/authorino-caching/" class="md-nav__link">
         
   
@@ -2615,14 +2615,70 @@
   
   
     <li class="md-nav__item">
-      <a href="../../user-guide/self-service-model-access/" class="md-nav__link">
+      <a href="../../user-guide/api-key-management/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Self Service Model Access
+    API Key Management
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/model-discovery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Discovery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/inference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Inference
   
 
     
@@ -3648,7 +3704,7 @@
   
 
 
-<h1 id="observability">Observability</h1>
+<h1 id="observability-dashboard">Observability Dashboard</h1>
 <p>This document covers the observability stack for the MaaS Platform, including metrics collection, monitoring, and visualization.</p>
 <h2 id="prerequisites">Prerequisites</h2>
 <p>Before deploying the observability stack, ensure the following platform prerequisites are configured. Without these, metrics pipelines for dashboards and showback will not function.</p>
@@ -5176,7 +5232,7 @@ histogram_quantile(0.99, sum by (subscription, le) (rate(istio_request_duration_
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="April 21, 2026 16:12:19 UTC">April 21, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="April 29, 2026 14:54:18 UTC">April 29, 2026</span>
   </span>
 
     
