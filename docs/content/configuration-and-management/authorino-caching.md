@@ -34,26 +34,38 @@ The maas-controller deployment supports the following environment variables:
 
 ### Deployment Configuration
 
-#### Via params.env (ODH Overlay)
+#### Via `maas-parameters` ConfigMap (running cluster)
 
-Edit `deployment/overlays/odh/params.env`:
+Patch the ConfigMap and restart the controller to pick up the changes:
+
+```bash
+CONTROLLER_NS=opendatahub
+
+kubectl patch configmap maas-parameters -n $CONTROLLER_NS \
+  --type merge \
+  -p '{"data":{"metadata-cache-ttl":"300","authz-cache-ttl":"30"}}'
+
+kubectl rollout restart deployment/maas-controller -n $CONTROLLER_NS
+```
+
+#### Via `deployment/overlays/odh/params.env` (changing source defaults)
+
+This file is read by the ODH operator at install time to populate `maas-parameters`. Edit it to change the defaults baked into the deployment:
 
 ```env
 metadata-cache-ttl=300  # 5 minutes
 authz-cache-ttl=30      # 30 seconds
 ```
 
-These values are injected into the maas-controller deployment via ConfigMap.
+#### Via manager.yaml (base deployment)
 
-#### Via manager.yaml (Base Deployment)
-
-Edit `deployment/base/maas-controller/manager/manager.yaml` to change hardcoded values and add env vars:
+Edit `deployment/base/maas-controller/manager/manager.yaml` to change hardcoded values:
 
 ```yaml
 args:
   # ... other args ...
-  - --metadata-cache-ttl=$(METADATA_CACHE_TTL)  # Change from hardcoded 60
-  - --authz-cache-ttl=$(AUTHZ_CACHE_TTL)        # Change from hardcoded 60
+  - --metadata-cache-ttl=$(METADATA_CACHE_TTL)
+  - --authz-cache-ttl=$(AUTHZ_CACHE_TTL)
 env:
   - name: METADATA_CACHE_TTL
     value: "300"  # 5 minutes

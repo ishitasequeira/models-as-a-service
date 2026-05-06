@@ -274,7 +274,7 @@ After creating the database Secret and Gateways, create or update your DataScien
     Deploy MaaS (run from the project root; ensure the `maas-db-config` Secret exists per [Database Setup](#database-setup)):
 
     ```bash
-    ./scripts/deploy.sh
+    ./scripts/deploy.sh --deployment-mode kustomize
     ```
 
 !!! tip "Troubleshooting"

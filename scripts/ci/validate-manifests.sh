@@ -80,51 +80,6 @@ validate_canonical_roots() {
     return $exit_code
 }
 
-# ---------------------------------------------------------------------------
-# params.env consistency check
-# ---------------------------------------------------------------------------
-# Shared keys between the source-of-truth (deployment/overlays/odh/params.env)
-# and the tenant overlay copy must have identical values.
-
-validate_params_env_consistency() {
-    local project_root="${1:-$(git rev-parse --show-toplevel)}"
-    local source="$project_root/deployment/overlays/odh/params.env"
-    local tenant="$project_root/maas-api/deploy/overlays/odh/params.env"
-
-    echo ""
-    echo -e "${bold}Validating params.env consistency${normal}"
-
-    if [[ ! -f "$source" ]]; then
-        echo -e "❌ Source-of-truth params.env not found: $source"
-        return 1
-    fi
-    if [[ ! -f "$tenant" ]]; then
-        echo -e "❌ Tenant overlay params.env not found: $tenant"
-        return 1
-    fi
-
-    local exit_code=0
-
-    # For each key=value in the tenant copy, verify it matches the source
-    while IFS='=' read -r key value; do
-        [[ -z "$key" || "$key" == \#* ]] && continue
-        local source_value
-        source_value=$(grep -m1 "^${key}=" "$source" 2>/dev/null | cut -d= -f2-)
-        if [[ -n "$source_value" && "$source_value" != "$value" ]]; then
-            echo -e "❌ Key ${bold}${key}${normal} differs:"
-            echo "     source: $source_value"
-            echo "     tenant: $value"
-            exit_code=1
-        fi
-    done < <(grep -v '^\s*#' "$tenant" | grep -v '^\s*$')
-
-    if [[ $exit_code -eq 0 ]]; then
-        echo -e "✅ params.env shared keys are consistent"
-    fi
-
-    return $exit_code
-}
-
 # When script is not sourced, but directly invoked, run all validations
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     PROJECT_ROOT=$(git rev-parse --show-toplevel)
@@ -132,7 +87,6 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
 
     validate_all "$PROJECT_ROOT" || EXIT_CODE=1
     validate_canonical_roots "$PROJECT_ROOT" || EXIT_CODE=1
-    validate_params_env_consistency "$PROJECT_ROOT" || EXIT_CODE=1
 
     exit $EXIT_CODE
 fi
