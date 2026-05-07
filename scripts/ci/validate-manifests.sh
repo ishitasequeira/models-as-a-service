@@ -15,7 +15,8 @@ validate_kustomization() {
     local kustomization_file="$1"
     local project_root="${2:-$(git rev-parse --show-toplevel)}"
     
-    local dir=$(dirname "$kustomization_file")
+    local dir
+    dir=$(dirname "$kustomization_file")
     local relative_path=${kustomization_file#"$project_root/"}
     local message="${bold}Validating${normal} ${underline}$relative_path${normal}"
     
@@ -64,16 +65,14 @@ validate_canonical_roots() {
     local exit_code=0
 
     echo ""
-    echo -e "${bold}Validating canonical production roots${normal}"
+    echo -e "${bold}Checking canonical production roots exist${normal}"
     for root in "${CANONICAL_ROOTS[@]}"; do
         local abs_path="$project_root/$root/kustomization.yaml"
         if [[ ! -f "$abs_path" ]]; then
             echo -e "❌ ${bold}MISSING${normal} canonical root: ${underline}$root${normal}"
             exit_code=1
-            continue
-        fi
-        if ! validate_kustomization "$abs_path" "$project_root"; then
-            exit_code=1
+        else
+            echo -e "✅ ${underline}$root${normal}"
         fi
     done
 

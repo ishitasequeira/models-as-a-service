@@ -53,8 +53,10 @@ kubectl rollout restart deployment/maas-controller -n $CONTROLLER_NS
 This file is read by the ODH operator at install time to populate `maas-parameters`. Edit it to change the defaults baked into the deployment:
 
 ```env
-metadata-cache-ttl=300  # 5 minutes
-authz-cache-ttl=30      # 30 seconds
+# 5 minutes
+metadata-cache-ttl=300
+# 30 seconds
+authz-cache-ttl=30
 ```
 
 #### Via manager.yaml (base deployment)
