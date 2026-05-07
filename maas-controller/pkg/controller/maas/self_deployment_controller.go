@@ -55,17 +55,17 @@ const requeueInterval = 5 * time.Second
 // then releases the finalizer so the Deployment object can be fully removed.
 // This gives Tenant's own finalizer time to clean up maas-api, auth policies,
 // Perses dashboards, and other owned resources before the controller exits.
-//
-//+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;update;patch
-//+kubebuilder:rbac:groups=apps,resources=deployments/finalizers,verbs=update
-//+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles;clusterrolebindings,verbs=list;delete
-//+kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=list;delete
 type LifecycleReconciler struct {
 	client.Client
 	DeploymentName  string
 	DeploymentNS    string
 	TenantNamespace string
 }
+
+//+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;update;patch
+//+kubebuilder:rbac:groups=apps,resources=deployments/finalizers,verbs=update
+//+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles;clusterrolebindings,verbs=list;delete
+//+kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=list;delete
 
 func (r *LifecycleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrl.Log.WithName("self-deployment").WithValues("deployment", req.NamespacedName)
