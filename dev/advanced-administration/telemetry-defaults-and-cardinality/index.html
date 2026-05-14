@@ -8,13 +8,9 @@
       
       
       
-        <link rel="canonical" href="https://opendatahub-io.github.io/models-as-a-service/dev/configuration-and-management/maas-model-kinds/">
+        <link rel="canonical" href="https://opendatahub-io.github.io/models-as-a-service/dev/advanced-administration/telemetry-defaults-and-cardinality/">
       
       
-        <link rel="prev" href="../model-listing-flow/">
-      
-      
-        <link rel="next" href="../maas-controller-overview/">
       
       
         
@@ -25,7 +21,7 @@
     
     
       
-        <title>MaaS Model Kinds - ODH Models-as-a-Service Documentation</title>
+        <title>Telemetry Defaults and Cardinality Guidance - ODH Models-as-a-Service Documentation</title>
       
     
     
@@ -76,7 +72,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#maasmodelref-kinds" class="md-skip">
+        <a href="#telemetry-defaults-and-cardinality-guidance" class="md-skip">
           Skip to content
         </a>
       
@@ -113,7 +109,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              MaaS Model Kinds
+              Telemetry Defaults and Cardinality Guidance
             
           </span>
         </div>
@@ -289,8 +285,6 @@
   
   
   
-    
-  
   
     
     
@@ -298,13 +292,11 @@
   
   
   
-    
-  
   
     
     
-      <li class="md-tabs__item md-tabs__item--active">
-        <a href="../quota-and-access-configuration/" class="md-tabs__link">
+      <li class="md-tabs__item">
+        <a href="../../configuration-and-management/quota-and-access-configuration/" class="md-tabs__link">
           
   
   
@@ -347,11 +339,11 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../contributing/testing-guide/" class="md-tabs__link">
+        <a href="../../architecture-internals/controller-architecture/" class="md-tabs__link">
           
   
   
-  Contributing
+  Developer Guide
 
         </a>
       </li>
@@ -602,6 +594,34 @@
     
   
     Tier to Subscription
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../migration/upgrade-3.2-to-3.4/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Upgrade 3.2 to 3.4
   
 
     
@@ -1155,7 +1175,7 @@
   <span class="md-ellipsis">
     
   
-    Model Setup (On Cluster)
+    Model Setup
   
 
     
@@ -1272,31 +1292,28 @@
       
   
   
-    
   
   
-  
     
     
     
     
-      
-        
-        
       
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
-        
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
         
           
-          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
             
   
   
@@ -1314,7 +1331,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1338,13 +1355,10 @@
       
       
         
-          
-          
-        
       
     
     
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
@@ -1353,7 +1367,7 @@
         <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4_1" >
         
           
-          <label class="md-nav__link" for="__nav_4_1" id="__nav_4_1_label" tabindex="">
+          <label class="md-nav__link" for="__nav_4_1" id="__nav_4_1_label" tabindex="0">
             
   
   
@@ -1389,7 +1403,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../quota-and-access-configuration/" class="md-nav__link">
+      <a href="../../configuration-and-management/quota-and-access-configuration/" class="md-nav__link">
         
   
   
@@ -1417,7 +1431,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api-key-administration/" class="md-nav__link">
+      <a href="../../configuration-and-management/api-key-administration/" class="md-nav__link">
         
   
   
@@ -1445,7 +1459,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../namespace-rbac/" class="md-nav__link">
+      <a href="../../configuration-and-management/namespace-rbac/" class="md-nav__link">
         
   
   
@@ -1473,7 +1487,35 @@
   
   
     <li class="md-nav__item">
-      <a href="../tls-configuration/" class="md-nav__link">
+      <a href="../../configuration-and-management/troubleshooting-external-model-rbac/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting ExternalModel RBAC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration-and-management/tls-configuration/" class="md-nav__link">
         
   
   
@@ -1494,6 +1536,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration-and-management/gateway-patterns/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gateway Patterns
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1506,31 +1576,28 @@
                 
   
   
-    
   
   
-  
     
     
     
     
       
       
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
         
           
-          
         
-      
-    
-    
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
-      
-        
-        
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_2" checked>
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4_2" >
         
           
-          <label class="md-nav__link" for="__nav_4_2" id="__nav_4_2_label" tabindex="">
+          <label class="md-nav__link" for="__nav_4_2" id="__nav_4_2_label" tabindex="0">
             
   
   
@@ -1548,7 +1615,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_2_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_2_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_4_2">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1566,14 +1633,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../model-setup/" class="md-nav__link">
+      <a href="../../configuration-and-management/model-setup/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Model Setup (On Cluster)
+    Model Setup
   
 
     
@@ -1594,7 +1661,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../model-listing-flow/" class="md-nav__link">
+      <a href="../../configuration-and-management/model-listing-flow/" class="md-nav__link">
         
   
   
@@ -1615,175 +1682,6 @@
 
               
             
-              
-                
-  
-  
-    
-  
-  
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    MaaS Model Kinds
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    MaaS Model Kinds
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#modelref-backend-reference" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        ModelRef (backend reference)
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#endpoint-override" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Endpoint override
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#supported-kinds" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Supported Kinds
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Supported Kinds">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#llminferenceservice" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        LLMInferenceService
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#externalmodel" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        ExternalModel
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#api-behavior" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        API Behavior
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#adding-a-new-kind-in-the-future" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Adding a new kind in the future
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#summary" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Summary
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
-    </li>
-  
-
-              
-            
           </ul>
         </nav>
       
@@ -1805,13 +1703,10 @@
       
       
         
-          
-          
-        
       
     
     
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
@@ -1820,14 +1715,14 @@
         <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4_3" >
         
           
-          <label class="md-nav__link" for="__nav_4_3" id="__nav_4_3_label" tabindex="">
+          <label class="md-nav__link" for="__nav_4_3" id="__nav_4_3_label" tabindex="0">
             
   
   
   <span class="md-ellipsis">
     
   
-    MaaS Controller
+    Advanced Administration
   
 
     
@@ -1843,127 +1738,6 @@
             <span class="md-nav__icon md-icon"></span>
             
   
-    MaaS Controller
-  
-
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../maas-controller-overview/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Controller Overview
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../crd-annotations/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    CRD Annotations
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    
-    
-    
-    
-      
-      
-        
-          
-          
-        
-      
-    
-    
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
-      
-        
-        
-          
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4_4" >
-        
-          
-          <label class="md-nav__link" for="__nav_4_4" id="__nav_4_4_label" tabindex="">
-            
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Advanced Administration
-  
-
-    
-  </span>
-  
-  
-
-            <span class="md-nav__icon md-icon"></span>
-          </label>
-        
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_4_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_4_4">
-            <span class="md-nav__icon md-icon"></span>
-            
-  
     Advanced Administration
   
 
@@ -1977,7 +1751,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../advanced-administration/observability/" class="md-nav__link">
+      <a href="../observability/" class="md-nav__link">
         
   
   
@@ -2005,7 +1779,35 @@
   
   
     <li class="md-nav__item">
-      <a href="../../advanced-administration/limitador-persistence/" class="md-nav__link">
+      <a href="../subscription-cardinality/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Subscription Cardinality
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../limitador-persistence/" class="md-nav__link">
         
   
   
@@ -2033,7 +1835,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../authorino-caching/" class="md-nav__link">
+      <a href="../../configuration-and-management/authorino-caching/" class="md-nav__link">
         
   
   
@@ -2246,7 +2048,7 @@
   <span class="md-ellipsis">
     
   
-    Contributing
+    Developer Guide
   
 
     
@@ -2259,6 +2061,144 @@
         
         <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Developer Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture-internals/controller-architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Controller Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture-internals/reconciliation-flow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reconciliation Flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture-internals/authentication-internals/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Authentication Internals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_6_4" id="__nav_6_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_4">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -2291,6 +2231,42 @@
   
 
       </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/release-strategy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Release Strategy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
     </li>
   
 
@@ -2579,6 +2555,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/crds/tenant/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tenant
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2621,10 +2625,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#modelref-backend-reference" class="md-nav__link">
+  <a href="#how-maas-telemetry-works" class="md-nav__link">
     <span class="md-ellipsis">
       
-        ModelRef (backend reference)
+        How MaaS Telemetry Works
       
     </span>
   </a>
@@ -2632,44 +2636,22 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#endpoint-override" class="md-nav__link">
+  <a href="#metrics-affected" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Endpoint override
+        Metrics Affected
       
     </span>
   </a>
   
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#supported-kinds" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Supported Kinds
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Supported Kinds">
+    <nav class="md-nav" aria-label="Metrics Affected">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#llminferenceservice" class="md-nav__link">
+  <a href="#model-cardinality" class="md-nav__link">
     <span class="md-ellipsis">
       
-        LLMInferenceService
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#externalmodel" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        ExternalModel
+        Model Cardinality
       
     </span>
   </a>
@@ -2682,10 +2664,49 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#api-behavior" class="md-nav__link">
+  <a href="#cardinality-analysis" class="md-nav__link">
     <span class="md-ellipsis">
       
-        API Behavior
+        Cardinality Analysis
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Cardinality Analysis">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#cardinality-dimensions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cardinality Dimensions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#key-consideration-active-users" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Consideration: Active Users
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#impact-on-limitador" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Impact on Limitador
       
     </span>
   </a>
@@ -2693,10 +2714,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#adding-a-new-kind-in-the-future" class="md-nav__link">
+  <a href="#dangerous-combinations" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Adding a new kind in the future
+        Dangerous Combinations
       
     </span>
   </a>
@@ -2704,10 +2725,104 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#summary" class="md-nav__link">
+  <a href="#realistic-mitigation-options" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Summary
+        Realistic Mitigation Options
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Realistic Mitigation Options">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#option-1-drop-high-cardinality-labels-by-default-recommended" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Option 1: Drop High-Cardinality Labels by Default (Recommended)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#option-2-move-high-cardinality-data-to-logs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Option 2: Move High-Cardinality Data to Logs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#option-3-enforce-hard-limits-on-label-values" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Option 3: Enforce Hard Limits on Label Values
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#recording-rules-query-optimization-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recording Rules (Query Optimization Only)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cardinality-alert" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cardinality Alert
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#open-questions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Open Questions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#prometheus-capacity-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prometheus Capacity Reference
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#see-also" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        See Also
       
     </span>
   </a>
@@ -2734,109 +2849,278 @@
   
 
 
-<h1 id="maasmodelref-kinds">MaaSModelRef Kinds</h1>
-<p>The MaaS API lists models from <strong>MaaSModelRef</strong> CRs only. Each MaaSModelRef defines a <strong>backend reference</strong> (<code>spec.modelRef</code>) that identifies the type and location of the model endpoint—similar in spirit to how <a href="https://gateway-api.sigs.k8s.io/reference/spec/#backendref">Gateway API's BackendRef</a> defines how a Route forwards requests to a Kubernetes resource (group, kind, name, namespace).</p>
-<p>This document describes the current <strong>modelRef</strong> semantics and how new kinds can be supported in the future.</p>
-<h2 id="modelref-backend-reference">ModelRef (backend reference)</h2>
-<p>MaaSModelRef's <code>spec.modelRef</code> identifies the <strong>referent</strong> (the backend that serves the model):</p>
+<h1 id="telemetry-defaults-and-cardinality-guidance">Telemetry Defaults and Cardinality Guidance</h1>
+<p>This document provides recommended defaults for MaaS telemetry dimensions, explains cardinality risks, and gives guidance for safely scaling observability.</p>
+<div class="admonition warning">
+<p class="admonition-title">Estimates, Not Load-Tested</p>
+<p>The projections in this document are analytical estimates based on the Prometheus time-series model, not validated with load testing. Real-world cardinality depends on usage patterns, model adoption breadth, and label value counts that vary by deployment. These estimates should be validated with customer scale data before being used for capacity planning.</p>
+</div>
+<h2 id="how-maas-telemetry-works">How MaaS Telemetry Works</h2>
+<p>Per-user metrics are generated by Limitador (Kuadrant's rate-limiting engine) at the Istio gateway, not by maas-api. The <a href="../../../deployment/base/observability/gateway-telemetry-policy.yaml">TelemetryPolicy</a> defines which labels are added to Limitador counters:</p>
 <table>
 <thead>
 <tr>
-<th>Field</th>
+<th>Label</th>
+<th>Source</th>
+<th>Default</th>
+<th>Cardinality</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>user</code></td>
+<td><code>auth.identity.userid</code></td>
+<td><strong>Disabled</strong> (<code>captureUser: false</code>)</td>
+<td><strong>Unbounded</strong> — grows with user base</td>
+</tr>
+<tr>
+<td><code>model</code></td>
+<td><code>responseBodyJSON("/model")</code></td>
+<td>Enabled (<code>captureModelUsage: true</code>)</td>
+<td><strong>Unbounded</strong> — grows with deployed models (see <a href="#model-cardinality">Model Cardinality</a>)</td>
+</tr>
+<tr>
+<td><code>subscription</code></td>
+<td><code>auth.identity.selected_subscription</code></td>
+<td>Always enabled</td>
+<td><strong>Unbounded</strong> — grows with MaaSSubscription CRs</td>
+</tr>
+<tr>
+<td><code>organization_id</code></td>
+<td><code>auth.identity.subscription_info.organizationId</code></td>
+<td>Enabled (<code>captureOrganization: true</code>)</td>
+<td><strong>Unbounded</strong> — grows with tenant count</td>
+</tr>
+<tr>
+<td><code>cost_center</code></td>
+<td><code>auth.identity.subscription_info.costCenter</code></td>
+<td>Always enabled</td>
+<td><strong>Unbounded</strong> — grows with org structure</td>
+</tr>
+</tbody>
+</table>
+<div class="admonition danger">
+<p class="admonition-title">All labels are effectively unbounded</p>
+<p>Unless MaaS enforces hard limits on unique values per label, every dimension can grow without constraint. The <code>organization_id</code> and <code>cost_center</code> labels are attributes of a subscription (each subscription belongs to exactly one org and cost center), so they do not independently multiply cardinality. The primary cardinality drivers are <code>user × model × subscription</code>. See <a href="#cardinality-analysis">Cardinality Analysis</a> for details.</p>
+</div>
+<h2 id="metrics-affected">Metrics Affected</h2>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Type</th>
+<th>Observed Labels</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>authorized_hits</code></td>
+<td>Counter</td>
+<td><code>subscription</code>, <code>model</code>, <code>limitador_namespace</code></td>
+<td>Token consumption (from <code>usage.total_tokens</code> in response body)</td>
+</tr>
+<tr>
+<td><code>authorized_calls</code></td>
+<td>Counter</td>
+<td><code>subscription</code>, <code>limitador_namespace</code></td>
+<td>Requests allowed through rate limiting</td>
+</tr>
+<tr>
+<td><code>limited_calls</code></td>
+<td>Counter</td>
+<td><code>limitador_namespace</code></td>
+<td>Requests denied by rate limits</td>
+</tr>
+</tbody>
+</table>
+<div class="admonition note">
+<p class="admonition-title">Label availability varies by metric</p>
+<p>The <code>model</code> label is available <strong>only on <code>authorized_hits</code></strong>. The <code>limited_calls</code> metric carries only <code>limitador_namespace</code> — it does not include <code>subscription</code> or other TelemetryPolicy labels. When <code>captureUser</code> is enabled, the <code>user</code> label appears on <code>authorized_hits</code> and <code>authorized_calls</code>. The <code>organization_id</code> and <code>cost_center</code> labels appear only when the corresponding fields are set on the <code>MaaSSubscription</code> CR.</p>
+</div>
+<p>Metrics that intentionally avoid high-cardinality labels:</p>
+<ul>
+<li><code>istio_request_duration_milliseconds_bucket</code> — uses <code>subscription</code> only (histograms have high base cardinality from bucket boundaries)</li>
+<li><code>vllm:*</code> — uses <code>model_name</code> only (vLLM has no visibility into user identity)</li>
+</ul>
+<h3 id="model-cardinality">Model Cardinality</h3>
+<p>The <code>model</code> label is not bounded by MaaS. Real deployments can have significantly more models than a typical dev cluster:</p>
+<table>
+<thead>
+<tr>
+<th>Deployment Size</th>
+<th>Typical Model Count</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Dev/test</td>
+<td>5-10</td>
+<td>Small set for development</td>
+</tr>
+<tr>
+<td>Production (small)</td>
+<td>10-50</td>
+<td>Focused enterprise use case</td>
+</tr>
+<tr>
+<td>Production (medium-large)</td>
+<td>~200</td>
+<td>RHAISTRAT-730 sizing guidance</td>
+</tr>
+<tr>
+<td>Aggregator platforms</td>
+<td>500+</td>
+<td>e.g., OpenRouter serves 653 models</td>
+</tr>
+</tbody>
+</table>
+<p>A single API call to any model creates time series in the retention period. Users who experiment across many models amplify the effective cardinality multiplier.</p>
+<h2 id="cardinality-analysis">Cardinality Analysis</h2>
+<h3 id="cardinality-dimensions">Cardinality Dimensions</h3>
+<p>The theoretical maximum series count for a single metric is the cross-product of all <strong>independent</strong> label values:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>worst_case = users × models × subscriptions × limitador_namespaces
+</code></pre></div>
+<p><code>organization_id</code> and <code>cost_center</code> are <strong>not</strong> independent multipliers — each subscription belongs to exactly one org and one cost center, so they are determined by the <code>subscription</code> value.</p>
+<p>The primary cardinality drivers are:</p>
+<ul>
+<li><strong><code>user</code></strong> — grows with the active user base; this is the largest dimension</li>
+<li><strong><code>model</code></strong> — grows with deployed models (see <a href="#model-cardinality">Model Cardinality</a>)</li>
+<li><strong><code>subscription</code></strong> — grows with MaaSSubscription CRs</li>
+</ul>
+<p>At small to moderate scale (tens of models, tens of subscriptions), the non-user dimensions alone are manageable. Cardinality becomes a concern primarily when per-user labels are enabled and the active user base is large.</p>
+<div class="admonition note">
+<p class="admonition-title">These projections are not load-tested</p>
+<p>The cardinality impact on Prometheus ingestion, Limitador memory, and scrape duration has not been validated with load testing. Actual thresholds depend on hardware, retention settings, and usage patterns. Monitor cardinality growth in your deployment before enabling high-cardinality labels like <code>user</code>.</p>
+</div>
+<h3 id="key-consideration-active-users">Key Consideration: Active Users</h3>
+<p>Only users who made at least one request during the retention period create series. Inactive users do not contribute to cardinality. The number of unique <code>user × model × subscription</code> combinations that actually occur in practice depends on usage patterns and is typically much smaller than the theoretical maximum.</p>
+<h2 id="impact-on-limitador">Impact on Limitador</h2>
+<p>Cardinality does not only affect Prometheus. Each unique label combination creates a counter inside Limitador itself:</p>
+<table>
+<thead>
+<tr>
+<th>Impact Area</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>kind</strong></td>
-<td>The type of backend. Determines which controller reconciles this MaaSModelRef and how the endpoint is resolved. Valid values: <code>LLMInferenceService</code>, <code>ExternalModel</code>. The alias <code>llmisvc</code> is also accepted for backwards compatibility.</td>
+<td><strong>Memory</strong></td>
+<td>Limitador holds all active counters in memory (or Redis). High cardinality increases memory pressure on the Limitador pod.</td>
 </tr>
 <tr>
-<td><strong>name</strong></td>
-<td>Name of the referent resource (e.g. LLMInferenceService name, or external model identifier).</td>
+<td><strong><code>/metrics</code> endpoint</strong></td>
+<td>Prometheus scrapes Limitador's <code>/metrics</code> endpoint every 30s. Each series adds ~100 bytes to the response. At 500k series, scrape responses reach ~50 MB, potentially exceeding the 30s scrape interval and causing missed scrapes.</td>
+</tr>
+<tr>
+<td><strong>Counter lookup</strong></td>
+<td>Each incoming request requires a counter lookup by label combination. Larger counter sets may increase lookup latency, though this is typically sub-millisecond with hash-based storage.</td>
+</tr>
+<tr>
+<td><strong>Redis (if used)</strong></td>
+<td>With Redis-backed persistence, each counter is a Redis key. High cardinality increases Redis memory usage and network traffic for counter sync.</td>
 </tr>
 </tbody>
 </table>
-<p>The controller that reconciles MaaSModelRef uses <strong>kind</strong> to decide how to resolve the backend and populate <code>status.endpoint</code> and <code>status.phase</code>. The referent must be in the same namespace as the MaaSModelRef.</p>
-<h2 id="endpoint-override">Endpoint override</h2>
-<p>MaaSModelRef supports an optional <code>spec.endpointOverride</code> field. When set, the controller uses this value for <code>status.endpoint</code> instead of the auto-discovered endpoint from the backend (LLMInferenceService status, Gateway, or HTTPRoute hostnames).</p>
-<p>This is useful when:
-- The controller picks the wrong gateway or hostname for the model endpoint.
-- Your environment requires a specific URL that differs from what the backend reports.
-- You need to point the model at a custom proxy or load balancer.</p>
-<p>Example:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">maas.opendatahub.io/v1alpha1</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">MaaSModelRef</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="nt">metadata</span><span class="p">:</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-model</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">llm</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="nt">spec</span><span class="p">:</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">  </span><span class="nt">modelRef</span><span class="p">:</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">LLMInferenceService</span>
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-model</span>
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">  </span><span class="nt">endpointOverride</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://correct-hostname.example.com/my-model&quot;</span>
+<div class="admonition warning">
+<p class="admonition-title">Limitador impact is not well-characterized</p>
+<p>The effect of high label cardinality on Limitador performance (memory, lookup latency, scrape duration) has not been load-tested. This is a gap that should be addressed before recommending per-user labels at scale.</p>
+</div>
+<h2 id="dangerous-combinations">Dangerous Combinations</h2>
+<div class="admonition warning">
+<p class="admonition-title">High-Risk Configurations</p>
+<p>Enabling all dimensions at scale can overwhelm both Prometheus and Limitador:</p>
+<ul>
+<li><strong>All labels enabled + <code>user</code> at scale</strong>: Enabling <code>user</code> alongside <code>model</code> and <code>subscription</code> creates a series for each unique combination a user touches. At large user counts this can grow rapidly.</li>
+<li><strong>Per-user histograms</strong>: Never add <code>user</code> to Istio latency histograms. Each histogram has 23 buckets by default — with 10k users this creates 230k series from one metric alone.</li>
+<li><strong>Short scrape intervals</strong>: Reducing scrape interval below 30s doubles ingestion load without proportional observability benefit. At high cardinality, scrape duration may already exceed the interval.</li>
+</ul>
+</div>
+<h2 id="realistic-mitigation-options">Realistic Mitigation Options</h2>
+<h3 id="option-1-drop-high-cardinality-labels-by-default-recommended">Option 1: Drop High-Cardinality Labels by Default (Recommended)</h3>
+<p>Disable per-user and other high-cardinality labels by default. Operators opt in to specific labels based on their scale and monitoring capacity.</p>
+<p>The current default already disables <code>user</code> (<code>captureUser: false</code>). To further reduce cardinality, operators can also disable <code>organization_id</code> and <code>model</code> via the Tenant CR:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">spec</span><span class="p">:</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">telemetry</span><span class="p">:</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span><span class="nt">metrics</span><span class="p">:</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">      </span><span class="nt">captureUser</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">          </span><span class="c1"># default — disabled</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">      </span><span class="nt">captureOrganization</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">  </span><span class="c1"># default is true; disable to reduce cardinality</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">      </span><span class="nt">captureModelUsage</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">    </span><span class="c1"># default is true; disable to reduce cardinality</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">      </span><span class="c1"># subscription and cost_center are always enabled</span>
 </code></pre></div>
-<p>The controller still validates the backend (HTTPRoute exists, LLMInferenceService is ready, etc.) — the override only affects the final endpoint URL written to <code>status.endpoint</code>. When the field is empty or omitted, the controller uses its normal discovery logic.</p>
-<h2 id="supported-kinds">Supported Kinds</h2>
-<h3 id="llminferenceservice">LLMInferenceService</h3>
-<p>The <code>LLMInferenceService</code> kind (also accepts the alias <code>llmisvc</code> for backwards compatibility) references models deployed on the cluster via the LLMInferenceService CRD. The controller:
-- Sets <code>status.endpoint</code> from the LLMInferenceService status
-- Sets <code>status.phase</code> from LLMInferenceService readiness</p>
-<h3 id="externalmodel">ExternalModel</h3>
-<p>The <code>ExternalModel</code> kind references external AI/ML providers (e.g., OpenAI, Anthropic, Azure OpenAI). When using this kind:
-1. Create an <a href="../../reference/crds/external-model/">ExternalModel</a> CR with provider, endpoint, and credential reference
-2. Create a MaaSModelRef that references the ExternalModel by name</p>
-<p>The controller:
-- Fetches the ExternalModel CR from the same namespace
-- Validates the user-supplied HTTPRoute references the correct gateway
-- Derives <code>status.endpoint</code> from HTTPRoute hostnames or gateway addresses
-- Sets <code>status.phase</code> based on HTTPRoute acceptance by the gateway</p>
-<h2 id="api-behavior">API Behavior</h2>
-<ul>
-<li>The API reads MaaSModelRefs cluster-wide, maps each to an API model (<code>id</code>, <code>url</code>, <code>ready</code>, <code>kind</code>, etc.)</li>
-<li><strong>Access validation</strong>: Probes each model's <code>/v1/models</code> endpoint with the request's Authorization header. Only models that return 2xx or 405 are included.</li>
-<li><strong>Kind on the wire</strong>: Each model in the GET /v1/models response carries a <code>kind</code> field from <code>spec.modelRef.kind</code></li>
-</ul>
-<h2 id="adding-a-new-kind-in-the-future">Adding a new kind in the future</h2>
-<p>To support a new backend type (a new <strong>kind</strong> in <code>spec.modelRef</code>):</p>
+<p>Operators who need per-user billing data enable the <code>user</code> label explicitly, accepting the cardinality cost.</p>
+<h3 id="option-2-move-high-cardinality-data-to-logs">Option 2: Move High-Cardinality Data to Logs</h3>
+<p>Instead of encoding <code>user</code>, <code>organization_id</code>, and <code>cost_center</code> as metric labels (which create time series), emit them as structured log entries. Logs can be aggregated and queried via log analytics (e.g., OpenShift Logging, Loki) without creating Prometheus cardinality pressure.</p>
+<p>Metrics remain for aggregated operational visibility (per-model, per-tier). Logs handle per-user attribution and billing queries.</p>
+<h3 id="option-3-enforce-hard-limits-on-label-values">Option 3: Enforce Hard Limits on Label Values</h3>
+<p>Add controller-side validation that caps the number of unique values for each label dimension. For example, reject TelemetryPolicy configurations that would produce more than a configurable cardinality budget. This makes the worst-case series count predictable.</p>
+<h3 id="recording-rules-query-optimization-only">Recording Rules (Query Optimization Only)</h3>
+<p>Pre-aggregate metrics for dashboards so they don't scan all series on every panel load:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nt">groups</span><span class="p">:</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">maas-aggregated</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1m</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">  </span><span class="nt">rules</span><span class="p">:</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">record</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">maas:authorized_hits:rate5m_by_model</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">    </span><span class="nt">expr</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sum by (model) (rate(authorized_hits[5m]))</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">record</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">maas:authorized_calls:rate5m_by_subscription</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">    </span><span class="nt">expr</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sum by (subscription) (rate(authorized_calls[5m]))</span>
+</code></pre></div>
+<div class="admonition note">
+<p class="admonition-title">Recording rules are not a cardinality fix</p>
+<p>Recording rules improve query performance but do not reduce storage, ingestion, or Limitador memory pressure. They are a useful complement to other mitigations, not a standalone solution.</p>
+</div>
+<h3 id="cardinality-alert">Cardinality Alert</h3>
+<p>Add this alert to detect cardinality growth before it causes problems:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">alert</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">MaaSHighMetricCardinality</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="nt">expr</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">count({__name__=~&quot;authorized_hits|authorized_calls|limited_calls&quot;}) &gt; 100000</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span><span class="nt">for</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10m</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">  </span><span class="nt">labels</span><span class="p">:</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">    </span><span class="nt">severity</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">warning</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">  </span><span class="nt">annotations</span><span class="p">:</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">    </span><span class="nt">summary</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;MaaS</span><span class="nv"> </span><span class="s">Limitador</span><span class="nv"> </span><span class="s">metrics</span><span class="nv"> </span><span class="s">exceed</span><span class="nv"> </span><span class="s">100k</span><span class="nv"> </span><span class="s">active</span><span class="nv"> </span><span class="s">series&quot;</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">    </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Review</span><span class="nv"> </span><span class="s">telemetry</span><span class="nv"> </span><span class="s">label</span><span class="nv"> </span><span class="s">cardinality.</span><span class="nv"> </span><span class="s">See</span><span class="nv"> </span><span class="s">docs/advanced-administration/telemetry-defaults-and-cardinality.md&quot;</span>
+</code></pre></div>
+<h2 id="open-questions">Open Questions</h2>
+<p>The following questions should be answered with real customer data before finalizing telemetry defaults:</p>
 <ol>
-<li><strong>MaaSModelRef CRD and controller</strong></li>
-<li>Add a new allowed value for <code>spec.modelRef.kind</code> (e.g. <code>mybackend</code>).</li>
-<li>
-<p>In the <strong>maas-controller</strong>, extend the reconciler so that when <strong>kind</strong> is the new value it:</p>
-<ul>
-<li>Resolves the referent (e.g. custom resource or external URL) using <strong>name</strong> and optional <strong>namespace</strong>.</li>
-<li>Sets <code>status.endpoint</code> and <code>status.phase</code> (and any other status the API or UI need).</li>
-</ul>
-</li>
-<li>
-<p><strong>MaaS API</strong></p>
-</li>
-<li><strong>Listing:</strong> No change required. The API lists all MaaSModelRefs and uses <code>status.endpoint</code> and <code>status.phase</code>; it does not branch on <strong>kind</strong> for listing.</li>
-<li>
-<p><strong>Access validation:</strong> The API probes <code>status.endpoint</code> + <code>/v1/models</code> with the request's Authorization header. If a new kind uses a different path or protocol:</p>
-<ul>
-<li><strong>Option A (preferred):</strong> The backend exposes the same path the API expects (e.g. OpenAI-compatible <code>/v1/models</code>), so no API change.</li>
-<li><strong>Option B:</strong> Extend the API's access-validation logic to branch on <strong>kind</strong> and use a kind-specific probe (different URL path or client), while keeping the same contract: include a model only if the probe with the user's token succeeds.</li>
-</ul>
-</li>
-<li>
-<p><strong>Enrichment (optional)</strong></p>
-</li>
-<li>
-<p>The API reads standard annotations from MaaSModelRef (<code>openshift.io/display-name</code>, <code>openshift.io/description</code>, <code>opendatahub.io/genai-use-case</code>, <code>opendatahub.io/context-window</code>) and returns them in the <code>modelDetails</code> field of the GET /v1/models response. See <a href="../crd-annotations/">CRD annotations</a> for the full list. For a new kind, add a small branch in the MaaSModelRef → API model conversion if needed.</p>
-</li>
-<li>
-<p><strong>RBAC</strong></p>
-</li>
-<li>If the new kind’s reconciler or the API needs to read another resource, add the corresponding <strong>list/watch</strong> (and optionally <strong>get</strong>) permissions to the maas-api ClusterRole and/or the controller’s RBAC.</li>
+<li><strong>What is the realistic effective multiplier per user?</strong> How many unique model/subscription combinations does a typical user touch during a retention period?</li>
+<li><strong>What is the Limitador performance impact?</strong> At what counter count does Limitador's <code>/metrics</code> scrape exceed the scrape interval? Does counter lookup latency degrade?</li>
+<li><strong>What model counts are realistic?</strong> Do production customers deploy 10 models or 200? This is the biggest variable after <code>user</code>.</li>
+<li><strong>Which labels are needed for billing vs operational monitoring?</strong> Can we separate the billing pipeline (logs or dedicated store) from operational metrics (Prometheus)?</li>
 </ol>
-<h2 id="summary">Summary</h2>
+<h2 id="prometheus-capacity-reference">Prometheus Capacity Reference</h2>
+<p>These are rough reference points, not validated limits. Actual capacity depends on retention, query load, and hardware.</p>
+<table>
+<thead>
+<tr>
+<th>Configuration</th>
+<th>Approximate Active Series</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>OpenShift User Workload Monitoring (default)</td>
+<td>~1M</td>
+</tr>
+<tr>
+<td>OpenShift User Workload Monitoring (tuned, 16-32GB)</td>
+<td>~5M</td>
+</tr>
+<tr>
+<td>Standalone Prometheus (64GB, NVMe)</td>
+<td>~10M</td>
+</tr>
+<tr>
+<td>Mimir / Thanos / VictoriaMetrics</td>
+<td>100M+</td>
+</tr>
+</tbody>
+</table>
+<h2 id="see-also">See Also</h2>
 <ul>
-<li><strong>modelRef</strong> is the backend reference (kind, name, optional namespace), analogous to <a href="https://gateway-api.sigs.k8s.io/reference/spec/#backendref">Gateway API BackendRef</a>.</li>
-<li><strong>Listing:</strong> Always from MaaSModelRef resources cluster-wide; no kind-specific listing logic.</li>
-<li><strong>Access validation:</strong> Same probe (GET endpoint with the request's Authorization header as-is) for all kinds unless kind-specific probes are added later.</li>
-<li><strong>New kinds:</strong> Implement in the controller (resolve referent, set status.endpoint and status.phase); extend the API only if the new kind cannot use the same probe path or needs different enrichment.</li>
+<li><a href="../observability/">Observability Guide</a> — full metrics reference, dashboards, and installation</li>
 </ul>
 
 
@@ -2860,7 +3144,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 26, 2026 16:21:53 UTC">March 26, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="May 13, 2026 16:55:08 UTC">May 13, 2026</span>
   </span>
 
     
@@ -2870,7 +3154,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="February 27, 2026 17:58:09 UTC">February 27, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="May 13, 2026 16:55:08 UTC">May 13, 2026</span>
   </span>
 
     
