@@ -75,7 +75,7 @@ func NewManager(log *logger.Logger, accessCheckTimeoutSeconds int, gatewayIntern
 		timeout = time.Duration(accessCheckTimeoutSeconds) * time.Second
 	}
 
-	tlsConfig, err := BuildClusterTLSConfig(log)
+	tlsConfig, err := BuildClusterTLSConfigFromPath(log, kubeServiceAccountCAPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build TLS config: %w", err)
 	}
@@ -111,22 +111,35 @@ func NewManager(log *logger.Logger, accessCheckTimeoutSeconds int, gatewayIntern
 	}, nil
 }
 
-// BuildClusterTLSConfig creates a TLS config for cluster-internal communication.
-// It starts with the system root CAs and appends the Kubernetes service account CA
-// when running in-cluster. This ensures both public CAs and cluster CAs are trusted,
-// supporting endpoints with publicly-trusted certificates as well as cluster-internal services.
+// BuildClusterTLSConfig creates a TLS config for cluster-internal communication using
+// the default Kubernetes service account CA path. It is a convenience wrapper around
+// BuildClusterTLSConfigFromPath.
 func BuildClusterTLSConfig(log *logger.Logger) (*tls.Config, error) {
-	caCertPool, err := x509.SystemCertPool()
-	if err != nil {
-		log.Debug("Failed to load system cert pool, creating empty pool", "error", err)
-		caCertPool = x509.NewCertPool()
+	return BuildClusterTLSConfigFromPath(log, kubeServiceAccountCAPath)
+}
+
+// BuildClusterTLSConfigFromPath creates a TLS config for cluster-internal communication.
+// It starts with the system root CAs and appends the CA certificate at caPath when present.
+// This ensures both public CAs and cluster CAs are trusted, supporting endpoints with
+// publicly-trusted certificates as well as cluster-internal services.
+//
+// If caPath does not exist, system root CAs are used alone (development/out-of-cluster mode).
+// If caPath exists but cannot be read or parsed, an error is returned to prevent insecure fallback.
+func BuildClusterTLSConfigFromPath(log *logger.Logger, caPath string) (*tls.Config, error) {
+	if log == nil {
+		return nil, errors.New("log is required")
 	}
 
-	caCert, err := os.ReadFile(kubeServiceAccountCAPath)
+	caCertPool, err := x509.SystemCertPool()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load system certificate pool: %w", err)
+	}
+
+	caCert, err := os.ReadFile(caPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			log.Debug("Kubernetes service account CA not found, using system root CAs only",
-				"path", kubeServiceAccountCAPath)
+				"path", caPath)
 			return &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: caCertPool}, nil
 		}
 		return nil, fmt.Errorf("failed to read CA certificate: %w", err)
@@ -137,7 +150,7 @@ func BuildClusterTLSConfig(log *logger.Logger) (*tls.Config, error) {
 	}
 
 	log.Debug("Using system root CAs with Kubernetes service account CA appended",
-		"path", kubeServiceAccountCAPath)
+		"path", caPath)
 
 	return &tls.Config{
 		RootCAs:    caCertPool,
