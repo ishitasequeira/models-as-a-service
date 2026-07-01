@@ -90,6 +90,7 @@ type MaaSAuthPolicyReconciler struct {
 type oidcConfig struct {
 	IssuerURL string
 	ClientID  string
+	TTL       int
 }
 
 // authzCacheTTL returns the safe TTL for authorization caches that depend on metadata.
@@ -234,14 +235,21 @@ func (r *MaaSAuthPolicyReconciler) fetchOIDCConfig(ctx context.Context, log logr
 		return nil
 	}
 
+	ttl := oidc.TTL
+	if ttl == 0 {
+		ttl = 300
+	}
+
 	log.Info("OIDC configuration loaded from tenant platform context",
 		"issuerUrl", oidc.IssuerURL,
 		"clientId", oidc.ClientID,
+		"ttl", ttl,
 		"source", platformContext.Source)
 
 	return &oidcConfig{
 		IssuerURL: oidc.IssuerURL,
 		ClientID:  oidc.ClientID,
+		TTL:       ttl,
 	}
 }
 
@@ -675,7 +683,7 @@ func (r *MaaSAuthPolicyReconciler) buildGatewayAuthPolicySpec(modelAccessJSON st
 		authenticationRules["oidc-identities"] = map[string]any{
 			"jwt": map[string]any{
 				"issuerUrl": oidc.IssuerURL,
-				"ttl":       int64(300),
+				"ttl":       int64(oidc.TTL),
 			},
 			"when": []any{
 				map[string]any{
