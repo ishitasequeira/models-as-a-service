@@ -868,6 +868,30 @@ allow {
 }`,
 			},
 		}
+		// oidc-client-bound enforces that OIDC JWTs were issued to the configured
+		// OAuth client (azp claim). The has(auth.identity.azp) guard is required so
+		// that OpenShift TokenReview identities (which carry no azp claim) are not
+		// matched by this rule and denied with 403.
+		authorizationRules["oidc-client-bound"] = map[string]any{
+			"when": []any{
+				map[string]any{
+					"predicate": celIsNotAPIKey +
+						` && request.headers.authorization.matches("^Bearer [^.]+\\.[^.]+\\.[^.]+$")` +
+						` && has(auth.identity.azp)`,
+				},
+			},
+			"metrics":  false,
+			"priority": int64(1),
+			"patternMatching": map[string]any{
+				"patterns": []any{
+					map[string]any{
+						"selector": "auth.identity.azp",
+						"operator": "eq",
+						"value":    oidc.ClientID,
+					},
+				},
+			},
+		}
 	}
 
 	defaultsRules := map[string]any{

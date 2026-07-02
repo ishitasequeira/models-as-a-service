@@ -82,3 +82,20 @@ Two PrometheusRule alerts monitor gateway authentication health. They cover all 
 - Consider increasing `ttl` if the IdP is slow but reliable
 
 See [Metrics & Dashboards](../observability/metrics-and-dashboards.md) for all Authorino metrics.
+
+## Security controls and responsibilities
+
+This table covers the non-functional security requirements (NFRs) raised during GA refinement. Each row states who enforces the control and what an operator needs to know.
+
+| NFR | Enforced by | Details |
+|-----|-------------|---------|
+| **JWKS cache policy** | MaaS controller + Authorino | `ttl` is propagated from the Tenant CR to Authorino's `jwt.ttl` field. Minimum 30 s enforced server-side in the controller (independent of CRD admission validation). See [JWKS Cache TTL](#jwks-cache-ttl) above. |
+| **Client secret handling** | Not applicable | MaaS external OIDC uses **JWT bearer validation only**. Tokens are validated against the IdP's public JWKS. No `client_secret` is required or stored at runtime. The `clientId` field in the Tenant CR is configuration, not a credential. |
+| **OAuth client binding (`azp` claim)** | MaaS controller (gateway AuthPolicy) | The generated `maas-gateway-auth` AuthPolicy includes an `oidc-client-bound` rule that checks `auth.identity.azp == clientId`. Tokens issued to a different OAuth client are rejected with 403, even if they share the same issuer. An `has(auth.identity.azp)` guard ensures OpenShift TokenReview identities (which carry no `azp` claim) are unaffected. |
+| **SSRF on issuer URL** | CRD validation + Authorino HTTP client | The CRD enforces `^https://\S+$` on `issuerUrl`, blocking plain HTTP and empty URLs at admission time. Blocking of private IPs and loopback addresses in JWKS fetch is the responsibility of the Authorino HTTP client (outside MaaS). Operators in restricted environments should use network policies to constrain Authorino's egress. |
+| **Rate limiting on auth paths** | Kuadrant TokenRateLimitPolicy (model inference only) | The `gateway-default-deny` TRLP enforces a 0-token default on model inference routes and **explicitly excludes** `/maas-api` management paths. Authorino's internal JWKS refresh is not exposed as an external endpoint and is not subject to per-request rate limiting. If high-volume IdP calls are a concern, increase `ttl` to reduce refresh frequency. |
+| **Authentication audit trail** | Authorino metrics + PrometheusRule alerts | `auth_server_authconfig_response_status` provides aggregate counts by status (`OK`, `UNAUTHENTICATED`, `UNAUTHORIZED`). The `MaaSAuthorinoAuthenticationHighFailureRate` alert fires on sustained failure rates above 10%. Per-request auth decision logging requires capturing Authorino's structured log output at debug/info level outside MaaS. |
+
+### OAuth2 Client Credentials — out of scope
+
+The **OAuth2 Client Credentials** (`grant_type=client_credentials`) flow is **not supported** in this GA release. MaaS external OIDC targets interactive/bearer JWT flows where end users authenticate against their corporate IdP and present access tokens. Machine-to-machine use cases should use [API keys](../concepts/api-key-authentication.md) or a broker IdP that exchanges client credentials for bearer tokens compatible with the OIDC JWT path.
