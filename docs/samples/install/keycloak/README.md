@@ -162,7 +162,7 @@ spec:
     ttl: 300  # optional
 ```
 
-For full configuration reference, IdP outage behavior, and security controls see [External OIDC Configuration](../../docs/content/advanced-administration/external-oidc.md).
+For full configuration reference, IdP outage behavior, and security controls see [External OIDC Configuration](../../../content/advanced-administration/external-oidc.md).
 
 ## Verifying Realm Configuration
 
@@ -243,7 +243,7 @@ The secret persists as long as the Keycloak instance exists, so you can retrieve
 
 After configuring Keycloak realms:
 
-1. Configure MaaS to use Keycloak as OIDC provider — see [External OIDC Configuration](../../docs/content/advanced-administration/external-oidc.md)
+1. Configure MaaS to use Keycloak as OIDC provider — see [External OIDC Configuration](../../../content/advanced-administration/external-oidc.md)
 2. Create MaaSSubscription resources with groups matching Keycloak groups
 3. Create MaaSAuthPolicy resources to grant access to models
 4. Test authentication with OIDC tokens
