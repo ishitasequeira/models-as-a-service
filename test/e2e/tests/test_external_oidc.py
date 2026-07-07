@@ -220,14 +220,20 @@ def _wait_for_api_key_revocation(
 
 
 def _tenant_b_token_url() -> str:
-    """Derive the tenant-b token URL from the tenant-a issuer URL.
+    """Return the token endpoint URL for the tenant-b Keycloak realm.
 
-    The test infra sets OIDC_ISSUER_URL to the tenant-a realm. We swap
-    'tenant-a' → 'tenant-b' to get the sibling realm.
+    Resolution order:
+    1. OIDC_TOKEN_URL_TENANT_B — explicit override, set by prow_run_smoke_test.sh.
+    2. Derive from OIDC_ISSUER_URL by swapping 'tenant-a' → 'tenant-b' (fallback
+       for environments where only the tenant-a issuer URL is configured).
     """
+    explicit = os.environ.get("OIDC_TOKEN_URL_TENANT_B", "")
+    if explicit:
+        return explicit
     issuer = _required_env("OIDC_ISSUER_URL")
     assert "tenant-a" in issuer, (
-        f"Expected OIDC_ISSUER_URL to contain 'tenant-a', got: {issuer}"
+        f"Expected OIDC_ISSUER_URL to contain 'tenant-a' for tenant-b derivation, "
+        f"got: {issuer}. Set OIDC_TOKEN_URL_TENANT_B explicitly to avoid this."
     )
     tenant_b_issuer = issuer.replace("tenant-a", "tenant-b")
     return f"{tenant_b_issuer}/protocol/openid-connect/token"
@@ -1099,11 +1105,14 @@ class TestOIDCAlertingInfra:
     """
 
     def test_authorino_prometheusrule_exists(self):
-        """PrometheusRule maas-authorino-alerts is present in the MaaS subscription namespace."""
-        namespace = os.environ.get("MAAS_SUBSCRIPTION_NAMESPACE", "models-as-a-service")
+        """PrometheusRule authorino-maas-authentication-alerts is present in kuadrant-system."""
+        # The rule is deployed to kuadrant-system (where Authorino runs) by
+        # scripts/observability/install-observability.sh, not kustomize base.
+        namespace = os.environ.get("AUTHORINO_NAMESPACE", "kuadrant-system")
+        rule_name = "authorino-maas-authentication-alerts"
         result = subprocess.run(
             [
-                "kubectl", "get", "prometheusrule", "maas-authorino-alerts",
+                "kubectl", "get", "prometheusrule", rule_name,
                 "-n", namespace,
                 "--ignore-not-found",
                 "-o", "jsonpath={.metadata.name}",
@@ -1115,10 +1124,10 @@ class TestOIDCAlertingInfra:
         assert result.returncode == 0, (
             f"kubectl get prometheusrule failed (exit {result.returncode}): {result.stderr}"
         )
-        assert result.stdout.strip() == "maas-authorino-alerts", (
-            f"PrometheusRule 'maas-authorino-alerts' not found in namespace '{namespace}'. "
-            "Ensure PR #1076 (Authorino alerting) has been merged and the rule was applied."
+        assert result.stdout.strip() == rule_name, (
+            f"PrometheusRule '{rule_name}' not found in namespace '{namespace}'. "
+            "Ensure install-observability.sh has been run and the rule was applied to kuadrant-system."
         )
         log.info(
-            f"PrometheusRule maas-authorino-alerts present in namespace '{namespace}'"
+            f"PrometheusRule {rule_name} present in namespace '{namespace}'"
         )
