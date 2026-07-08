@@ -112,6 +112,7 @@ def tenant_inference_cases():
                 case["tenant_ns"],
                 model_ref=model_name,
                 model_namespace=case["tenant_ns"],
+                token_limit=10000,
             )
             apply_maas_auth_policy(
                 f"{model_name}-auth",
