@@ -216,6 +216,11 @@ func TestApplyPlatformParamsWithRenderedOverlay(t *testing.T) {
 		require.NoError(t, err, "configPatches[%d] ipp-pre disabled field", i)
 		require.True(t, found, "configPatches[%d] ipp-pre disabled field should exist", i)
 		assert.True(t, disabled, "configPatches[%d] ipp-pre should be disabled", i)
+
+		ippDisabled, found, err := unstructured.NestedBool(cp, "patch", "value", "typed_per_filter_config", "envoy.filters.http.ext_proc.ipp", "disabled")
+		require.NoError(t, err, "configPatches[%d] ipp disabled field", i)
+		require.True(t, found, "configPatches[%d] ipp disabled field should exist", i)
+		assert.True(t, ippDisabled, "configPatches[%d] ipp should be disabled", i)
 	}
 
 	// Verify payload-pre-processing Deployment and Service are present and namespaced correctly.
