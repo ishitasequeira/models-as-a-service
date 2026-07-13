@@ -37,8 +37,6 @@ spec:
               envoy_grpc:
                 cluster_name: outbound|9004||payload-pre-processing.openshift-ingress.svc.cluster.local
     # Stage 2: must run AFTER the WasmPlugin (needs auth to have completed).
-    # request_body_mode BUFFERED: Envoy holds the full request body until ext_proc responds,
-    # allowing model-provider-resolver to rewrite the body model field before vLLM receives it.
     - applyTo: HTTP_FILTER
       match:
         context: GATEWAY
@@ -59,7 +57,7 @@ spec:
             processing_mode:
               request_header_mode: "SEND"
               response_header_mode: "SEND"
-              request_body_mode: "BUFFERED"
+              request_body_mode: "FULL_DUPLEX_STREAMED"
               response_body_mode: "FULL_DUPLEX_STREAMED"
               request_trailer_mode: "SEND"
               response_trailer_mode: "SEND"
@@ -114,7 +112,7 @@ spec:
             processing_mode:
               request_header_mode: "SEND"
               response_header_mode: "SEND"
-              request_body_mode: "BUFFERED"
+              request_body_mode: "FULL_DUPLEX_STREAMED"
               response_body_mode: "FULL_DUPLEX_STREAMED"
               request_trailer_mode: "SEND"
               response_trailer_mode: "SEND"
