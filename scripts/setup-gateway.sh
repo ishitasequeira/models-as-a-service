@@ -579,6 +579,89 @@ EOF
 }
 
 #──────────────────────────────────────────────────────────────
+# PAYLOAD-PROCESSING NETWORKPOLICY
+#──────────────────────────────────────────────────────────────
+
+# Temporary: apply the payload-processing NetworkPolicy directly in the gateway
+# namespace until the operator manages it (opendatahub-operator#3747).
+ensure_payload_processing_networkpolicy() {
+  local np_name="payload-processing"
+
+  if kubectl get networkpolicy "$np_name" -n "$GATEWAY_NAMESPACE" &>/dev/null; then
+    log_info "  NetworkPolicy $np_name already exists in $GATEWAY_NAMESPACE"
+    return 0
+  fi
+
+  if [[ "$DRY_RUN" == "true" ]]; then
+    log_info "  [DRY RUN] Would create NetworkPolicy $np_name in $GATEWAY_NAMESPACE"
+    return 0
+  fi
+
+  log_info "  Creating NetworkPolicy $np_name in $GATEWAY_NAMESPACE..."
+
+  kubectl apply --server-side=true -f - <<EOF
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ${np_name}
+  namespace: ${GATEWAY_NAMESPACE}
+  labels:
+    app.opendatahub.io/modelsasservice: "true"
+    app.kubernetes.io/part-of: maas
+    app.kubernetes.io/component: networking
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values:
+          - payload-processing
+          - payload-pre-processing
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              gateway.istio.io/managed: istio.io-gateway-controller
+          namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ${GATEWAY_NAMESPACE}
+      ports:
+        - protocol: TCP
+          port: 9004
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: openshift-monitoring
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: openshift-user-workload-monitoring
+      ports:
+        - protocol: TCP
+          port: 9005
+        - protocol: TCP
+          port: 9090
+  egress:
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+        - protocol: UDP
+          port: 5353
+        - protocol: TCP
+          port: 5353
+    - ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
+EOF
+}
+
+#──────────────────────────────────────────────────────────────
 # MAIN ENTRY POINT
 #──────────────────────────────────────────────────────────────
 
@@ -602,6 +685,11 @@ main() {
       setup_clusterip_mode
       ;;
   esac
+
+  # Ensure payload-processing NetworkPolicy exists in the gateway namespace.
+  # Required on OCP 4.22+ where openshift-ingress has a default deny-all NP.
+  # Temporary: the operator will manage this once opendatahub-operator#3747 ships.
+  ensure_payload_processing_networkpolicy
 
   if [[ "$DRY_RUN" == "true" ]]; then
     log_info ""
