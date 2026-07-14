@@ -579,11 +579,53 @@ EOF
 }
 
 #──────────────────────────────────────────────────────────────
-# PAYLOAD-PROCESSING NETWORKPOLICY
+# NETWORKPOLICIES
 #──────────────────────────────────────────────────────────────
 
-# Temporary: apply the payload-processing NetworkPolicy directly in the gateway
-# namespace until the operator manages it (opendatahub-operator#3747).
+# Temporary: apply NetworkPolicies directly in the gateway namespace until the
+# operator manages them (opendatahub-operator#3747). On OCP 4.22+ the
+# openshift-ingress namespace has a default deny-all NetworkPolicy, so pods
+# need explicit ingress/egress rules.
+
+# Allow gateway pods to egress to model backends, ext_proc, Authorino, istiod,
+# and any other service they need to reach. The gateway is a reverse proxy —
+# restricting egress per-destination is fragile and breaks as backends change.
+ensure_gateway_egress_networkpolicy() {
+  local np_name="maas-gateway-egress"
+
+  if kubectl get networkpolicy "$np_name" -n "$GATEWAY_NAMESPACE" &>/dev/null; then
+    log_info "  NetworkPolicy $np_name already exists in $GATEWAY_NAMESPACE"
+    return 0
+  fi
+
+  if [[ "$DRY_RUN" == "true" ]]; then
+    log_info "  [DRY RUN] Would create NetworkPolicy $np_name in $GATEWAY_NAMESPACE"
+    return 0
+  fi
+
+  log_info "  Creating NetworkPolicy $np_name in $GATEWAY_NAMESPACE..."
+
+  kubectl apply --server-side=true -f - <<EOF
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ${np_name}
+  namespace: ${GATEWAY_NAMESPACE}
+  labels:
+    app.opendatahub.io/modelsasservice: "true"
+    app.kubernetes.io/part-of: maas
+    app.kubernetes.io/component: networking
+spec:
+  podSelector:
+    matchLabels:
+      gateway.istio.io/managed: istio.io-gateway-controller
+  policyTypes:
+    - Egress
+  egress:
+    - {}
+EOF
+}
+
 ensure_payload_processing_networkpolicy() {
   local np_name="payload-processing"
 
@@ -686,9 +728,10 @@ main() {
       ;;
   esac
 
-  # Ensure payload-processing NetworkPolicy exists in the gateway namespace.
+  # Ensure NetworkPolicies exist in the gateway namespace.
   # Required on OCP 4.22+ where openshift-ingress has a default deny-all NP.
-  # Temporary: the operator will manage this once opendatahub-operator#3747 ships.
+  # Temporary: the operator will manage these once opendatahub-operator#3747 ships.
+  ensure_gateway_egress_networkpolicy
   ensure_payload_processing_networkpolicy
 
   if [[ "$DRY_RUN" == "true" ]]; then
