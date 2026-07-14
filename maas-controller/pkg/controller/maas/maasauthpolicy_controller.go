@@ -656,18 +656,6 @@ func (r *MaaSAuthPolicyReconciler) buildGatewayAuthPolicySpec(modelAccessJSON st
 			"metrics":  false,
 			"priority": int64(0),
 		},
-		"openshift-identities": map[string]any{
-			"kubernetesTokenReview": map[string]any{
-				"audiences": []any{r.ClusterAudience},
-			},
-			"when": []any{
-				map[string]any{
-					"predicate": celIsNotAPIKey,
-				},
-			},
-			"metrics":  false,
-			"priority": int64(2),
-		},
 	}
 
 	if xAPIKeyEnabled {
