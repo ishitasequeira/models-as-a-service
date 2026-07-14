@@ -1384,8 +1384,8 @@ func TestBuildGatewayAuthPolicySpec_K8sAuth(t *testing.T) {
 	if _, exists := auth["api-keys"]; !exists {
 		t.Error("api-keys authentication should always be present")
 	}
-	if _, exists := auth["openshift-identities"]; exists {
-		t.Error("openshift-identities should NOT be present on gateway auth policy (only on maas-api-auth-policy)")
+	if _, exists := auth["openshift-identities"]; !exists {
+		t.Error("openshift-identities should always be present")
 	}
 	if _, exists := auth["oidc-identities"]; exists {
 		t.Error("oidc-identities should NOT be present when OIDC config is nil")
@@ -1527,8 +1527,13 @@ func TestBuildGatewayAuthPolicySpec_XAPIKeyEnabled(t *testing.T) {
 		t.Errorf("apiKeyValidation when predicate should include x-api-key check, got: %s", pred)
 	}
 
-	if _, exists := auth["openshift-identities"]; exists {
-		t.Error("openshift-identities should NOT be present on gateway auth policy when x-api-key is enabled")
+	osWhen, found, err := unstructured.NestedSlice(obj.Object, "spec", "defaults", "rules", "authentication", "openshift-identities", "when")
+	if err != nil || !found || len(osWhen) == 0 {
+		t.Fatalf("openshift-identities when missing")
+	}
+	osPred, _ := osWhen[0].(map[string]any)["predicate"].(string)
+	if !contains(osPred, "x-api-key") {
+		t.Errorf("openshift-identities when should exclude x-api-key requests, got: %s", osPred)
 	}
 }
 
