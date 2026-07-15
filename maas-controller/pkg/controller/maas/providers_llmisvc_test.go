@@ -19,7 +19,7 @@ package maas
 import (
 	"testing"
 
-	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"knative.dev/pkg/apis"
 	duckv1 "knative.dev/pkg/apis/duck/v1"
@@ -35,13 +35,15 @@ func mustParseURL(raw string) *apis.URL {
 	return u
 }
 
-func newReadyLLMISvc(name, ns string, addresses []duckv1.Addressable) *kservev1alpha1.LLMInferenceService {
-	return &kservev1alpha1.LLMInferenceService{
+func newReadyLLMISvc(name, ns string, addresses []duckv1.Addressable) *kservev1alpha2.LLMInferenceService {
+	sourced := make([]kservev1alpha2.SourcedAddress, len(addresses))
+	for i, a := range addresses {
+		sourced[i] = kservev1alpha2.SourcedAddress{Addressable: a}
+	}
+	return &kservev1alpha2.LLMInferenceService{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
-		Status: kservev1alpha1.LLMInferenceServiceStatus{
-			AddressStatus: duckv1.AddressStatus{
-				Addresses: addresses,
-			},
+		Status: kservev1alpha2.LLMInferenceServiceStatus{
+			Addresses: sourced,
 		},
 	}
 }
