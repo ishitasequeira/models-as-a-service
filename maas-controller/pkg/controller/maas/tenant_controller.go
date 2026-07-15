@@ -22,6 +22,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	extv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -133,7 +134,16 @@ type TenantReconciler struct {
 // Reconcile drives the MaasTenantConfig platform lifecycle. ODH deploys maas-controller; the controller
 // owns the full deploy pipeline via the MaasTenantConfig CR (no standalone ModelsAsService instance CR exists).
 func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	return r.reconcile(ctx, req)
+	result, err := r.reconcile(ctx, req)
+	if apierrors.IsConflict(err) {
+		// Stale-cache conflict: the in-memory object's UID/ResourceVersion diverged from etcd
+		// (e.g. MaasTenantConfig was deleted and recreated between Get and Status.Update).
+		// Requeue without surfacing an error so controller-runtime doesn't log "Reconciler error"
+		// and apply exponential back-off; the next reconcile will re-read a fresh copy.
+		ctrl.LoggerFrom(ctx).V(1).Info("requeuing after stale-cache conflict", "error", err)
+		return ctrl.Result{Requeue: true}, nil
+	}
+	return result, err
 }
 
 const openshiftAuthenticationClusterName = "cluster"
