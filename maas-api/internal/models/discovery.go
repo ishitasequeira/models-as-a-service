@@ -205,6 +205,27 @@ func (m *Manager) FilterModelsByAccess(ctx context.Context, models []Model, auth
 			}
 			continue
 		}
+		// LLMInferenceService models on BBR clusters share the gateway base URL.
+		// Probing the base URL at /v1/models does not yield per-model access information
+		// (the gateway routes by model field in the request body, not by URL path).
+		// Include directly if Ready; gateway authpolicy enforces access at inference time.
+		// Subscription pre-filtering (upstream in ListLLMs) scopes the listing to models
+		// the user's subscriptions cover, providing the primary access boundary.
+		kind := model.Kind
+		if kind == "" {
+			kind = "llmisvc"
+		}
+		if kind == "llmisvc" {
+			if model.Ready {
+				m.logger.Debug("FilterModelsByAccess: including llmisvc model (no probe)", "id", model.ID)
+				mu.Lock()
+				out = append(out, model)
+				mu.Unlock()
+			} else {
+				m.logger.Debug("FilterModelsByAccess: skipping llmisvc model (not ready)", "id", model.ID)
+			}
+			continue
+		}
 		if model.URL == nil {
 			m.logger.Debug("FilterModelsByAccess: skipping model with no URL", "id", model.ID)
 			continue
@@ -218,10 +239,6 @@ func (m *Manager) FilterModelsByAccess(ctx context.Context, models []Model, auth
 		if err != nil {
 			m.logger.Debug("FilterModelsByAccess: failed to build endpoint", "id", model.ID, "error", err)
 			continue
-		}
-		kind := model.Kind
-		if kind == "" {
-			kind = "llmisvc"
 		}
 		meta := modelMetadata{
 			Kind:        kind,

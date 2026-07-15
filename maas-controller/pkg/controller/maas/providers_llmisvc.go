@@ -23,7 +23,7 @@ import (
 	"strings"
 
 	"github.com/go-logr/logr"
-	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -125,7 +125,7 @@ func (h *llmisvcHandler) validateLLMISvcHTTPRoute(ctx context.Context, log logr.
 
 func (h *llmisvcHandler) Status(ctx context.Context, log logr.Logger, model *maasv1alpha1.MaaSModelRef) (endpoint string, ready bool, err error) {
 	llmisvcNS := model.Namespace
-	llmisvc := &kservev1alpha1.LLMInferenceService{}
+	llmisvc := &kservev1alpha2.LLMInferenceService{}
 	key := client.ObjectKey{Name: model.Spec.ModelRef.Name, Namespace: llmisvcNS}
 	if err := h.r.Get(ctx, key, llmisvc); err != nil {
 		if apierrors.IsNotFound(err) {
@@ -208,7 +208,7 @@ const (
 // When expectedHostnames is empty, preserves legacy behavior for single-gateway deployments.
 // Returns "" when no suitable address is found; the caller (Status) falls through to
 // GetModelEndpoint which derives the endpoint from Gateway/HTTPRoute metadata.
-func (h *llmisvcHandler) getEndpointFromLLMISvc(llmisvc *kservev1alpha1.LLMInferenceService, expectedHostnames []string) string {
+func (h *llmisvcHandler) getEndpointFromLLMISvc(llmisvc *kservev1alpha2.LLMInferenceService, expectedHostnames []string) string {
 	hostSet := make(map[string]struct{}, len(expectedHostnames))
 	for _, hn := range expectedHostnames {
 		hostSet[strings.ToLower(hn)] = struct{}{}
@@ -261,7 +261,7 @@ func (h *llmisvcHandler) getEndpointFromLLMISvc(llmisvc *kservev1alpha1.LLMInfer
 	return ""
 }
 
-func (h *llmisvcHandler) selectAddress(llmisvc *kservev1alpha1.LLMInferenceService, targetName string, hostSet map[string]struct{}, filtering bool) string {
+func (h *llmisvcHandler) selectAddress(llmisvc *kservev1alpha2.LLMInferenceService, targetName string, hostSet map[string]struct{}, filtering bool) string {
 	var urls []string
 	for _, addr := range llmisvc.Status.Addresses {
 		if addr.Name == nil || *addr.Name != targetName || addr.URL == nil {
@@ -290,17 +290,24 @@ func (h *llmisvcHandler) selectAddress(llmisvc *kservev1alpha1.LLMInferenceServi
 	return ""
 }
 
+// ResolveModelAlias returns the canonical BBR model ID for the referenced LLMInferenceService.
+//
+// It reads from LLMInferenceService.status.addresses[*].models[0].name, which KServe populates
+// as the authoritative canonical ID in the format publishers/{namespace}/models/{model-name}.
+// KServe is the source of truth for this value; MaaS reads and mirrors it.
+// Returns an empty string when the LLMISVC cannot be fetched or has no populated addresses.
 func (h *llmisvcHandler) ResolveModelAlias(ctx context.Context, log logr.Logger, model *maasv1alpha1.MaaSModelRef) string {
-	llmisvc := &kservev1alpha1.LLMInferenceService{}
+	llmisvc := &kservev1alpha2.LLMInferenceService{}
 	key := client.ObjectKey{Name: model.Spec.ModelRef.Name, Namespace: model.Namespace}
 	if err := h.r.Get(ctx, key, llmisvc); err != nil {
 		return ""
 	}
-	modelName := llmisvc.Name
-	if llmisvc.Spec.Model.Name != nil && *llmisvc.Spec.Model.Name != "" {
-		modelName = *llmisvc.Spec.Model.Name
+	for _, addr := range llmisvc.Status.Addresses {
+		if len(addr.Models) > 0 && addr.Models[0].Name != "" {
+			return addr.Models[0].Name
+		}
 	}
-	return fmt.Sprintf("publishers/%s/models/%s", model.Namespace, modelName)
+	return ""
 }
 
 func (h *llmisvcHandler) CleanupOnDelete(ctx context.Context, log logr.Logger, model *maasv1alpha1.MaaSModelRef) error {
