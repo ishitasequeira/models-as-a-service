@@ -34,7 +34,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	// controllerutil temporarily unused — finalizer code commented out (see #1186).
+	// "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	gwapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	maasv1alpha1 "github.com/opendatahub-io/models-as-a-service/maas-controller/api/maas/v1alpha1"
@@ -111,30 +112,32 @@ func (r *TenantReconciler) reconcile(ctx context.Context, req ctrl.Request) (ctr
 		}
 	}
 
-	usesCleanupFinalizer, err := tenantUsesCleanupFinalizer(&tenant)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
 	// Handle deletion
 	if !tenant.DeletionTimestamp.IsZero() {
 		return r.handleDeletion(ctx, log, &tenant)
 	}
 
-	if usesCleanupFinalizer {
-		if !controllerutil.ContainsFinalizer(&tenant, tenantFinalizer) {
-			controllerutil.AddFinalizer(&tenant, tenantFinalizer)
-			if err := r.Update(ctx, &tenant); err != nil {
-				return ctrl.Result{}, err
-			}
-		}
-	} else if controllerutil.ContainsFinalizer(&tenant, tenantFinalizer) {
-		// Converge upgraded clusters: default-tenant teardown is owned by Config GC.
-		controllerutil.RemoveFinalizer(&tenant, tenantFinalizer)
-		if err := r.Update(ctx, &tenant); err != nil {
-			return ctrl.Result{}, err
-		}
-	}
+	// Unblocking CI: finalizer temporarily disabled to prevent MaasTenantConfig from getting
+	// stuck in Terminating when Config cascade-deletes infrastructure resources.
+	// TODO: Re-enable once the proper circuit-breaker fix lands (see #1186).
+	// usesCleanupFinalizer, err := tenantUsesCleanupFinalizer(&tenant)
+	// if err != nil {
+	// 	return ctrl.Result{}, err
+	// }
+	// if usesCleanupFinalizer {
+	// 	if !controllerutil.ContainsFinalizer(&tenant, tenantFinalizer) {
+	// 		controllerutil.AddFinalizer(&tenant, tenantFinalizer)
+	// 		if err := r.Update(ctx, &tenant); err != nil {
+	// 			return ctrl.Result{}, err
+	// 		}
+	// 	}
+	// } else if controllerutil.ContainsFinalizer(&tenant, tenantFinalizer) {
+	// 	// Converge upgraded clusters: default-tenant teardown is owned by Config GC.
+	// 	controllerutil.RemoveFinalizer(&tenant, tenantFinalizer)
+	// 	if err := r.Update(ctx, &tenant); err != nil {
+	// 		return ctrl.Result{}, err
+	// 	}
+	// }
 
 	// Handle management states
 	if result, err := r.handleManagementState(ctx, log, &tenant); result != nil {
@@ -172,27 +175,30 @@ func (r *TenantReconciler) reconcile(ctx context.Context, req ctrl.Request) (ctr
 }
 
 func (r *TenantReconciler) handleDeletion(ctx context.Context, log logr.Logger, tenant *maasv1alpha1.MaasTenantConfig) (ctrl.Result, error) {
-	if controllerutil.ContainsFinalizer(tenant, tenantFinalizer) {
-		if err := r.cleanupMaaSSubscriptions(ctx, log, tenant); err != nil {
-			log.Error(err, "failed to cleanup MaaSSubscriptions")
-			return ctrl.Result{}, err
-		}
-
-		if err := r.cleanupMaaSAuthPolicies(ctx, log, tenant); err != nil {
-			log.Error(err, "failed to cleanup MaaSAuthPolicies")
-			return ctrl.Result{}, err
-		}
-
-		if err := r.cleanupTenantResources(ctx, log, tenant); err != nil {
-			log.Error(err, "failed to cleanup tenant resources")
-			return ctrl.Result{}, err
-		}
-
-		controllerutil.RemoveFinalizer(tenant, tenantFinalizer)
-		if err := r.Update(ctx, tenant); err != nil {
-			return ctrl.Result{}, err
-		}
-	}
+	// Unblocking CI: finalizer temporarily disabled to prevent MaasTenantConfig from getting
+	// stuck in Terminating when Config cascade-deletes infrastructure resources.
+	// TODO: Re-enable once the proper circuit-breaker fix lands (see #1186).
+	// if controllerutil.ContainsFinalizer(tenant, tenantFinalizer) {
+	// 	if err := r.cleanupMaaSSubscriptions(ctx, log, tenant); err != nil {
+	// 		log.Error(err, "failed to cleanup MaaSSubscriptions")
+	// 		return ctrl.Result{}, err
+	// 	}
+	//
+	// 	if err := r.cleanupMaaSAuthPolicies(ctx, log, tenant); err != nil {
+	// 		log.Error(err, "failed to cleanup MaaSAuthPolicies")
+	// 		return ctrl.Result{}, err
+	// 	}
+	//
+	// 	if err := r.cleanupTenantResources(ctx, log, tenant); err != nil {
+	// 		log.Error(err, "failed to cleanup tenant resources")
+	// 		return ctrl.Result{}, err
+	// 	}
+	//
+	// 	controllerutil.RemoveFinalizer(tenant, tenantFinalizer)
+	// 	if err := r.Update(ctx, tenant); err != nil {
+	// 		return ctrl.Result{}, err
+	// 	}
+	// }
 	return ctrl.Result{}, nil
 }
 
