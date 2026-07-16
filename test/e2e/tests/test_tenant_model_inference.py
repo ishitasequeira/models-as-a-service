@@ -40,6 +40,7 @@ from multitenancy_helpers import (
 )
 
 from test_helper import (
+    _check_ipp_pods_deployed,
     _create_llmis,
     _create_maas_model_ref,
     _delete_cr,
@@ -285,26 +286,8 @@ class TestTenantModelInference:
 # ─── Body-based routing ────────────────────────────────────────────────────
 
 
-def _check_payload_processing_pods():
-    """Check if payload-processing (IPP) pods are deployed."""
-    for name in ("payload-pre-processing", "payload-processing"):
-        result = subprocess.run(
-            ["oc", "get", "deployment", name, "-n", GATEWAY_NAMESPACE,
-             "-o", "jsonpath={.status.readyReplicas}"],
-            capture_output=True, text=True,
-        )
-        if result.returncode != 0:
-            log.debug("oc check for %s failed: %s", name, result.stderr.strip())
-            return False
-        ready = result.stdout.strip()
-        if not ready or ready == "0":
-            log.debug("Deployment %s has no ready replicas", name)
-            return False
-    return True
-
-
 requires_ipp = pytest.mark.skipif(
-    not _check_payload_processing_pods(),
+    not _check_ipp_pods_deployed(),
     reason="Payload-processing (IPP) pods not deployed; body routing tests require IPP",
 )
 
