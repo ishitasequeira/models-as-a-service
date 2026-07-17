@@ -294,9 +294,9 @@ func (h *llmisvcHandler) selectAddress(llmisvc *kservev1alpha2.LLMInferenceServi
 // Return semantics:
 //   - (alias, nil)  — alias resolved; caller should update status.resolvedModelAlias.
 //   - ("", nil)     — LLMISVC found but addresses not yet populated; caller must preserve
-//                     the existing alias rather than clearing it.
+//     the existing alias rather than clearing it.
 //   - ("", err)     — transient API failure (e.g. API server unreachable); caller must
-//                     preserve the existing alias rather than clearing it.
+//     preserve the existing alias rather than clearing it.
 func (h *llmisvcHandler) ResolveModelAlias(ctx context.Context, log logr.Logger, model *maasv1alpha1.MaaSModelRef) (string, error) {
 	llmisvc := &kservev1alpha2.LLMInferenceService{}
 	key := client.ObjectKey{Name: model.Spec.ModelRef.Name, Namespace: model.Namespace}
