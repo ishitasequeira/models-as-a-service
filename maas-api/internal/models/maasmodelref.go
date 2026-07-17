@@ -16,6 +16,12 @@ const (
 	maasGroup    = "maas.opendatahub.io"
 	maasVersion  = "v1alpha1"
 	maasResource = "maasmodelrefs"
+
+	// kindExternalModel and kindLLMISvc are the two valid values of MaaSModelRef spec.modelRef.kind.
+	// An empty kind defaults to kindLLMISvc ("llmisvc").
+	kindExternalModel    = "ExternalModel"
+	kindLLMISvc          = "llmisvc"
+	kindLLMISvcAlternate = "LLMInferenceService"
 )
 
 // MaaSModelRefLister lists MaaSModelRef CRs from a cache (e.g. informer-backed). Used for GET /v1/models.
@@ -64,14 +70,14 @@ func maasModelRefToModel(u *unstructured.Unstructured) *Model {
 	ready := phase == "Ready"
 	kind, _, _ := unstructured.NestedString(u.Object, "spec", "modelRef", "kind")
 	if kind == "" {
-		kind = "llmisvc"
+		kind = kindLLMISvc
 	}
 
 	modelRefName, _, _ := unstructured.NestedString(u.Object, "spec", "modelRef", "name")
 
 	modelID := name
 	switch kind {
-	case "ExternalModel":
+	case kindExternalModel:
 		// For ExternalModel refs, use the ExternalModel CR name as the model ID so that
 		// GET /v1/models returns the identifier that inference endpoints expect.
 		// ExternalModels skip the backend probe (no /v1/models discovery), so without
@@ -111,7 +117,7 @@ func maasModelRefToModel(u *unstructured.Unstructured) *Model {
 
 	var urlPtr *apis.URL
 	switch kind {
-	case "ExternalModel":
+	case kindExternalModel:
 		// ExternalModel models keep using status.endpoint as their URL.
 		if endpoint != "" {
 			if parsed, err := url.Parse(endpoint); err == nil {
