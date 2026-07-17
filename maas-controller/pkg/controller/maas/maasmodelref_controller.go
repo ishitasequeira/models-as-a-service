@@ -179,7 +179,15 @@ func (r *MaaSModelRefReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		model.Status.Endpoint = endpoint
 	}
 
-	model.Status.ResolvedModelAlias = handler.ResolveModelAlias(ctx, log, model)
+	// Only update ResolvedModelAlias when a non-empty alias is returned.
+	// An empty result with no error means the backing resource is not yet ready
+	// (addresses not yet populated). An error indicates a transient API failure.
+	// In both cases, preserve the existing alias so reverse lookups remain valid.
+	if alias, err := handler.ResolveModelAlias(ctx, log, model); err != nil {
+		log.Error(err, "failed to resolve model alias, keeping existing value")
+	} else if alias != "" {
+		model.Status.ResolvedModelAlias = alias
+	}
 
 	governed := r.checkGovernanceAttached(ctx, model)
 	r.setGovernanceCondition(model, governed)

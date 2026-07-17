@@ -65,8 +65,8 @@ func (f *fakeHandler) Status(_ context.Context, _ logr.Logger, _ *maasv1alpha1.M
 func (f *fakeHandler) GetModelEndpoint(_ context.Context, _ logr.Logger, _ *maasv1alpha1.MaaSModelRef) (string, error) {
 	return f.endpoint, nil
 }
-func (f *fakeHandler) ResolveModelAlias(_ context.Context, _ logr.Logger, _ *maasv1alpha1.MaaSModelRef) string {
-	return ""
+func (f *fakeHandler) ResolveModelAlias(_ context.Context, _ logr.Logger, _ *maasv1alpha1.MaaSModelRef) (string, error) {
+	return "", nil
 }
 func (f *fakeHandler) CleanupOnDelete(_ context.Context, _ logr.Logger, _ *maasv1alpha1.MaaSModelRef) error {
 	return nil
@@ -1401,7 +1401,7 @@ func TestMapLLMISvcToMaaSModelRefs_UnstructuredObject(t *testing.T) {
 	obj.SetName(llmisvcName)
 	obj.SetNamespace(llmisvcNamespace)
 	obj.SetGroupVersionKind(schema.GroupVersionKind{
-		Group: "serving.kserve.io", Version: "v1alpha1", Kind: "LLMInferenceService",
+		Group: "serving.kserve.io", Version: "v1alpha2", Kind: "LLMInferenceService",
 	})
 
 	reqs := r.mapLLMISvcToMaaSModelRefs(context.Background(), obj)

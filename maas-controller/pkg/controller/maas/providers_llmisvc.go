@@ -290,19 +290,25 @@ func (h *llmisvcHandler) selectAddress(llmisvc *kservev1alpha2.LLMInferenceServi
 // It reads from LLMInferenceService.status.addresses[*].models[0].name, which KServe populates
 // as the authoritative canonical ID in the format publishers/{namespace}/models/{model-name}.
 // KServe is the source of truth for this value; MaaS reads and mirrors it.
-// Returns an empty string when the LLMISVC cannot be fetched or has no populated addresses.
-func (h *llmisvcHandler) ResolveModelAlias(ctx context.Context, log logr.Logger, model *maasv1alpha1.MaaSModelRef) string {
+//
+// Return semantics:
+//   - (alias, nil)  — alias resolved; caller should update status.resolvedModelAlias.
+//   - ("", nil)     — LLMISVC found but addresses not yet populated; caller must preserve
+//                     the existing alias rather than clearing it.
+//   - ("", err)     — transient API failure (e.g. API server unreachable); caller must
+//                     preserve the existing alias rather than clearing it.
+func (h *llmisvcHandler) ResolveModelAlias(ctx context.Context, log logr.Logger, model *maasv1alpha1.MaaSModelRef) (string, error) {
 	llmisvc := &kservev1alpha2.LLMInferenceService{}
 	key := client.ObjectKey{Name: model.Spec.ModelRef.Name, Namespace: model.Namespace}
 	if err := h.r.Get(ctx, key, llmisvc); err != nil {
-		return ""
+		return "", err
 	}
 	for _, addr := range llmisvc.Status.Addresses {
 		if len(addr.Models) > 0 && addr.Models[0].Name != "" {
-			return addr.Models[0].Name
+			return addr.Models[0].Name, nil
 		}
 	}
-	return ""
+	return "", nil
 }
 
 func (h *llmisvcHandler) CleanupOnDelete(ctx context.Context, log logr.Logger, model *maasv1alpha1.MaaSModelRef) error {
