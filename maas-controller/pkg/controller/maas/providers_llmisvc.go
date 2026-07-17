@@ -199,9 +199,8 @@ const (
 )
 
 // getEndpointFromLLMISvc returns the endpoint URL from LLMInferenceService status as-reported.
-// Prefers path-based addresses (gateway-external) over model-routing (body-based) addresses.
-// status.endpoint is used by the maas-api discovery probe (GET /v1/models); model-routing
-// base URLs lack a model path, so the probe cannot route to the correct backend.
+// Prefers model-routing (BBR) addresses (gateway-external-model-routing) over path-based ones
+// (gateway-external), reflecting that BBR is the primary routing mode.
 // When expectedHostnames is non-empty, only addresses whose hostname matches
 // (case-insensitive per RFC 4343) are considered; this prevents selecting the wrong gateway
 // when multiple gateways exist.
@@ -215,8 +214,8 @@ func (h *llmisvcHandler) getEndpointFromLLMISvc(llmisvc *kservev1alpha2.LLMInfer
 	}
 	filtering := len(hostSet) > 0
 
-	// Prefer path-based addresses for discovery; fall back to model-routing.
-	for _, targetName := range []string{addressNameGatewayExternal, addressNameGatewayExternalModelRouting} {
+	// Prefer model-routing (BBR) addresses; fall back to path-based.
+	for _, targetName := range []string{addressNameGatewayExternalModelRouting, addressNameGatewayExternal} {
 		if u := h.selectAddress(llmisvc, targetName, hostSet, filtering); u != "" {
 			return u
 		}
@@ -227,28 +226,24 @@ func (h *llmisvcHandler) getEndpointFromLLMISvc(llmisvc *kservev1alpha2.LLMInfer
 	if filtering {
 		return ""
 	}
-	// Prefer addresses that include the model path (e.g., gateway-internal over gateway-internal-model-routing).
-	// gateway-internal-model-routing typically has just the base URL without the path.
-	// gateway-internal has the full path including namespace/model.
+	// For unfiltered (legacy single-gateway) deployments, prefer base URLs (model-routing style)
+	// over path-based URLs so status.endpoint is consistent with the BBR gateway entry-point.
 	var fallbackURL string
 	for _, addr := range llmisvc.Status.Addresses {
 		if addr.URL == nil {
 			continue
 		}
-		// Prefer URLs with non-empty paths beyond just "/"
-		// Base URLs like https://host/ have path="/" (length 1)
-		// Model endpoints like https://host/ns/model have path="/ns/model" (length > 1)
-		if len(addr.URL.Path) > 1 && addr.URL.Path != "/" {
+		// Prefer base URLs (path "" or "/") — these are model-routing endpoints.
+		if addr.URL.Path == "" || addr.URL.Path == "/" {
 			return addr.URL.String()
 		}
 		if fallbackURL == "" {
 			fallbackURL = addr.URL.String()
 		}
 	}
-	// Check Status.URL before falling back to base URL from Addresses
-	// Status.URL might have the full path even when Addresses[] only has base URLs
+	// Check Status.URL as a base-URL candidate.
 	if llmisvc.Status.URL != nil {
-		if len(llmisvc.Status.URL.Path) > 1 && llmisvc.Status.URL.Path != "/" {
+		if llmisvc.Status.URL.Path == "" || llmisvc.Status.URL.Path == "/" {
 			return llmisvc.Status.URL.String()
 		}
 	}

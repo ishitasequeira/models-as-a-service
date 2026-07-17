@@ -184,7 +184,7 @@ func TestGetEndpointFromLLMISvc_EmptyHostnameSkipped(t *testing.T) {
 	}
 }
 
-func TestGetEndpointFromLLMISvc_PrefersPathBasedOverModelRouting(t *testing.T) {
+func TestGetEndpointFromLLMISvc_PrefersModelRoutingOverPathBased(t *testing.T) {
 	llmisvc := newReadyLLMISvc("test-model", "default", []duckv1.Addressable{
 		{Name: strPtr("gateway-external"), URL: mustParseURL("https://maas.example.com/test-model")},
 		{Name: strPtr("gateway-external-model-routing"), URL: mustParseURL("https://maas.example.com/v1/chat/completions")},
@@ -192,13 +192,13 @@ func TestGetEndpointFromLLMISvc_PrefersPathBasedOverModelRouting(t *testing.T) {
 	h := &llmisvcHandler{}
 
 	got := h.getEndpointFromLLMISvc(llmisvc, []string{"maas.example.com"})
-	want := "https://maas.example.com/test-model"
+	want := "https://maas.example.com/v1/chat/completions"
 	if got != want {
-		t.Errorf("getEndpointFromLLMISvc() = %q, want %q (path-based should be preferred for discovery)", got, want)
+		t.Errorf("getEndpointFromLLMISvc() = %q, want %q (model-routing should be preferred over path-based)", got, want)
 	}
 }
 
-func TestGetEndpointFromLLMISvc_PathBased_HostnameFiltering(t *testing.T) {
+func TestGetEndpointFromLLMISvc_ModelRouting_HostnameFiltering(t *testing.T) {
 	llmisvc := newReadyLLMISvc("test-model", "default", []duckv1.Addressable{
 		{Name: strPtr("gateway-external-model-routing"), URL: mustParseURL("https://wrong-gw.example.com/v1/chat/completions")},
 		{Name: strPtr("gateway-external-model-routing"), URL: mustParseURL("https://correct-gw.example.com/v1/chat/completions")},
@@ -208,22 +208,22 @@ func TestGetEndpointFromLLMISvc_PathBased_HostnameFiltering(t *testing.T) {
 	h := &llmisvcHandler{}
 
 	got := h.getEndpointFromLLMISvc(llmisvc, []string{"correct-gw.example.com"})
-	want := "https://correct-gw.example.com/test-model"
+	want := "https://correct-gw.example.com/v1/chat/completions"
 	if got != want {
-		t.Errorf("getEndpointFromLLMISvc() = %q, want %q (should select path-based filtered by hostname)", got, want)
+		t.Errorf("getEndpointFromLLMISvc() = %q, want %q (should select model-routing filtered by hostname)", got, want)
 	}
 }
 
-func TestGetEndpointFromLLMISvc_FallsBackToModelRouting_WhenNoPathBased(t *testing.T) {
+func TestGetEndpointFromLLMISvc_FallsBackToPathBased_WhenNoModelRouting(t *testing.T) {
 	llmisvc := newReadyLLMISvc("test-model", "default", []duckv1.Addressable{
-		{Name: strPtr("gateway-external-model-routing"), URL: mustParseURL("https://maas.example.com/v1/chat/completions")},
+		{Name: strPtr("gateway-external"), URL: mustParseURL("https://maas.example.com/test-model")},
 	})
 	h := &llmisvcHandler{}
 
 	got := h.getEndpointFromLLMISvc(llmisvc, []string{"maas.example.com"})
-	want := "https://maas.example.com/v1/chat/completions"
+	want := "https://maas.example.com/test-model"
 	if got != want {
-		t.Errorf("getEndpointFromLLMISvc() = %q, want %q (should fall back to model-routing)", got, want)
+		t.Errorf("getEndpointFromLLMISvc() = %q, want %q (should fall back to path-based when no model-routing address)", got, want)
 	}
 }
 
@@ -241,7 +241,7 @@ func TestGetEndpointFromLLMISvc_ModelRouting_PrefersHTTPS(t *testing.T) {
 	}
 }
 
-func TestGetEndpointFromLLMISvc_PathBased_NoHostnames_Legacy(t *testing.T) {
+func TestGetEndpointFromLLMISvc_ModelRouting_NoHostnames_Legacy(t *testing.T) {
 	llmisvc := newReadyLLMISvc("test-model", "default", []duckv1.Addressable{
 		{Name: strPtr("gateway-external"), URL: mustParseURL("https://maas.example.com/test-model")},
 		{Name: strPtr("gateway-external-model-routing"), URL: mustParseURL("https://maas.example.com/v1/chat/completions")},
@@ -249,9 +249,9 @@ func TestGetEndpointFromLLMISvc_PathBased_NoHostnames_Legacy(t *testing.T) {
 	h := &llmisvcHandler{}
 
 	got := h.getEndpointFromLLMISvc(llmisvc, nil)
-	want := "https://maas.example.com/test-model"
+	want := "https://maas.example.com/v1/chat/completions"
 	if got != want {
-		t.Errorf("getEndpointFromLLMISvc() = %q, want %q (path-based preferred even in legacy mode)", got, want)
+		t.Errorf("getEndpointFromLLMISvc() = %q, want %q (model-routing preferred in legacy mode too)", got, want)
 	}
 }
 
