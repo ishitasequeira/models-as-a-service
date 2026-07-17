@@ -30,6 +30,7 @@ from test_helper import (
     DISTINCT_MODEL_2_REF,
     DISTINCT_MODEL_ID,
     DISTINCT_MODEL_REF,
+    MODEL_CANONICAL_ID,
     MODEL_NAME,
     MODEL_NAMESPACE,
     MODEL_REF,
@@ -848,7 +849,7 @@ class TestModelsEndpoint:
                     models = r.json().get("data") or []
                     assert isinstance(models, list), "Models should be a list"
                     model_ids = [m["id"] for m in models]
-                    urls = [m.get("url") for m in models if m.get("id") == MODEL_NAME and m.get("url")]
+                    urls = [m.get("url") for m in models if m.get("id") == MODEL_CANONICAL_ID and m.get("url")]
                     if len(models) == 2 and len(set(urls)) == 2:
                         break
                     log.info(
@@ -874,10 +875,10 @@ class TestModelsEndpoint:
 
             # Both modelRefs serve the same model ID
             assert len(unique_ids) == 1, \
-                f"Expected only 1 unique model ID (both modelRefs serve {MODEL_NAME}), got {len(unique_ids)}: {unique_ids}"
+                f"Expected only 1 unique model ID (both modelRefs serve {MODEL_CANONICAL_ID}), got {len(unique_ids)}: {unique_ids}"
 
-            # Verify it's the expected model ID
-            expected_id = MODEL_NAME
+            # Verify it's the expected canonical BBR model ID
+            expected_id = MODEL_CANONICAL_ID
             assert expected_id in unique_ids, \
                 f"Expected to find '{expected_id}', but got {unique_ids}"
 
