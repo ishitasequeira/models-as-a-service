@@ -657,7 +657,7 @@ else
                     if [ -n "$CUSTOM_MODEL_PATH" ]; then
                         MODEL_CHAT_ENDPOINT="${MODEL_CHAT}${CUSTOM_MODEL_PATH}"
                     else
-                        MODEL_CHAT_ENDPOINT="${MODEL_CHAT}/v1/${INFERENCE_ENDPOINT}"
+                        MODEL_CHAT_ENDPOINT="${MODEL_CHAT%/}/v1/${INFERENCE_ENDPOINT}"
                     fi
                 elif [ -n "$MODEL_NAME" ]; then
                     print_warning "Model endpoint not found" "Model endpoint not found for $MODEL_NAME" "Check model HTTPRoute configuration: kubectl get httproute -n llm"
