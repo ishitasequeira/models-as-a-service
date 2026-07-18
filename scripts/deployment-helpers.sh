@@ -320,6 +320,14 @@ patch_kuadrant_csv() {
   # The kuadrant operator deployment is always named kuadrant-operator-controller-manager
   # regardless of whether we're using rhcl-operator or kuadrant-operator
   local operator_deployment="kuadrant-operator-controller-manager"
+  # The control-plane=controller-manager label below also matches
+  # limitador-operator-controller-manager in this namespace, so that pod gets force-deleted
+  # as collateral damage even though this function only patches the kuadrant-operator CSV.
+  # Wait for its rollout too, or Limitador's reconciliation (and the WasmPlugin/EnvoyFilter
+  # it manages, which do the actual token-rate-limit enforcement) can still be mid-restart
+  # when we proceed to create the Kuadrant CR/Gateway below, silently leaving rate limiting
+  # unenforced.
+  local limitador_operator_deployment="limitador-operator-controller-manager"
   if kubectl get deployment "$operator_deployment" -n "$namespace" &>/dev/null; then
     # Force delete the operator pod - this ensures the new env var is picked up
     kubectl delete pod -n "$namespace" -l control-plane=controller-manager --force --grace-period=0 2>/dev/null || \
@@ -331,6 +339,12 @@ patch_kuadrant_csv() {
     sleep 5
     kubectl rollout status deployment/"$operator_deployment" -n "$namespace" --timeout="${ROLLOUT_TIMEOUT}s" 2>/dev/null || \
       log_warn "Operator rollout status check timed out (timeout: ${ROLLOUT_TIMEOUT}s)"
+
+    if kubectl get deployment "$limitador_operator_deployment" -n "$namespace" &>/dev/null; then
+      log_info "Waiting for limitador-operator pod to restart (also force-deleted above)..."
+      kubectl rollout status deployment/"$limitador_operator_deployment" -n "$namespace" --timeout="${ROLLOUT_TIMEOUT}s" 2>/dev/null || \
+        log_warn "Limitador operator rollout status check timed out (timeout: ${ROLLOUT_TIMEOUT}s)"
+    fi
 
     # Verify required env vars are in the RUNNING pod
     local pod_env
