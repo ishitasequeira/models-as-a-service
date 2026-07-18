@@ -46,13 +46,17 @@ To deploy both simulator models:
 
 The two simulator models can be distinguished by:
 
-- **Model Name**:
-  - Standard: `facebook-opt-125m-simulated` (from kustomization namePrefix)
-  - Premium: `premium-simulated-simulated-premium` (from kustomization namePrefix + model name)
-
 - **LLMInferenceService Name**:
   - Standard: `facebook-opt-125m-simulated`
   - Premium: `premium-simulated-simulated-premium`
+
+- **Model identity** (`spec.model.name`, used by body-based routing):
+  - Standard: `facebook/opt-125m`
+  - Premium: `facebook/opt-125m-premium`
+
+  These must stay distinct — two `MaaSModelRef`s that resolve to the same model
+  identity in the same namespace cannot be disambiguated by body-based routing
+  (see `ModelIdentityUnique` on `MaaSModelRef.status.conditions`).
 
 Subscription-based access is configured via MaaSAuthPolicy and MaaSSubscription (see [docs/samples/maas-system/](../maas-system/)), not via LLMInferenceService annotations.
 

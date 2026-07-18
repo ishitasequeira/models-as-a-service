@@ -1095,7 +1095,13 @@ def _scale_kuadrant_controller_up(namespace="kuadrant-system", timeout=60):
 # Multi-tenant model helpers
 # ---------------------------------------------------------------------------
 
-def _create_llmis(name: str, namespace: str, gateway_name: str, gateway_namespace: str = "openshift-ingress"):
+def _create_llmis(
+    name: str,
+    namespace: str,
+    gateway_name: str,
+    gateway_namespace: str = "openshift-ingress",
+    model_name: str = "facebook/opt-125m",
+):
     """Create a simulated LLMInferenceService pointing to a specific gateway.
 
     Args:
@@ -1103,6 +1109,9 @@ def _create_llmis(name: str, namespace: str, gateway_name: str, gateway_namespac
         namespace: Namespace to create LLMIS in
         gateway_name: Gateway name to route through
         gateway_namespace: Gateway namespace (default: openshift-ingress)
+        model_name: spec.model.name (the model identity used for BBR/ResolvedModelAlias).
+            Defaults to "facebook/opt-125m"; override to test model-identity-collision
+            scenarios where two LLMISs intentionally share a model name.
     """
     _apply_cr({
         "apiVersion": "serving.kserve.io/v1alpha1",
@@ -1113,7 +1122,7 @@ def _create_llmis(name: str, namespace: str, gateway_name: str, gateway_namespac
         },
         "spec": {
             "model": {
-                "name": "facebook/opt-125m",
+                "name": model_name,
                 # uri is required by the LLMIS schema but not used by llm-d-inference-sim.
                 "uri": "hf://placeholder/no-model",
             },
@@ -1141,7 +1150,7 @@ def _create_llmis(name: str, namespace: str, gateway_name: str, gateway_namespac
                         "command": ["/app/llm-d-inference-sim"],
                         "args": [
                             "--port", "8000",
-                            "--model", "facebook/opt-125m",
+                            "--model", model_name,
                             "--mode", "random",
                             "--no-mm-encoder-only",
                             "--ssl-certfile", "/var/run/kserve/tls/tls.crt",
