@@ -272,6 +272,54 @@ patch_csv_operator_container_env() {
   return 0
 }
 
+# Patch one or more RELATED_IMAGE_* env vars on an operator's CSV and force-restart it so
+# the new values take effect (operators read their own env vars once, at process startup).
+# Used to override sub-component images (e.g. ai-gateway-operator, maas-controller, maas-api)
+# that the ODH operator's module/component reconcilers read from their own container env.
+#
+# Arguments: <namespace> <csv_name_prefix> <NAME=VALUE> [<NAME=VALUE> ...]
+# Entries with an empty VALUE are skipped (so callers can pass through unset overrides safely).
+patch_operator_related_images() {
+  local namespace=$1
+  local operator_prefix=$2
+  shift 2
+
+  local pairs=("$@")
+  [[ ${#pairs[@]} -eq 0 ]] && return 0
+
+  local has_value=false
+  local pair
+  for pair in "${pairs[@]}"; do
+    [[ -n "${pair#*=}" ]] && has_value=true
+  done
+  [[ "$has_value" == "true" ]] || return 0
+
+  local csv_name
+  csv_name=$(kubectl get csv -n "$namespace" --no-headers 2>/dev/null | grep "^${operator_prefix}" | awk '{print $1}' | head -1)
+  if [[ -z "$csv_name" ]]; then
+    log_warn "Could not find CSV for $operator_prefix in $namespace, skipping RELATED_IMAGE patch"
+    return 0
+  fi
+
+  local patched_any=false
+  local pair name value
+  for pair in "${pairs[@]}"; do
+    name="${pair%%=*}"
+    value="${pair#*=}"
+    [[ -z "$value" ]] && continue
+    log_info "Setting ${name}=${value} on ${csv_name}..."
+    patch_csv_operator_container_env "$namespace" "$csv_name" "$name" "$value" && patched_any=true
+  done
+
+  if [[ "$patched_any" != "true" ]]; then
+    log_debug "CSV $csv_name already has the requested RELATED_IMAGE values"
+    return 0
+  fi
+
+  log_info "Restarting $operator_prefix operator to pick up RELATED_IMAGE changes..."
+  kubectl delete pod -n "$namespace" -l control-plane=controller-manager --force --grace-period=0 2>/dev/null || true
+}
+
 # Patch Kuadrant/RHCL CSV to recognize OpenShift Gateway controller
 # This is required because Kuadrant needs to know about the Gateway API provider
 # Without this patch, Kuadrant shows "MissingDependency" and AuthPolicies won't be enforced
