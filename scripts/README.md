@@ -79,36 +79,38 @@ LOG_LEVEL=DEBUG ./scripts/deploy.sh --verbose
 
 ---
 
-### `test-pr-against-odh-latest.sh` - Test a PR against ODH latest + ai-gateway-operator stable
+### Testing a PR against ODH latest + ai-gateway-operator stable
 
-Integration gate for `main` → `stable` promotion PRs: deploys the ODH operator's **main-branch
-"latest" catalog**, pins **ai-gateway-operator to its stable image**, pins `maas-controller`/`maas-api`
-to the PR-built images, and runs the full e2e suite against that combination. This proves a PR's
+Integration gate for `main` → `stable` promotion PRs: deploy the ODH operator's **main-branch
+"latest" catalog**, pin **ai-gateway-operator to its stable image**, pin `maas-controller`/`maas-api`
+to the PR-built images, and run the full e2e suite against that combination. This proves a PR's
 MaaS images still work with the latest ODH build and the stable AI Gateway component before merge.
 
-Unlike the default CI path (`--deployment-mode kustomize`, used by `prow_run_smoke_test.sh`), this
-drives `deploy.sh --deployment-mode operator`, the only path where the ODH operator's own
-`ModelsAsService`/`AIGateway` component reconcilers run — the default CI path never deploys
-`ai-gateway-operator` at all.
+Unlike the default CI path (`--deployment-mode kustomize`), this uses `DEPLOY_MODE=operator`, the
+only path where the ODH operator's own `ModelsAsService`/`AIGateway` component reconcilers run —
+the default CI path never deploys `ai-gateway-operator` at all. `test/e2e/scripts/prow_run_smoke_test.sh`
+already understands all the env vars needed for this, so no separate wrapper script is required:
 
-**Usage:**
 ```bash
-./scripts/test-pr-against-odh-latest.sh \
-  --maas-controller-image quay.io/opendatahub/maas-controller:pr-406 \
-  --maas-api-image quay.io/opendatahub/maas-api:pr-232
-
-# Deploy only, skip the e2e suite
-./scripts/test-pr-against-odh-latest.sh --maas-controller-image quay.io/opendatahub/maas-controller:pr-406 --skip-e2e
+DEPLOY_MODE=operator \
+AI_GATEWAY_OPERATOR_IMAGE=quay.io/opendatahub/ai-gateway-operator:stable \
+OPERATOR_CATALOG=quay.io/opendatahub/opendatahub-operator-catalog:latest \
+MAAS_CONTROLLER_IMAGE=quay.io/opendatahub/maas-controller:pr-406 \
+MAAS_API_IMAGE=quay.io/opendatahub/maas-api:pr-232 \
+./test/e2e/scripts/prow_run_smoke_test.sh
 ```
 
-**Options:**
-- `--maas-controller-image <image>` / `--maas-api-image <image>` - PR-built image(s) under test (at least one required)
-- `--ai-gateway-operator-image <image>` - default `quay.io/opendatahub/ai-gateway-operator:stable`
-- `--odh-catalog <image>` - default `quay.io/opendatahub/opendatahub-operator-catalog:latest`
-- `--skip-e2e` - deploy only, skip pytest
+To deploy only (skip the e2e suite) while iterating, call `deploy.sh` directly instead:
 
-Requires an OpenShift cluster with `oc` logged in as cluster-admin (same prerequisites as
-`test/e2e/scripts/prow_run_smoke_test.sh`, which it wraps).
+```bash
+./scripts/deploy.sh --deployment-mode operator --operator-type odh \
+  --operator-catalog quay.io/opendatahub/opendatahub-operator-catalog:latest \
+  --ai-gateway-operator-image quay.io/opendatahub/ai-gateway-operator:stable \
+  --maas-controller-image quay.io/opendatahub/maas-controller:pr-406 \
+  --maas-api-image quay.io/opendatahub/maas-api:pr-232
+```
+
+Requires an OpenShift cluster with `oc` logged in as cluster-admin.
 
 ---
 
@@ -436,7 +438,7 @@ MAAS_API_IMAGE=quay.io/opendatahub/maas-api:pr-456 \
 See [test/e2e/README.md](../test/e2e/README.md) for complete testing documentation and CI/CD pipeline usage examples.
 
 To also exercise `ai-gateway-operator` (not part of the default CI path — see
-[`test-pr-against-odh-latest.sh`](#test-pr-against-odh-latest-sh---test-a-pr-against-odh-latest--ai-gateway-operator-stable)
+[Testing a PR against ODH latest + ai-gateway-operator stable](#testing-a-pr-against-odh-latest--ai-gateway-operator-stable)
 above), set `DEPLOY_MODE=operator`:
 
 ```bash
