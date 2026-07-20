@@ -1353,7 +1353,9 @@ cleanup_custom_catalogsource() {
 }
 
 # wait_datasciencecluster_ready [name] [timeout]
-#   Waits for a DataScienceCluster's KServe and ModelsAsService components to be ready.
+#   Waits for a DataScienceCluster's KServe component (and AIGateway, if enabled) to be
+#   ready. Does NOT gate on ModelsAsServiceReady — see the comment inside the loop below
+#   for why that condition isn't a usable signal at this function's call sites.
 #
 # Arguments:
 #   name    - Name of the DataScienceCluster (default: default-dsc)
@@ -1367,7 +1369,7 @@ wait_datasciencecluster_ready() {
   local interval=20
   local elapsed=0
 
-  echo "* Waiting for DataScienceCluster '$name' KServe and ModelsAsService components to be ready..."
+  echo "* Waiting for DataScienceCluster '$name' KServe component to be ready..."
 
   # AIGateway is only expected to be Managed/ready when the caller asked deploy.sh to pin
   # an ai-gateway-operator image (see enable_ai_gateway_component). Only gate on it then —
@@ -1387,45 +1389,43 @@ wait_datasciencecluster_ready() {
       continue
     fi
 
-    local kserve_state kserve_ready maas_ready model_controller_ready aigateway_ready aigateway_message
+    local kserve_state kserve_ready maas_ready aigateway_ready aigateway_message
     kserve_state=$(echo "$dsc_json" | jq -r '.status.components.kserve.managementState // ""')
     kserve_ready=$(echo "$dsc_json" | jq -r '.status.conditions[]? | select(.type=="KserveReady") | .status' | tail -n1)
     maas_ready=$(echo "$dsc_json" | jq -r '.status.conditions[]? | select(.type=="ModelsAsServiceReady") | .status' | tail -n1)
-    model_controller_ready=$(echo "$dsc_json" | jq -r '.status.conditions[]? | select(.type=="ModelControllerReady") | .status' | tail -n1)
     aigateway_ready=$(echo "$dsc_json" | jq -r '.status.conditions[]? | select(.type=="AIGatewayReady") | .status' | tail -n1)
     aigateway_message=$(echo "$dsc_json" | jq -r '.status.conditions[]? | select(.type=="AIGatewayReady") | .message' | tail -n1)
 
-    # ModelsAsServiceReady is the real MaaS readiness signal on the DSC, but some ODH
-    # versions (DSC v2 API, e.g. the EA channel used by default/community-operators CI)
-    # never emit this condition type at all — maas_ready is then "" (absent), not "False".
-    # Only in that absent case do we fall back to ModelControllerReady as a proxy signal.
-    # If ModelsAsServiceReady IS present and reports False, trust it as-is and do NOT
-    # fall back — that would mask a real ModelsAsService/AIGateway reconciliation failure.
-    local maas_check="$maas_ready"
-    if [[ -z "$maas_ready" && "$model_controller_ready" == "True" ]]; then
-      maas_check="$model_controller_ready"
-    fi
-
+    # ModelsAsServiceReady is NOT gated on here. Per the ModelsAsService component's own
+    # reconciler (opendatahub-operator internal/controller/components/modelsasservice), this
+    # condition just mirrors the maas-controller-owned Tenant CR's Ready status — and
+    # maas-controller isn't installed yet at any of this function's call sites (kustomize mode
+    # installs it via deploy.sh only after this DSC-readiness wait returns; operator mode's
+    # AIGateway module deploys it asynchronously afterward too). So ModelsAsServiceReady can
+    # never legitimately be True here — it isn't a usable readiness signal at this point in
+    # either deploy mode. Real maas-controller/Tenant readiness is verified later, once it
+    # actually exists (see wait_for_resource "deployment" "maas-controller" in deploy.sh).
+    # We still surface it below purely for diagnostics.
     if [[ "$require_aigateway" == "true" && "$aigateway_ready" == "False" && -n "$aigateway_message" ]]; then
       echo "  ERROR: AIGateway failed to reconcile in DataScienceCluster/$name: $aigateway_message"
       echo "  This is a real deployment gap (not a transient state) — failing fast instead of waiting out the full timeout."
       return 1
     fi
 
-    if [[ "$kserve_state" == "Managed" && "$kserve_ready" == "True" && "$maas_check" == "True" ]] \
+    if [[ "$kserve_state" == "Managed" && "$kserve_ready" == "True" ]] \
       && { [[ "$require_aigateway" != "true" ]] || [[ "$aigateway_ready" == "True" ]]; }; then
-      echo "  * KServe, ModelsAsService (and AIGateway, if applicable) are ready in DataScienceCluster '$name'"
+      echo "  * KServe (and AIGateway, if applicable) are ready in DataScienceCluster '$name'"
       return 0
     else
-      echo "  - KServe state: $kserve_state, KserveReady: $kserve_ready, ModelsAsServiceReady: ${maas_ready:-<absent>}, ModelControllerReady: ${model_controller_ready:-<n/a>}, AIGatewayReady: ${aigateway_ready:-<n/a>}"
+      echo "  - KServe state: $kserve_state, KserveReady: $kserve_ready, ModelsAsServiceReady: ${maas_ready:-<absent>} (informational only), AIGatewayReady: ${aigateway_ready:-<n/a>}"
     fi
 
     sleep $interval
     elapsed=$((elapsed + interval))
   done
 
-  echo "  ERROR: KServe/ModelsAsService/AIGateway did not become ready in DataScienceCluster/$name within $timeout seconds."
-  echo "  Final status: KServe=$kserve_state, KserveReady=$kserve_ready, ModelsAsServiceReady=${maas_ready:-<absent>}, ModelControllerReady=${model_controller_ready:-<n/a>}, AIGatewayReady=${aigateway_ready:-<n/a>}"
+  echo "  ERROR: KServe/AIGateway did not become ready in DataScienceCluster/$name within $timeout seconds."
+  echo "  Final status: KServe=$kserve_state, KserveReady=$kserve_ready, ModelsAsServiceReady=${maas_ready:-<absent>} (informational only), AIGatewayReady=${aigateway_ready:-<n/a>}"
   echo "  Tip: Check 'kubectl describe datasciencecluster $name' for more details"
   return 1
 }
