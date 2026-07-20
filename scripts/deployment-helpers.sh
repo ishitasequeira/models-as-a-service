@@ -1369,6 +1369,12 @@ wait_datasciencecluster_ready() {
 
   echo "* Waiting for DataScienceCluster '$name' KServe and ModelsAsService components to be ready..."
 
+  # AIGateway is only expected to be Managed/ready when the caller asked deploy.sh to pin
+  # an ai-gateway-operator image (see enable_ai_gateway_component). Only gate on it then —
+  # otherwise a cluster without AI Gateway enabled would never satisfy this check.
+  local require_aigateway=false
+  [[ -n "${AI_GATEWAY_OPERATOR_IMAGE:-}" ]] && require_aigateway=true
+
   while [ $elapsed -lt $timeout ]; do
     # Grab full DSC status as JSON
     local dsc_json
@@ -1381,34 +1387,37 @@ wait_datasciencecluster_ready() {
       continue
     fi
 
-    local kserve_state kserve_ready maas_ready model_controller_ready
+    local kserve_state kserve_ready maas_ready aigateway_ready aigateway_message
     kserve_state=$(echo "$dsc_json" | jq -r '.status.components.kserve.managementState // ""')
     kserve_ready=$(echo "$dsc_json" | jq -r '.status.conditions[]? | select(.type=="KserveReady") | .status' | tail -n1)
     maas_ready=$(echo "$dsc_json" | jq -r '.status.conditions[]? | select(.type=="ModelsAsServiceReady") | .status' | tail -n1)
-    model_controller_ready=$(echo "$dsc_json" | jq -r '.status.conditions[]? | select(.type=="ModelControllerReady") | .status' | tail -n1)
+    aigateway_ready=$(echo "$dsc_json" | jq -r '.status.conditions[]? | select(.type=="AIGatewayReady") | .status' | tail -n1)
+    aigateway_message=$(echo "$dsc_json" | jq -r '.status.conditions[]? | select(.type=="AIGatewayReady") | .message' | tail -n1)
 
-    # v2 API: ModelsAsServiceReady doesn't exist, use ModelControllerReady instead
-    # v1 API: ModelsAsServiceReady exists but may stay False
-    # Use ModelControllerReady as fallback if ModelsAsServiceReady is not True
-    # This handles both v2 API (no ModelsAsServiceReady condition) and v1 API (condition exists but may stay False)
-    local maas_check="$maas_ready"
-    if [[ "$maas_ready" != "True" && "$model_controller_ready" == "True" ]]; then
-      maas_check="$model_controller_ready"
+    # NOTE: ModelsAsServiceReady is the real MaaS readiness signal on the DSC. Do not
+    # substitute an unrelated component's condition (e.g. ModelControllerReady, which
+    # belongs to the separate odh-model-controller component) as a stand-in here — doing so
+    # previously masked real ModelsAsService/AIGateway reconciliation failures.
+    if [[ "$require_aigateway" == "true" && "$aigateway_ready" == "False" && -n "$aigateway_message" ]]; then
+      echo "  ERROR: AIGateway failed to reconcile in DataScienceCluster/$name: $aigateway_message"
+      echo "  This is a real deployment gap (not a transient state) — failing fast instead of waiting out the full timeout."
+      return 1
     fi
 
-    if [[ "$kserve_state" == "Managed" && "$kserve_ready" == "True" && "$maas_check" == "True" ]]; then
-      echo "  * KServe and ModelsAsService are ready in DataScienceCluster '$name'"
+    if [[ "$kserve_state" == "Managed" && "$kserve_ready" == "True" && "$maas_ready" == "True" ]] \
+      && { [[ "$require_aigateway" != "true" ]] || [[ "$aigateway_ready" == "True" ]]; }; then
+      echo "  * KServe, ModelsAsService (and AIGateway, if applicable) are ready in DataScienceCluster '$name'"
       return 0
     else
-      echo "  - KServe state: $kserve_state, KserveReady: $kserve_ready, ModelsAsServiceReady: $maas_ready, ModelControllerReady: $model_controller_ready"
+      echo "  - KServe state: $kserve_state, KserveReady: $kserve_ready, ModelsAsServiceReady: $maas_ready, AIGatewayReady: ${aigateway_ready:-<n/a>}"
     fi
 
     sleep $interval
     elapsed=$((elapsed + interval))
   done
 
-  echo "  ERROR: KServe and/or ModelsAsService did not become ready in DataScienceCluster/$name within $timeout seconds."
-  echo "  Final status: KServe=$kserve_state, KserveReady=$kserve_ready, ModelsAsServiceReady=$maas_ready, ModelControllerReady=$model_controller_ready"
+  echo "  ERROR: KServe/ModelsAsService/AIGateway did not become ready in DataScienceCluster/$name within $timeout seconds."
+  echo "  Final status: KServe=$kserve_state, KserveReady=$kserve_ready, ModelsAsServiceReady=$maas_ready, AIGatewayReady=${aigateway_ready:-<n/a>}"
   echo "  Tip: Check 'kubectl describe datasciencecluster $name' for more details"
   return 1
 }

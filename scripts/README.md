@@ -112,6 +112,15 @@ To deploy only (skip the e2e suite) while iterating, call `deploy.sh` directly i
 
 Requires an OpenShift cluster with `oc` logged in as cluster-admin.
 
+**Note:** In `operator` mode, `deploy.sh` no longer falls back to installing `maas-controller`
+directly via kustomize if the ODH operator fails to create it. That fallback previously masked
+real integration gaps (e.g. an RBAC permission the operator couldn't grant, catalog/channel
+mismatches). If the operator doesn't reconcile `maas-controller` within `ROLLOUT_TIMEOUT`
+(default 120s), or the DSC reports `AIGatewayReady: False`, `deploy.sh` fails with the underlying
+DataScienceCluster condition message instead of silently self-installing. Set
+`FORCE_OVERWRITE=true` to bypass this check for local debugging only — it defeats the purpose of
+operator-mode validation, so don't set it in the promotion-PR pipeline.
+
 ---
 
 ### `validate-deployment.sh`

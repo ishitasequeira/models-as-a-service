@@ -590,7 +590,36 @@ main() {
     return 1
   fi
 
-  if kubectl get deployment maas-controller -n "$NAMESPACE" &>/dev/null && [[ "$FORCE_OVERWRITE" != "true" ]]; then
+  local maas_controller_exists=false
+  if kubectl get deployment maas-controller -n "$NAMESPACE" &>/dev/null; then
+    maas_controller_exists=true
+  elif [[ "$DEPLOYMENT_MODE" == "operator" && "$FORCE_OVERWRITE" != "true" ]]; then
+    # In operator mode, the ODH operator's AIGateway/ModelsAsService module reconciler owns
+    # deploying maas-controller. Silently falling back to a direct kustomize install here
+    # would mask the exact integration gaps this deployment mode exists to catch (e.g. RBAC
+    # errors, manifest drift, version skew between the operator and MaaS images). So: wait
+    # briefly for the operator to reconcile, then fail loudly with diagnostics if it doesn't —
+    # rather than quietly installing maas-controller ourselves and reporting false success.
+    log_info "  Waiting for the ODH operator to create maas-controller (operator-managed)..."
+    if wait_for_resource "deployment" "maas-controller" "$NAMESPACE" "$ROLLOUT_TIMEOUT"; then
+      maas_controller_exists=true
+    else
+      log_error "The ODH operator did not create maas-controller within ${ROLLOUT_TIMEOUT}s."
+      log_error "This means the operator's AIGateway/ModelsAsService module failed to reconcile it — a real integration gap, not something deploy.sh should paper over in operator mode."
+      log_error "Failing DataScienceCluster module conditions:"
+      local dsc_name_diag
+      dsc_name_diag=$(kubectl get datasciencecluster -A -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+      if [[ -n "$dsc_name_diag" ]]; then
+        kubectl get datasciencecluster "$dsc_name_diag" \
+          -o jsonpath='{range .status.conditions[?(@.status=="False")]}  {.type}: {.reason} - {.message}{"\n"}{end}' 2>/dev/null \
+          | while IFS= read -r line; do log_error "$line"; done
+      fi
+      log_error "Tip: set FORCE_OVERWRITE=true to bypass this check and install maas-controller directly (only for local debugging; defeats the purpose of operator-mode validation)."
+      return 1
+    fi
+  fi
+
+  if [[ "$maas_controller_exists" == "true" && "$FORCE_OVERWRITE" != "true" ]]; then
     log_info "  maas-controller already exists in $NAMESPACE (e.g. operator-managed), skipping manifest apply"
   else
     # Direct-install path used when maas-controller is absent, or when
