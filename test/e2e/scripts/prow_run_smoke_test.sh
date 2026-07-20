@@ -39,7 +39,7 @@
 #                           Example: quay.io/opendatahub/maas-controller:pr-430
 #   AI_GATEWAY_OPERATOR_IMAGE - Custom ai-gateway-operator image (optional). Requires DEPLOY_MODE=operator
 #                           (ai-gateway-operator is only deployed by the ODH operator's own reconciler).
-#                           Example: quay.io/opendatahub/ai-gateway-operator:stable
+#                           Example: quay.io/opendatahub/odh-ai-gateway-operator:odh-stable
 #   DEPLOY_MODE           - deploy.sh --deployment-mode to use: kustomize (default, matches default CI)
 #                           or operator (exercises ODH's ModelsAsService/AIGateway component
 #                           reconcilers directly; required for AI_GATEWAY_OPERATOR_IMAGE)

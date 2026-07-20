@@ -93,7 +93,7 @@ already understands all the env vars needed for this, so no separate wrapper scr
 
 ```bash
 DEPLOY_MODE=operator \
-AI_GATEWAY_OPERATOR_IMAGE=quay.io/opendatahub/ai-gateway-operator:stable \
+AI_GATEWAY_OPERATOR_IMAGE=quay.io/opendatahub/odh-ai-gateway-operator:odh-stable \
 OPERATOR_CATALOG=quay.io/opendatahub/opendatahub-operator-catalog:latest \
 MAAS_CONTROLLER_IMAGE=quay.io/opendatahub/maas-controller:pr-406 \
 MAAS_API_IMAGE=quay.io/opendatahub/maas-api:pr-232 \
@@ -105,7 +105,7 @@ To deploy only (skip the e2e suite) while iterating, call `deploy.sh` directly i
 ```bash
 ./scripts/deploy.sh --deployment-mode operator --operator-type odh \
   --operator-catalog quay.io/opendatahub/opendatahub-operator-catalog:latest \
-  --ai-gateway-operator-image quay.io/opendatahub/ai-gateway-operator:stable \
+  --ai-gateway-operator-image quay.io/opendatahub/odh-ai-gateway-operator:odh-stable \
   --maas-controller-image quay.io/opendatahub/maas-controller:pr-406 \
   --maas-api-image quay.io/opendatahub/maas-api:pr-232
 ```
@@ -443,7 +443,7 @@ above), set `DEPLOY_MODE=operator`:
 
 ```bash
 DEPLOY_MODE=operator \
-AI_GATEWAY_OPERATOR_IMAGE=quay.io/opendatahub/ai-gateway-operator:stable \
+AI_GATEWAY_OPERATOR_IMAGE=quay.io/opendatahub/odh-ai-gateway-operator:odh-stable \
 MAAS_CONTROLLER_IMAGE=quay.io/opendatahub/maas-controller:pr-406 \
 ./test/e2e/scripts/prow_run_smoke_test.sh
 ```

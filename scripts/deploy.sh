@@ -231,7 +231,7 @@ ADVANCED OPTIONS (PR Testing):
       Custom ai-gateway-operator image (PR/stable testing, operator mode only)
       Patches RELATED_IMAGE_ODH_AI_GATEWAY_OPERATOR_IMAGE on the ODH operator CSV
       and enables spec.components.aigateway.managementState=Managed on the DSC.
-      Example: quay.io/opendatahub/ai-gateway-operator:stable
+      Example: quay.io/opendatahub/odh-ai-gateway-operator:odh-stable
 
   --channel <channel>
       Operator channel override
