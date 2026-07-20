@@ -36,6 +36,15 @@ func lifecycleTestScheme(t *testing.T) *runtime.Scheme {
 	return s
 }
 
+func lifecycleUsageLogsPath(t *testing.T) string {
+	t.Helper()
+	_, testFile, _, ok := goruntime.Caller(0)
+	if !ok {
+		t.Fatal("resolve lifecycle test file path")
+	}
+	return filepath.Join(filepath.Dir(testFile), "../../../../deployment/components/observability/usage-logs")
+}
+
 func lifecycleTestUnstructured(gvk schema.GroupVersionKind, namespace, name string, finalizers ...string) *unstructured.Unstructured {
 	obj := &unstructured.Unstructured{}
 	obj.SetGroupVersionKind(gvk)
@@ -172,13 +181,23 @@ func TestLifecycleReconciler_TeardownRequestedDeletesConfigAndMarksCompleted(t *
 			UID:  types.UID("cfg-delete-request"),
 		},
 	}
+	aitenantNS := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: tenantreconcile.DefaultAITenantNamespace,
+			Labels: map[string]string{
+				"app.kubernetes.io/managed-by":       "maas-controller",
+				"opendatahub.io/generated-namespace": "true",
+			},
+		},
+	}
 
-	cl := fake.NewClientBuilder().WithScheme(s).WithObjects(dep, cfg).Build()
+	cl := fake.NewClientBuilder().WithScheme(s).WithObjects(dep, cfg, aitenantNS).Build()
 	r := &LifecycleReconciler{
-		Client:         cl,
-		Scheme:         s,
-		DeploymentName: "maas-controller",
-		DeploymentNS:   depNS,
+		Client:            cl,
+		Scheme:            s,
+		DeploymentName:    "maas-controller",
+		DeploymentNS:      depNS,
+		AITenantNamespace: tenantreconcile.DefaultAITenantNamespace,
 	}
 
 	res, err := r.Reconcile(context.Background(), ctrl.Request{
@@ -190,6 +209,11 @@ func TestLifecycleReconciler_TeardownRequestedDeletesConfigAndMarksCompleted(t *
 	// Config/default is deleted as a plain step, no finalizer involved.
 	var updatedCfg maasv1alpha1.Config
 	g.Expect(apierrors.IsNotFound(cl.Get(context.Background(), client.ObjectKey{Name: maasv1alpha1.ConfigInstanceName}, &updatedCfg))).To(BeTrue())
+
+	// MaaS teardown must preserve every namespace, including the controller-created
+	// AITenant infrastructure namespace.
+	var survivingNamespace corev1.Namespace
+	g.Expect(cl.Get(context.Background(), client.ObjectKey{Name: tenantreconcile.DefaultAITenantNamespace}, &survivingNamespace)).To(Succeed())
 
 	// The completion signal must be observable on the Deployment regardless of Config's fate.
 	var updatedDep appsv1.Deployment
@@ -312,6 +336,7 @@ func TestLifecycleReconciler_NormalReconcileDoesNotSetDeploymentOwnerReference(t
 		DeploymentName:              "maas-controller",
 		DeploymentNS:                depNS,
 		TenantSubscriptionNamespace: "",
+		UsageLogsManifestPath:       lifecycleUsageLogsPath(t),
 	}
 
 	_, err := r.Reconcile(context.Background(), ctrl.Request{
@@ -368,10 +393,11 @@ func TestLifecycleReconciler_StripsLegacyDeploymentConfigOwnerReferenceOnNormalR
 
 	cl := fake.NewClientBuilder().WithScheme(s).WithObjects(dep, cfg).Build()
 	r := &LifecycleReconciler{
-		Client:         cl,
-		Scheme:         s,
-		DeploymentName: "maas-controller",
-		DeploymentNS:   depNS,
+		Client:                cl,
+		Scheme:                s,
+		DeploymentName:        "maas-controller",
+		DeploymentNS:          depNS,
+		UsageLogsManifestPath: lifecycleUsageLogsPath(t),
 	}
 
 	_, err := r.Reconcile(context.Background(), ctrl.Request{

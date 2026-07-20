@@ -35,6 +35,7 @@ import (
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	maasv1alpha1 "github.com/opendatahub-io/models-as-a-service/maas-controller/api/maas/v1alpha1"
+	"github.com/opendatahub-io/models-as-a-service/maas-controller/pkg/platform/tenantreconcile"
 )
 
 // newPreexistingAuthPolicy builds a Kuadrant AuthPolicy as an unstructured object
@@ -962,6 +963,76 @@ func TestMaaSAuthPolicyReconciler_MultiplePoliciesDeletion(t *testing.T) {
 	}
 }
 
+func TestMaaSAuthPolicyReconciler_NonDefaultTenantDeletionPreservesSharedDefaultGatewayAuthPolicy(t *testing.T) {
+	const (
+		tenantName       = "team-a"
+		tenantNamespace  = "ai-tenant-team-a"
+		gatewayNamespace = "gateway-ns"
+		gatewayName      = "maas-default-gateway"
+		policyName       = "team-a-policy"
+	)
+
+	tenant := &maasv1alpha1.MaasTenantConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      maasv1alpha1.MaasTenantConfigInstanceName,
+			Namespace: tenantNamespace,
+			Labels: map[string]string{
+				tenantreconcile.LabelManagedByAITenant: "true",
+				tenantreconcile.LabelTenantName:        tenantName,
+				tenantreconcile.LabelTenantNamespace:   tenantNamespace,
+			},
+			Annotations: map[string]string{
+				tenantreconcile.AnnotationAITenantName:      tenantName,
+				tenantreconcile.AnnotationAITenantNamespace: tenantreconcile.DefaultAITenantNamespace,
+			},
+		},
+	}
+	aitenant := &maasv1alpha1.AITenant{
+		ObjectMeta: metav1.ObjectMeta{Name: tenantName, Namespace: tenantreconcile.DefaultAITenantNamespace},
+		Status: maasv1alpha1.AITenantStatus{
+			GatewayRef: maasv1alpha1.TenantGatewayRef{Name: gatewayName, Namespace: gatewayNamespace},
+		},
+	}
+	policy := &maasv1alpha1.MaaSAuthPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       policyName,
+			Namespace:  tenantNamespace,
+			Finalizers: []string{maasAuthPolicyFinalizer},
+		},
+	}
+	sharedAuthPolicy := &unstructured.Unstructured{}
+	sharedAuthPolicy.SetGroupVersionKind(schema.GroupVersionKind{Group: "kuadrant.io", Version: "v1", Kind: "AuthPolicy"})
+	sharedAuthPolicy.SetName(maasGatewayAuthPolicyName)
+	sharedAuthPolicy.SetNamespace(gatewayNamespace)
+
+	c := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithRESTMapper(testRESTMapper()).
+		WithObjects(tenant, aitenant, policy, sharedAuthPolicy).
+		Build()
+	if err := c.Delete(context.Background(), policy); err != nil {
+		t.Fatalf("Delete MaaSAuthPolicy: %v", err)
+	}
+
+	r := &MaaSAuthPolicyReconciler{
+		Client:           c,
+		Scheme:           scheme,
+		GatewayNamespace: gatewayNamespace,
+		GatewayName:      gatewayName,
+		TenantNamespace:  "models-as-a-service",
+	}
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: policyName, Namespace: tenantNamespace}}
+	if _, err := r.Reconcile(context.Background(), req); err != nil {
+		t.Fatalf("Reconcile policy deletion: %v", err)
+	}
+
+	preserved := &unstructured.Unstructured{}
+	preserved.SetGroupVersionKind(sharedAuthPolicy.GroupVersionKind())
+	if err := c.Get(context.Background(), types.NamespacedName{Name: maasGatewayAuthPolicyName, Namespace: gatewayNamespace}, preserved); err != nil {
+		t.Fatalf("shared default gateway AuthPolicy should be preserved: %v", err)
+	}
+}
+
 // TestMaaSAuthPolicyReconciler_EnsureDefaultAuthUpgrade verifies that
 // ensureGatewayDefaultAuthPolicy updates an existing gateway-default-auth that
 // was created by an older controller version without the 'when' predicate.
@@ -1621,6 +1692,22 @@ func TestMaaSAuthPolicyReconciler_IdentityHeadersUpstream(t *testing.T) {
 					}
 				}
 			}
+		}
+
+		keyField, exists := identity["selected_subscription_key"]
+		if !exists {
+			t.Fatal("selected_subscription_key missing")
+		}
+		keyMap, ok := keyField.(map[string]any)
+		if !ok {
+			t.Fatalf("selected_subscription_key should be a map, got %T", keyField)
+		}
+		keyExpr, ok := keyMap["expression"].(string)
+		if !ok {
+			t.Fatalf("selected_subscription_key expression missing")
+		}
+		if !contains(keyExpr, `resolvedModel`) {
+			t.Errorf("selected_subscription_key must prefer subscription-info.resolvedModel for BBR TRLP matching, got: %s", keyExpr)
 		}
 	})
 

@@ -401,12 +401,16 @@ const (
 		`("x-maas-subscription" in request.headers ? request.headers["x-maas-subscription"] : "")`
 )
 
-// celModelIdentity extracts model identity (namespace/name) from the request at gateway level.
+// celModelIdentity extracts model identity from the request at gateway level.
 // For path-routed inference (/<model-namespace>/<model-name>/...), extract from URL.
-// For body-routed endpoints (/v1/*), use X-Gateway-Model-Name header (set by ext_proc).
-// Canonical model IDs (publishers/{ns}/models/{name}) are normalized to {ns}/{name}.
+// For body-routed endpoints (/v1/*), use X-Gateway-Model-Name header (set by ext_proc)
+// which may be a publisher ID (publishers/{ns}/models/{served-id}).
 // For listing endpoints like /v1/models where no model target exists, returns empty string
 // so requestedModel is omitted and the subscription selector returns all accessible subscriptions.
+//
+// Note: TokenRateLimitPolicy matching must NOT use this raw value for body-based
+// routing. selected_subscription_key prefers subscription-info.resolvedModel
+// (MaaSModelRef namespace/name from /subscriptions/select) when present.
 const (
 	celPathParts                  = `request.path.split("/").filter(x, x != "")`
 	celPathModelIdentityAvailable = `size(` + celPathParts + `) >= 2 && ` +
@@ -418,6 +422,12 @@ const (
 		` : ("x-gateway-model-name" in request.headers` +
 		`   ? request.headers["x-gateway-model-name"]` +
 		`   : ""))`
+	// Prefer MaaSModelRef identity resolved by subscription select (handles BBR
+	// publisher IDs). Fall back to path/header identity for path-based routing.
+	celResolvedModelIdentity = `(has(auth.metadata["subscription-info"].resolvedModel) && ` +
+		`auth.metadata["subscription-info"].resolvedModel != "" ` +
+		`? auth.metadata["subscription-info"].resolvedModel ` +
+		`: ` + celModelIdentity + `)`
 )
 
 // maasGatewayAuthPolicyName is the singleton AuthPolicy that targets the Gateway.
@@ -1148,14 +1158,16 @@ allow {
 									"expression": `has(auth.metadata["subscription-info"].name) ? auth.metadata["subscription-info"].name : ""`,
 								},
 								// Model-scoped subscription key: namespace/name@modelIdentity
-								// modelIdentity is dynamic (header or path), so this is always current
+								// Prefer resolvedModel from subscription-info (MaaSModelRef
+								// namespace/name after BBR alias resolution) so TRLP when
+								// predicates match for both path and body-based routing.
 								"selected_subscription_key": map[string]any{
 									"expression": fmt.Sprintf(
 										`(has(auth.metadata["subscription-info"].namespace) && `+
 											`has(auth.metadata["subscription-info"].name)) `+
 											`? auth.metadata["subscription-info"].namespace + "/" `+
 											`+ auth.metadata["subscription-info"].name + "@" + %s : ""`,
-										celModelIdentity,
+										celResolvedModelIdentity,
 									),
 								},
 								"subscription_info": map[string]any{
@@ -1599,7 +1611,7 @@ func (r *MaaSAuthPolicyReconciler) handleDeletion(ctx context.Context, log logr.
 
 		// If this is the last MaaSAuthPolicy, also delete the singleton gateway-level AuthPolicy.
 		remaining := &maasv1alpha1.MaaSAuthPolicyList{}
-		if err := r.List(ctx, remaining); err != nil {
+		if err := r.List(ctx, remaining, client.InNamespace(policy.Namespace)); err != nil {
 			log.Error(err, "failed to list remaining MaaSAuthPolicies for gateway cleanup check")
 			return ctrl.Result{}, err
 		}
@@ -1614,13 +1626,33 @@ func (r *MaaSAuthPolicyReconciler) handleDeletion(ctx context.Context, log logr.
 			}
 		}
 		if liveCount == 0 {
-			if err := r.deleteGatewayAuthPolicy(ctx, log, policy.Namespace); err != nil {
-				log.Error(err, "failed to delete gateway AuthPolicy")
+			tenantID, err := r.fetchTenantIdentifier(ctx, log, policy.Namespace)
+			if err != nil {
 				return ctrl.Result{}, err
 			}
-			if err := r.ensureGatewayDefaultAuthPolicy(ctx, log); err != nil {
-				log.Error(err, "failed to restore gateway-default-auth")
+			gatewayNs, gatewayName, err := r.fetchGatewayInfo(ctx, log, policy.Namespace)
+			if err != nil {
 				return ctrl.Result{}, err
+			}
+			isDefaultGateway := gatewayNs == r.GatewayNamespace && gatewayName == r.GatewayName
+			isNonDefaultTenant := tenantID != ""
+			if isNonDefaultTenant && isDefaultGateway {
+				log.Info("skipping gateway AuthPolicy cleanup: non-default tenant falling back to default gateway",
+					"tenantID", tenantID,
+					"tenantNamespace", policy.Namespace,
+					"gatewayNamespace", gatewayNs,
+					"gatewayName", gatewayName)
+			} else {
+				if err := r.deleteGatewayAuthPolicy(ctx, log, policy.Namespace, gatewayNs, gatewayName); err != nil {
+					log.Error(err, "failed to delete gateway AuthPolicy")
+					return ctrl.Result{}, err
+				}
+				if r.TenantNamespace == "" || policy.Namespace == r.TenantNamespace {
+					if err := r.ensureGatewayDefaultAuthPolicy(ctx, log); err != nil {
+						log.Error(err, "failed to restore gateway-default-auth")
+						return ctrl.Result{}, err
+					}
+				}
 			}
 		}
 
@@ -1634,13 +1666,7 @@ func (r *MaaSAuthPolicyReconciler) handleDeletion(ctx context.Context, log logr.
 
 // deleteGatewayAuthPolicy removes the tenant's Gateway-level AuthPolicy when no
 // MaaSAuthPolicy CRs remain in that tenant namespace.
-func (r *MaaSAuthPolicyReconciler) deleteGatewayAuthPolicy(ctx context.Context, log logr.Logger, tenantNamespace string) error {
-	// Get tenant's gateway info
-	gatewayNs, gatewayName, err := r.fetchGatewayInfo(ctx, log, tenantNamespace)
-	if err != nil {
-		return fmt.Errorf("failed to fetch gateway info for deletion: %w", err)
-	}
-
+func (r *MaaSAuthPolicyReconciler) deleteGatewayAuthPolicy(ctx context.Context, log logr.Logger, tenantNamespace, gatewayNs, gatewayName string) error {
 	// Use legacy name for default gateway (backward compatibility), dynamic name for tenant gateways
 	authPolicyName := maasGatewayAuthPolicyName
 	if gatewayNs != r.GatewayNamespace || gatewayName != r.GatewayName {
