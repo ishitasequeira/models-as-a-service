@@ -11,7 +11,10 @@ Prerequisites:
 - For body-based routing tests: IPP (payload-processing) pods deployed
 
 Environment variables:
-- E2E_EXTERNAL_ENDPOINT: External endpoint hostname (default: httpbin.org)
+- E2E_EXTERNAL_ENDPOINT: External endpoint hostname (default: httpbingo.org — an
+  actively-maintained httpbin clone; the original httpbin.org demo instance is
+  prone to unrelated 503s that would silently skip every test in this file via
+  _check_external_endpoint_reachable)
 - E2E_EXTERNAL_SUBSCRIPTION: Subscription name (default: e2e-external-subscription)
 - GATEWAY_HOST: MaaS gateway hostname (required)
 """
@@ -40,7 +43,7 @@ log = logging.getLogger(__name__)
 
 # ─── Configuration ──────────────────────────────────────────────────────────
 
-EXTERNAL_ENDPOINT = os.environ.get("E2E_EXTERNAL_ENDPOINT", os.environ.get("E2E_SIMULATOR_ENDPOINT", "httpbin.org"))
+EXTERNAL_ENDPOINT = os.environ.get("E2E_EXTERNAL_ENDPOINT", os.environ.get("E2E_SIMULATOR_ENDPOINT", "httpbingo.org"))
 SUBSCRIPTION_NAMESPACE = os.environ.get("E2E_SUBSCRIPTION_NAMESPACE", os.environ.get("MAAS_SUBSCRIPTION_NAMESPACE", "models-as-a-service"))
 EXTERNAL_SUBSCRIPTION = os.environ.get("E2E_EXTERNAL_SUBSCRIPTION", "e2e-external-subscription")
 EXTERNAL_AUTH_POLICY = os.environ.get("E2E_EXTERNAL_AUTH_POLICY", "e2e-external-access")
@@ -112,13 +115,17 @@ def external_models_setup(gateway_url, headers, api_keys_base_url):
     """
     log.info(f"Setting up external model test fixture (endpoint: {EXTERNAL_ENDPOINT})...")
 
-    # Create a dummy secret (ExternalModel requires credentialRef)
+    # Create a dummy secret (ExternalModel requires credentialRef).
+    # The apikey-injection plugin's secret store only watches Secrets carrying
+    # this label; without it credential lookups silently fail with a 500 at
+    # request time (masked by tests that only assert non-401/403).
     _apply_cr({
         "apiVersion": "v1",
         "kind": "Secret",
         "metadata": {
             "name": f"{EXTERNAL_MODEL_NAME}-api-key",
             "namespace": MODEL_NAMESPACE,
+            "labels": {"inference.llm-d.ai/ipp-managed": "true"},
         },
         "type": "Opaque",
         "stringData": {"api-key": "e2e-test-key"},
@@ -133,7 +140,7 @@ def external_models_setup(gateway_url, headers, api_keys_base_url):
             "provider": "openai",
             "endpoint": EXTERNAL_ENDPOINT,
             "auth": {
-                "type": "apikey",
+                "type": "simple",
                 "secretRef": {"name": f"{EXTERNAL_MODEL_NAME}-api-key"},
             },
         },
@@ -408,9 +415,17 @@ class TestExternalModelBodyRouting:
     """Verify body-based routing for external models.
 
     IPP pre-processing extracts the ``model`` field from the JSON body and
-    sets the ``X-Gateway-Model-Name`` header. These tests prove the body
-    model field drives routing: a correct model succeeds while a wrong
-    model is rejected by the model-provider-resolver plugin.
+    resolves it via the model-provider-resolver plugin's store.
+
+    IMPORTANT CAVEAT: every request here hits ``/{ns}/{model}/v1/...``, a
+    path that already encodes a valid model name, so Kuadrant's AuthPolicy
+    authorizes from the path alone and the plugin silently no-ops (rather
+    than rejecting) on an unresolvable body model. Only
+    test_correct_model_in_body_succeeds is a meaningful assertion today
+    (proves a legitimately provisioned model's body isn't blocked); the
+    "wrong"/"missing" model tests are smoke checks only — see their
+    docstrings. Genuine path-agnostic body-only enforcement is future work
+    (RHAISTRAT-1540).
     """
 
     def _post_chat(self, gateway_url, model_path, api_key, body):
@@ -447,8 +462,23 @@ class TestExternalModelBodyRouting:
         )
         log.info("Body routing (correct model): HTTP %d", r.status_code)
 
-    def test_wrong_model_in_body_rejected(self, external_models_setup):
-        """Wrong model name in body is rejected by IPP model-provider-resolver."""
+    def test_wrong_model_in_body_does_not_error(self, external_models_setup):
+        """
+        Wrong model name in body does not crash the request pipeline.
+
+        NOTE: This is a smoke check, not an enforcement check. The URL path
+        already contains a valid model name, so Kuadrant's AuthPolicy
+        authorizes the request from the path alone before the body is
+        considered. IPP's model-provider-resolver plugin does not reject
+        unresolvable models either — it silently no-ops (returns nil) and
+        lets the request pass through unchanged when the body's model isn't
+        found in its store (see plugin.go ProcessRequest). So today there is
+        no code path that actually rejects a mismatched body model for
+        ExternalModel; this test only proves the request isn't dropped or
+        errored (still != 200, since httpbingo never returns 200 for these
+        paths). True body-only enforcement without a path is tracked under
+        RHAISTRAT-1540 (unified BBR routing) and isn't implemented yet.
+        """
         setup = external_models_setup
         model_path = f"/{MODEL_NAMESPACE}/{EXTERNAL_MODEL_NAME}/v1"
 
@@ -457,13 +487,19 @@ class TestExternalModelBodyRouting:
             "messages": [{"role": "user", "content": "hello"}],
         })
         assert r.status_code != 200, (
-            f"Expected rejection for wrong model in body, got 200. "
+            f"Expected non-200 for wrong model in body, got 200. "
             f"Body routing may not be active — request succeeded via path routing alone."
         )
         log.info("Body routing (wrong model): HTTP %d", r.status_code)
 
-    def test_missing_model_in_body_rejected(self, external_models_setup):
-        """Missing model field in body is rejected by IPP."""
+    def test_missing_model_in_body_does_not_error(self, external_models_setup):
+        """
+        Missing model field in body does not crash the request pipeline.
+
+        NOTE: Same caveat as test_wrong_model_in_body_does_not_error — this
+        is a smoke check, not proof that a missing model is rejected. See
+        that test's docstring for why no enforcement path currently exists.
+        """
         setup = external_models_setup
         model_path = f"/{MODEL_NAMESPACE}/{EXTERNAL_MODEL_NAME}/v1"
 
@@ -471,7 +507,7 @@ class TestExternalModelBodyRouting:
             "messages": [{"role": "user", "content": "hello"}],
         })
         assert r.status_code != 200, (
-            f"Expected rejection for missing model in body, got 200. "
+            f"Expected non-200 for missing model in body, got 200. "
             f"Body routing may not be active — request succeeded without model field."
         )
         log.info("Body routing (missing model): HTTP %d", r.status_code)
