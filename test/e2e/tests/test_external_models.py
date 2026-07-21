@@ -391,6 +391,32 @@ class TestExternalModelBodyRouting:
         }
         return requests.post(url, headers=headers, json=body, timeout=30, verify=TLS_VERIFY)
 
+    def test_correct_model_in_body_succeeds(self, external_models_setup):
+        """
+        Correct model name in body passes through IPP and reaches the
+        external endpoint.
+
+        Unlike the tenant/LLMInferenceService path, the backend here is an
+        uncontrolled external endpoint (httpbin.org by default), which does
+        not implement /v1/chat/completions and may not return 200. As with
+        TestExternalModelEgress.test_request_forwarded_returns_200, any
+        non-auth response confirms the body model field was accepted and the
+        request was forwarded rather than rejected by the
+        model-provider-resolver plugin.
+        """
+        setup = external_models_setup
+        model_path = f"/{MODEL_NAMESPACE}/{EXTERNAL_MODEL_NAME}/v1"
+
+        r = self._post_chat(setup["gateway_url"], model_path, setup["api_key"], {
+            "model": TARGET_MODEL,
+            "messages": [{"role": "user", "content": "hello"}],
+        })
+        assert r.status_code not in (401, 403), (
+            f"Expected correct model in body to be forwarded, got {r.status_code}. "
+            f"Body routing may be rejecting a legitimately provisioned model."
+        )
+        log.info("Body routing (correct model): HTTP %d", r.status_code)
+
     def test_wrong_model_in_body_rejected(self, external_models_setup):
         """Wrong model name in body is rejected by IPP model-provider-resolver."""
         setup = external_models_setup

@@ -1262,3 +1262,51 @@ func TestSelector_ResolvedModelFromPublisherAlias(t *testing.T) {
 		}
 	})
 }
+
+// TestSelector_ResolvedModelFromExternalModelAlias covers body-based routing
+// for ExternalModel refs, whose status.resolvedModelAlias is the raw
+// spec.targetModel string (e.g. "gpt-3.5-turbo"), not a namespace-scoped
+// publisher ID like the LLMInferenceService case above.
+func TestSelector_ResolvedModelFromExternalModelAlias(t *testing.T) {
+	log := logger.New(false)
+	targetModelAlias := "gpt-3.5-turbo"
+	canonicalRef := "llm/e2e-external-model"
+
+	sub := createSubscriptionWithModelRefs("external-subscription", []string{"g1"}, []map[string]any{
+		{"name": "e2e-external-model", "namespace": "llm"},
+	})
+
+	modelRef := createMaaSModelRef("e2e-external-model", "llm", "ExternalModel")
+	if err := unstructured.SetNestedField(modelRef.Object, targetModelAlias, "status", "resolvedModelAlias"); err != nil {
+		t.Fatalf("SetNestedField: %v", err)
+	}
+
+	selector := subscription.NewSelector(
+		log,
+		&fakeLister{subscriptions: []*unstructured.Unstructured{sub}},
+		&fakeModelLister{items: []*unstructured.Unstructured{modelRef}},
+		nil,
+	)
+
+	t.Run("raw targetModel alias resolves to MaaSModelRef identity", func(t *testing.T) {
+		//nolint:unqueryvet,nolintlint // False positive - not a SQL query
+		result, err := selector.Select([]string{"g1"}, "", "", targetModelAlias)
+		if err != nil {
+			t.Fatalf("Select: %v", err)
+		}
+		if result.ResolvedModel != canonicalRef {
+			t.Errorf("ResolvedModel = %q, want %q", result.ResolvedModel, canonicalRef)
+		}
+	})
+
+	t.Run("path-style identity is returned unchanged", func(t *testing.T) {
+		//nolint:unqueryvet,nolintlint // False positive - not a SQL query
+		result, err := selector.Select([]string{"g1"}, "", "", canonicalRef)
+		if err != nil {
+			t.Fatalf("Select: %v", err)
+		}
+		if result.ResolvedModel != canonicalRef {
+			t.Errorf("ResolvedModel = %q, want %q", result.ResolvedModel, canonicalRef)
+		}
+	})
+}
