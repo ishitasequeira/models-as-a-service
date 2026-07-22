@@ -91,7 +91,6 @@ spec:
                             e.g. "apikey" (header based), "sigv4", etc.
                           enum:
                           - apikey
-                          - simple
                           - sigv4
                           - oauth2
                           type: string
