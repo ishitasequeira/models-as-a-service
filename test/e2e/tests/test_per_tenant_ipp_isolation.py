@@ -60,6 +60,35 @@ from test_helper import (
 
 log = logging.getLogger(__name__)
 
+GATEWAY_PROPAGATION_RETRIES = 6
+GATEWAY_PROPAGATION_DELAY = 5
+
+
+def _request_with_gateway_retry(method, url, retries=GATEWAY_PROPAGATION_RETRIES, **kwargs):
+    """Retry transient gateway/auth propagation errors (empty 403, Authorino AUTH_FAILURE)."""
+    for attempt in range(1, retries + 1):
+        response = method(
+            url,
+            timeout=kwargs.pop("timeout", 45),
+            verify=kwargs.pop("verify", TLS_VERIFY),
+            **kwargs,
+        )
+        retryable = (response.status_code == 403 and not response.text.strip()) or (
+            response.status_code == 500 and "AUTH_FAILURE" in response.text
+        )
+        if retryable and attempt < retries:
+            log.info(
+                "Gateway returned %d (attempt %d/%d), retrying in %ds...",
+                response.status_code,
+                attempt,
+                retries,
+                GATEWAY_PROPAGATION_DELAY,
+            )
+            time.sleep(GATEWAY_PROPAGATION_DELAY)
+            continue
+        return response
+    return response
+
 requires_default_ipp = pytest.mark.skipif(
     not _check_ipp_pods_deployed(),
     reason="Default payload-processing IPP stack is not ready",
@@ -97,15 +126,14 @@ def _get_tenant_gateway_url(gateway_name: str) -> str:
 def _create_default_api_key() -> str:
     oc_token = _get_cluster_token()
     subscription = os.environ.get("E2E_SIMULATOR_SUBSCRIPTION", "simulator-subscription")
-    response = requests.post(
+    response = _request_with_gateway_retry(
+        requests.post,
         f"{_maas_api_url()}/v1/api-keys",
         headers={
             "Authorization": f"Bearer {oc_token}",
             "Content-Type": "application/json",
         },
         json={"name": "e2e-ipp-default", "subscription": subscription},
-        timeout=45,
-        verify=TLS_VERIFY,
     )
     assert response.status_code in (200, 201), (
         f"Failed to create default-tenant API key: {response.status_code} "
@@ -118,8 +146,9 @@ def _create_default_api_key() -> str:
 
 def _create_tenant_api_key(gateway_url: str, case: dict[str, str], subscription_name: str) -> str:
     oc_token = _get_cluster_token()
-    response = requests.post(
-        f"{gateway_url}/maas-api/v1/api-keys",
+    response = _request_with_gateway_retry(
+        requests.post,
+        f"{gateway_url.rstrip('/')}/maas-api/v1/api-keys",
         headers={
             "Authorization": f"Bearer {oc_token}",
             "Content-Type": "application/json",
@@ -128,8 +157,6 @@ def _create_tenant_api_key(gateway_url: str, case: dict[str, str], subscription_
             "name": f"e2e-ipp-{case['suffix']}",
             "subscription": subscription_name,
         },
-        timeout=45,
-        verify=TLS_VERIFY,
     )
     assert response.status_code in (200, 201), (
         f"Failed to create tenant API key: {response.status_code} "
@@ -140,15 +167,22 @@ def _create_tenant_api_key(gateway_url: str, case: dict[str, str], subscription_
     return api_key
 
 
-def _post_hybrid_chat(gateway_url: str, model_path: str, api_key: str) -> requests.Response:
+def _post_hybrid_chat(
+    gateway_url: str,
+    model_path: str,
+    api_key: str,
+    *,
+    model_name: str = MODEL_NAME,
+) -> requests.Response:
+    """Send hybrid BBR: model-specific URL path plus served model name in the body."""
     return requests.post(
-        f"{gateway_url}{model_path}/v1/chat/completions",
+        f"{gateway_url.rstrip('/')}{model_path}/v1/chat/completions",
         headers={
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         },
         json={
-            "model": MODEL_NAME,
+            "model": model_name,
             "messages": [{"role": "user", "content": "ipp routing test"}],
             "max_tokens": 3,
         },

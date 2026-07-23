@@ -364,10 +364,7 @@ func patchPayloadProcessingDeployment(log logr.Logger, r *unstructured.Unstructu
 	if err := addPodTemplateLabel(r, LabelTenantInstance, deploymentName); err != nil {
 		return fmt.Errorf("patch tenant-instance label: %w", err)
 	}
-	if err := setDeploymentSelectorMatchLabels(r, map[string]string{
-		"app":               PayloadProcessingName,
-		LabelTenantInstance: deploymentName,
-	}); err != nil {
+	if err := patchIPPDeploymentSelector(r, params.TenantIdentifier, PayloadProcessingName, deploymentName); err != nil {
 		return fmt.Errorf("patch deployment selector: %w", err)
 	}
 	if err := patchDeploymentServiceAccountName(r, PayloadProcessingServiceAccountName(params.TenantIdentifier)); err != nil {
@@ -390,10 +387,7 @@ func patchPreProcessingDeployment(log logr.Logger, r *unstructured.Unstructured,
 	if err := addPodTemplateLabel(r, LabelTenantInstance, deploymentName); err != nil {
 		return fmt.Errorf("patch tenant-instance label: %w", err)
 	}
-	if err := setDeploymentSelectorMatchLabels(r, map[string]string{
-		"app":               PayloadPreProcessingName,
-		LabelTenantInstance: deploymentName,
-	}); err != nil {
+	if err := patchIPPDeploymentSelector(r, params.TenantIdentifier, PayloadPreProcessingName, deploymentName); err != nil {
 		return fmt.Errorf("patch deployment selector: %w", err)
 	}
 	if err := patchDeploymentServiceAccountName(r, PayloadProcessingServiceAccountName(params.TenantIdentifier)); err != nil {
@@ -403,6 +397,23 @@ func patchPreProcessingDeployment(log logr.Logger, r *unstructured.Unstructured,
 		return fmt.Errorf("patch plugins ConfigMap volume: %w", err)
 	}
 	return nil
+}
+
+// patchIPPDeploymentSelector sets the Deployment pod selector for per-tenant IPP stacks.
+// Default-tenant Deployments are left unchanged because spec.selector is immutable on
+// upgrade; pod-template and Service selectors carry tenant-instance instead (same
+// pattern as per-tenant maas-api). Suffixed tenant Deployments are created fresh with
+// both labels in the selector.
+func patchIPPDeploymentSelector(r *unstructured.Unstructured, tenantID, appLabel, deploymentName string) error {
+	if tenantID == "" {
+		// Never mutate default Deployment spec.selector: it is immutable and may
+		// already be {app} or {app, tenant-instance} depending on release history.
+		return nil
+	}
+	return setDeploymentSelectorMatchLabels(r, map[string]string{
+		"app":               appLabel,
+		LabelTenantInstance: deploymentName,
+	})
 }
 
 func patchPayloadProcessingService(log logr.Logger, r *unstructured.Unstructured, params PlatformParams) error {

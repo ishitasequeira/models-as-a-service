@@ -258,7 +258,7 @@ func TestApplyPlatformParamsWithRenderedOverlay(t *testing.T) {
 	assert.Equal(t, params.GatewayNamespace, requireEnvVarValue(t, payloadDeployment, "payload-processing", "GATEWAY_NAMESPACE"))
 	assert.Equal(t, params.GatewayName, requireEnvVarValue(t, payloadDeployment, "payload-processing", "GATEWAY_NAME"))
 	assert.Equal(t, params.SubscriptionNamespace, requireEnvVarValue(t, payloadDeployment, "payload-processing", "TENANT_NAMESPACE"))
-	assert.Equal(t, "payload-processing", requireDeploymentSelectorLabel(t, payloadDeployment, "app"))
+	assertDeploymentSelectorLabelAbsent(t, payloadDeployment, LabelTenantInstance)
 	assert.Equal(t, PayloadProcessingDeploymentName(tenantID), requirePodTemplateLabel(t, payloadDeployment, LabelTenantInstance))
 
 	if cleanupCronJob := findResource(resources, GVKCronJob, MaaSAPIKeyCleanupCronJobName(tenantID)); cleanupCronJob != nil {
@@ -376,6 +376,7 @@ func TestApplyPlatformParamsWithRenderedOverlay(t *testing.T) {
 	assert.Equal(t, params.GatewayNamespace, payloadBeforeDeployment.GetNamespace())
 	assert.Equal(t, params.PayloadProcessingImage, requireContainerImage(t, payloadBeforeDeployment, "spec", "template", "spec", "containers"))
 	assert.Equal(t, PayloadPreProcessingDeploymentName(tenantID), requirePodTemplateLabel(t, payloadBeforeDeployment, LabelTenantInstance))
+	assertDeploymentSelectorLabelAbsent(t, payloadBeforeDeployment, LabelTenantInstance)
 
 	payloadBeforeService := requireResource(t, resources, GVKService, PayloadPreProcessingServiceName(tenantID))
 	assert.Equal(t, params.GatewayNamespace, payloadBeforeService.GetNamespace())
@@ -503,6 +504,10 @@ func TestApplyPlatformParamsWithRenderedOverlay_AITenant(t *testing.T) {
 	payloadDeployment := requireResource(t, resources, GVKDeployment, "payload-processing-redteam")
 	assert.Equal(t, "redteam-gateway", requireEnvVarValue(t, payloadDeployment, "payload-processing", "GATEWAY_NAME"))
 	assert.Equal(t, "ai-tenant-redteam", requireEnvVarValue(t, payloadDeployment, "payload-processing", "TENANT_NAMESPACE"))
+	assert.Equal(t, "payload-processing-redteam", requireDeploymentSelectorLabel(t, payloadDeployment, LabelTenantInstance))
+
+	payloadBeforeDeployment := requireResource(t, resources, GVKDeployment, "payload-pre-processing-redteam")
+	assert.Equal(t, "payload-pre-processing-redteam", requireDeploymentSelectorLabel(t, payloadBeforeDeployment, LabelTenantInstance))
 }
 
 func renderOverlayResources(t *testing.T, appNamespace string) []unstructured.Unstructured {
@@ -611,6 +616,16 @@ func requireDeploymentSelectorLabel(t *testing.T, r *unstructured.Unstructured, 
 	_, hasMaasAPIName := selector["app.kubernetes.io/name"]
 	assert.False(t, hasMaasAPIName, "IPP deployment selector must not inherit maas-api labels from overlay")
 	return value
+}
+
+func assertDeploymentSelectorLabelAbsent(t *testing.T, r *unstructured.Unstructured, key string) {
+	t.Helper()
+
+	selector, found, err := unstructured.NestedStringMap(r.Object, "spec", "selector", "matchLabels")
+	require.NoError(t, err)
+	require.True(t, found)
+	_, ok := selector[key]
+	assert.False(t, ok, "selector label %q should not be set on default IPP deployment", key)
 }
 
 func requireServiceSelectorLabel(t *testing.T, r *unstructured.Unstructured, key string) string {
