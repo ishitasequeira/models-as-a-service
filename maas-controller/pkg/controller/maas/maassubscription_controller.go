@@ -741,6 +741,7 @@ func (r *MaaSSubscriptionReconciler) validateSubscriptionTenantGatewaysForRoute(
 			ctx,
 			r.Client,
 			sub.Namespace,
+			tenantreconcile.DefaultAITenantNamespace,
 			r.DefaultTenantNamespace,
 			r.GatewayName,
 			r.GatewayNamespace,
