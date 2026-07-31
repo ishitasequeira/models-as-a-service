@@ -654,23 +654,6 @@ func patchPayloadProcessingEnvoyFilter(log logr.Logger, r *unstructured.Unstruct
 		return fmt.Errorf("write EnvoyFilter priority: %w", err)
 	}
 
-	targetRefs, found, err := unstructured.NestedSlice(r.Object, "spec", "targetRefs")
-	if err != nil {
-		return fmt.Errorf("read EnvoyFilter targetRefs: %w", err)
-	}
-	if !found || len(targetRefs) == 0 {
-		return errors.New("EnvoyFilter targetRefs not found")
-	}
-	ref, ok := targetRefs[0].(map[string]any)
-	if !ok {
-		return errors.New("EnvoyFilter targetRefs[0] is not an object")
-	}
-	ref["name"] = params.GatewayName
-	targetRefs[0] = ref
-	if err := unstructured.SetNestedSlice(r.Object, targetRefs, "spec", "targetRefs"); err != nil {
-		return fmt.Errorf("write EnvoyFilter targetRefs: %w", err)
-	}
-
 	if err := unstructured.SetNestedStringMap(r.Object,
 		map[string]string{"gateway.networking.k8s.io/gateway-name": params.GatewayName},
 		"spec", "workloadSelector", "labels"); err != nil {
