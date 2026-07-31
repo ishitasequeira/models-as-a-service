@@ -325,6 +325,11 @@ func TestApplyPlatformParamsWithRenderedOverlay(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, params.GatewayName, firstTargetRef["name"])
 
+	wsLabels, found, err := unstructured.NestedStringMap(payloadEnvoyFilter.Object, "spec", "workloadSelector", "labels")
+	require.NoError(t, err)
+	require.True(t, found)
+	assert.Equal(t, params.GatewayName, wsLabels["gateway.networking.k8s.io/gateway-name"])
+
 	// Verify dual-stage filter chain with dual anchors:
 	//   [0..1] WasmPlugin (ODH/community Kuadrant), [2..3] wasm filter (RHCL 1.4),
 	//   [4..7] per-route disable MERGE on maas-api-route rules 0–3.

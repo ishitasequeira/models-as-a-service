@@ -37,6 +37,9 @@ metadata:
     app.kubernetes.io/part-of: maas-observability
     app.kubernetes.io/managed-by: maas-controller
 spec:
+  workloadSelector:
+    labels:
+      gateway.networking.k8s.io/gateway-name: maas-default-gateway
   targetRefs:
   - group: gateway.networking.k8s.io
     kind: Gateway

@@ -671,6 +671,12 @@ func patchPayloadProcessingEnvoyFilter(log logr.Logger, r *unstructured.Unstruct
 		return fmt.Errorf("write EnvoyFilter targetRefs: %w", err)
 	}
 
+	if err := unstructured.SetNestedStringMap(r.Object,
+		map[string]string{"gateway.networking.k8s.io/gateway-name": params.GatewayName},
+		"spec", "workloadSelector", "labels"); err != nil {
+		return fmt.Errorf("write EnvoyFilter workloadSelector: %w", err)
+	}
+
 	anchorName := wasmpluginAnchorName(params.GatewayNamespace, params.GatewayName)
 	beforeCluster := grpcClusterName(PayloadPreProcessingDeploymentName(params.TenantIdentifier), params.GatewayNamespace, 9004)
 	afterCluster := grpcClusterName(PayloadProcessingDeploymentName(params.TenantIdentifier), params.GatewayNamespace, 9004)
