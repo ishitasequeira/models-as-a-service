@@ -223,7 +223,7 @@ class TestPerTenantIPPInfrastructure:
                 f"{names['processing_deployment']} TENANT_NAMESPACE mismatch: {env!r}"
             )
 
-    def test_per_tenant_envoyfilter_target_ref_isolated(self, ipp_tenant_cases):
+    def test_per_tenant_envoyfilter_workload_selector_isolated(self, ipp_tenant_cases):
         for case in ipp_tenant_cases:
             names = per_tenant_ipp_names(case["tenant_label_name"])
             target = envoyfilter_target_gateway(names["envoyfilter"], GATEWAY_NAMESPACE)

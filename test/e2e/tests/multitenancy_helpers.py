@@ -1078,10 +1078,8 @@ def envoyfilter_target_gateway(name: str, namespace: str = GATEWAY_NAMESPACE) ->
     if not envoyfilter:
         return ""
     spec = envoyfilter.get("spec") or {}
-    target_refs = spec.get("targetRefs") or []
-    if target_refs:
-        return target_refs[0].get("name") or ""
-    return (spec.get("targetRef") or {}).get("name") or ""
+    labels = (spec.get("workloadSelector") or {}).get("labels") or {}
+    return labels.get("gateway.networking.k8s.io/gateway-name") or ""
 
 
 def envoyfilter_grpc_cluster_names(envoyfilter: dict) -> list[str]:
