@@ -2127,7 +2127,7 @@ class TestStatusReporting:
 
             # Create a temporary model
             _create_test_maas_model(model_name, llmis_name=MODEL_REF, namespace=MODEL_NAMESPACE)
-            _wait_reconcile()
+            _wait_for_maas_model_ready(model_name, namespace=MODEL_NAMESPACE)
 
             # Create auth policy and subscription for the model
             _create_test_auth_policy(auth_name, model_name, users=[sa_user])

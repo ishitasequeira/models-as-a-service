@@ -74,6 +74,8 @@ def _request_with_gateway_retry(method, url, retries=GATEWAY_PROPAGATION_RETRIES
             **kwargs,
         )
         retryable = (response.status_code == 403 and not response.text.strip()) or (
+            response.status_code == 403 and "Access denied" in response.text
+        ) or (
             response.status_code == 500 and "AUTH_FAILURE" in response.text
         )
         if retryable and attempt < retries:
@@ -175,7 +177,8 @@ def _post_hybrid_chat(
     model_name: str = MODEL_NAME,
 ) -> requests.Response:
     """Send hybrid BBR: model-specific URL path plus served model name in the body."""
-    return requests.post(
+    return _request_with_gateway_retry(
+        requests.post,
         f"{gateway_url.rstrip('/')}{model_path}/v1/chat/completions",
         headers={
             "Authorization": f"Bearer {api_key}",
@@ -186,8 +189,6 @@ def _post_hybrid_chat(
             "messages": [{"role": "user", "content": "ipp routing test"}],
             "max_tokens": 3,
         },
-        timeout=45,
-        verify=TLS_VERIFY,
     )
 
 
