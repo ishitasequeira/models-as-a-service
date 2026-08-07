@@ -66,6 +66,7 @@
 #   AITENANT_NAMESPACE - Namespace for AITenant CRs (default: ai-tenants)
 #   GATEWAY_NAMESPACE - Namespace for payload-processing deployment checks (default: openshift-ingress)
 #   MODEL_NAMESPACE - Namespace of models and MaaSModelRefs (default: llm)
+#   E2E_PARALLEL_WORKERS - pytest-xdist worker count (default: 1 = serial). Use 4 for parallel CI.
 #
 # TIMEOUT CONFIGURATION (all in seconds, sourced from deployment-helpers.sh):
 #   Customize for CI/CD environments or slow clusters:
@@ -843,8 +844,15 @@ run_e2e_tests() {
 
     # Run the default smoke e2e tests
     export E2E_RECONCILE_WAIT="${E2E_RECONCILE_WAIT:-4}"
+    E2E_PARALLEL_WORKERS="${E2E_PARALLEL_WORKERS:-4}"
+    pytest_parallel_args=()
+    if [[ "$E2E_PARALLEL_WORKERS" -gt 1 ]]; then
+        echo "Running E2E tests with E2E_PARALLEL_WORKERS=${E2E_PARALLEL_WORKERS} (--dist=loadfile)"
+        pytest_parallel_args=(-n "$E2E_PARALLEL_WORKERS" --dist=loadfile)
+    fi
     if ! PYTHONPATH="$test_dir:${PYTHONPATH:-}" pytest \
         -v --maxfail=5 --disable-warnings \
+        "${pytest_parallel_args[@]}" \
         --junitxml="$xml" \
         --html="$html" --self-contained-html \
         --capture=tee-sys --show-capture=all --log-level=INFO \

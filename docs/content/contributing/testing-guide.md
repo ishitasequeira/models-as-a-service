@@ -148,8 +148,19 @@ The E2E framework auto-discovers most values from the cluster. These are the mos
 | `E2E_SKIP_TLS_VERIFY` | Set `true` to skip TLS verification |
 | `MODEL_NAME` | Override model ID (defaults to first from catalog) |
 | `EXTERNAL_OIDC` | Set `true` to enable external OIDC tests |
+| `E2E_PARALLEL_WORKERS` | pytest-xdist worker count (default `1` = serial). Use `4` for parallel file execution on an existing cluster. |
 
 See `test/e2e/tests/conftest.py` and individual test module docstrings for the full set of supported variables.
+
+### Parallel E2E (pytest-xdist)
+
+The smoke suite supports parallel execution across test **files** when `E2E_PARALLEL_WORKERS` is greater than `1`:
+
+```bash
+SKIP_DEPLOYMENT=true E2E_PARALLEL_WORKERS=4 ./test/e2e/run-tests-quick.sh
+```
+
+Cluster-wide mutating tests are marked `@pytest.mark.serial` and share one xdist worker group. CI defaults to serial until Konflux sets `E2E_PARALLEL_WORKERS=4` (see [e2e-smoke-parallelism.md](../../proposals/e2e-smoke-parallelism.md)).
 
 ## CI Pipeline
 

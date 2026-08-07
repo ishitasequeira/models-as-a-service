@@ -311,6 +311,7 @@ class TestModelsEndpoint:
         log.info("✅ All prerequisites validated - proceeding with /v1/models tests")
         log.info("=" * 60)
 
+    @pytest.mark.serial
     def test_single_subscription_auto_select(self):
         """
         Test: User with exactly one accessible subscription can list models without

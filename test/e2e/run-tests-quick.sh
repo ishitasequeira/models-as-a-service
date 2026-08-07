@@ -53,6 +53,9 @@ echo "  DEPLOYMENT_NAMESPACE: ${DEPLOYMENT_NAMESPACE}"
 echo "  MAAS_SUBSCRIPTION_NAMESPACE: ${MAAS_SUBSCRIPTION_NAMESPACE}"
 echo "  MAAS_API_BASE_URL: ${MAAS_API_BASE_URL}"
 echo "  TOKEN: ${TOKEN:0:20}..."
+if [[ "${E2E_PARALLEL_WORKERS:-1}" -gt 1 ]]; then
+    echo "  E2E_PARALLEL_WORKERS: ${E2E_PARALLEL_WORKERS}"
+fi
 echo ""
 echo "Running tests..."
 echo ""
@@ -70,5 +73,10 @@ else
     source .venv/bin/activate
 fi
 
+pytest_args=(-v --tb=short)
+if [[ "${E2E_PARALLEL_WORKERS:-1}" -gt 1 ]]; then
+    pytest_args+=(-n "${E2E_PARALLEL_WORKERS}" --dist=loadfile)
+fi
+
 # Run pytest with any args passed to script
-python -m pytest -v --tb=short "$@"
+python -m pytest "${pytest_args[@]}" "$@"

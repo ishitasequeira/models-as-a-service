@@ -7,6 +7,22 @@ import requests
 
 from test_helper import MAAS_API_DEPLOYMENT_NAMESPACE
 
+
+def _xdist_worker_suffix() -> str:
+    """Stable suffix for per-worker session fixtures under pytest-xdist."""
+    worker = os.environ.get("PYTEST_XDIST_WORKER", "master")
+    if worker == "master":
+        return "main"
+    return worker.replace("gw", "w")
+
+
+def pytest_collection_modifyitems(config, items):
+    """Schedule @serial tests on one worker; keep each file on one worker via loadfile."""
+    for item in items:
+        if item.get_closest_marker("serial"):
+            item.add_marker(pytest.mark.xdist_group("serial"))
+
+
 # TLS verification flag - set E2E_SKIP_TLS_VERIFY=true to disable cert verification
 TLS_VERIFY = os.environ.get("E2E_SKIP_TLS_VERIFY", "").lower() != "true"
 
@@ -241,11 +257,12 @@ def api_key(api_keys_base_url: str, headers: dict) -> str:
     from multitenancy_helpers import response_summary
 
     sim_sub = os.environ.get("E2E_SIMULATOR_SUBSCRIPTION", "simulator-subscription")
-    print("[api_key] Creating API key for inference tests (subscription bound at mint)...")
+    key_name = f"e2e-test-inference-key-{_xdist_worker_suffix()}"
+    print(f"[api_key] Creating API key for inference tests ({key_name})...")
     r = requests.post(
         api_keys_base_url,
         headers=headers,
-        json={"name": "e2e-test-inference-key", "subscription": sim_sub},
+        json={"name": key_name, "subscription": sim_sub},
         timeout=30,
         verify=TLS_VERIFY,
     )
@@ -303,9 +320,9 @@ def shared_test_tenants(gateway_host: str, is_https: bool):
 
     require_aitenant_crd()
 
-    # Create two persistent tenants for the session
-    case_a = new_named_tenant_case("e2e-shared-a")
-    case_b = new_named_tenant_case("e2e-shared-b")
+    worker = _xdist_worker_suffix()
+    case_a = new_named_tenant_case(f"e2e-shared-a-{worker}")
+    case_b = new_named_tenant_case(f"e2e-shared-b-{worker}")
 
     try:
         # Bootstrap both tenants (creates gateway + AITenant CR)

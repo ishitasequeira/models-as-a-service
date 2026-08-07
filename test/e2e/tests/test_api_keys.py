@@ -1564,6 +1564,7 @@ class TestAPIKeySubscriptionPhases:
                 log.exception("Best-effort controller scale-up failed")
             _wait_reconcile()
 
+    @pytest.mark.serial
     def test_reject_key_for_unreconciled_subscription(self):
         """
         API key creation is rejected for unreconciled subscription (empty phase).

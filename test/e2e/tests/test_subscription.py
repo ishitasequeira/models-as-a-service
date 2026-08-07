@@ -1943,6 +1943,7 @@ class TestStatusReporting:
             _delete_sa(sa_name, namespace=MODEL_NAMESPACE)
             _wait_reconcile()
 
+    @pytest.mark.serial
     def test_subscription_degraded_trlp_blocks_inference(self):
         """
         Test: Degraded subscription with TRLP not ready blocks inference.
