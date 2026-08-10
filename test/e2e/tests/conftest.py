@@ -20,7 +20,8 @@ def pytest_collection_modifyitems(config, items):
     """Tag @serial tests for the serial-only pytest pass (see prow_run_smoke_test.sh).
 
     xdist_group alone does not block other workers from touching shared cluster
-    state (e.g. simulator-subscription). CI runs serial tests in a second pass.
+    state (simulator-subscription, UNCONFIGURED model auth, MODEL_REF TRLP churn).
+    CI runs serial tests in a second pass.
     """
     for item in items:
         if item.get_closest_marker("serial"):

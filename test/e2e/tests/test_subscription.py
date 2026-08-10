@@ -381,6 +381,7 @@ class TestSubscriptionEnforcement:
 
     def test_subscribed_user_gets_200(self):
         """API key with matching group should access the model. Polls for AuthPolicy enforcement."""
+        _wait_for_gateway_auth_enforced()
         api_key = _get_default_api_key()
         r = _poll_status(api_key, 200, timeout=90)
         log.info(f"Subscribed API key -> {r.status_code}")
@@ -431,6 +432,7 @@ class TestSubscriptionEnforcement:
             _delete_cr("maasauthpolicy", "e2e-auth-pass-sub-fail")
             _wait_reconcile()
 
+    @pytest.mark.serial
     def test_rate_limit_exhaustion_gets_429(self):
         """
         Test that a user gets 429 when they actually exceed their token rate limit.
@@ -545,6 +547,7 @@ class TestSubscriptionEnforcement:
             _wait_reconcile()
             log.info("Cleaned up rate limit test resources")
 
+    @pytest.mark.serial
     def test_models_endpoint_exempt_from_rate_limiting(self):
         """
         Test that /v1/models endpoint remains accessible when token quota is exhausted.
@@ -680,6 +683,7 @@ class TestMultipleSubscriptionsPerModel:
     were AND'd, requiring a user to be in ALL subscriptions.
     """
 
+    @pytest.mark.serial
     def test_user_in_one_of_two_subscriptions_gets_200(self):
         """Add a 2nd subscription for a different group. API key only in the original
         group should still get 200 (not blocked by the 2nd sub's group check)."""
@@ -745,6 +749,7 @@ class TestMultipleAuthPoliciesPerModel:
             _delete_cr("maasauthpolicy", "e2e-premium-sa-auth")
             _wait_reconcile()
 
+    @pytest.mark.serial
     def test_delete_one_auth_policy_other_still_works(self):
         """Delete one of two auth policies for a model -> remaining still works."""
         ns = _ns()
@@ -777,6 +782,7 @@ class TestMultipleAuthPoliciesPerModel:
 class TestCascadeDeletion:
     """Tests that deleting CRs triggers proper cleanup and rebuilds."""
 
+    @pytest.mark.serial
     def test_delete_subscription_rebuilds_trlp(self):
         """Add a 2nd subscription, delete it -> TRLP rebuilt with only the original."""
         ns = _ns()

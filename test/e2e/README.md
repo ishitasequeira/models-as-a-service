@@ -78,10 +78,10 @@ External OIDC runs require `EXTERNAL_OIDC=true` and `OIDC_ISSUER_URL`, `OIDC_TOK
 
 ## Parallel execution (pytest-xdist)
 
-By default, CI and `prow_run_smoke_test.sh` run tests in **two passes** when `E2E_PARALLEL_WORKERS=4`:
+By default, CI and `prow_run_smoke_test.sh` run tests in **two passes** when `E2E_PARALLEL_WORKERS=2`:
 
 1. **Pass 1:** `-m "not serial"` — parallel across files (`--dist=loadfile`)
-2. **Pass 2:** `-m serial` — **10 tests** that delete `simulator-subscription` or scale cluster operators (single worker)
+2. **Pass 2:** `-m serial` — cluster-wide mutators (single worker): simulator-subscription lifecycle, UNCONFIGURED model auth, TRLP rebuilds, operator scale tests
 
 For fully serial debugging:
 
@@ -97,8 +97,11 @@ SKIP_DEPLOYMENT=true ./test/e2e/run-tests-quick.sh
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `E2E_PARALLEL_WORKERS` | `4` | Parallel workers for pass 1. Pass 2 (`@serial`) always runs on one worker. Set to `1` to run everything serially in one pass. |
+| `E2E_PARALLEL_WORKERS` | `2` | Parallel workers for pass 1. Pass 2 (`@serial`) always runs on one worker. Set to `1` to run everything serially in one pass. |
+| `E2E_AUTHPOLICY_PHASE_TIMEOUT` | `120` (parallel) / `60` (serial) | MaaSAuthPolicy phase wait |
+| `E2E_GATEWAY_ENFORCED_TIMEOUT` | `240` (parallel) / `180` (serial) | Kuadrant gateway auth enforced wait |
+| `E2E_MULTITENANCY_PHASE_TIMEOUT` | `180` (parallel) / `120` (serial) | Tenant discovery phase wait |
 
-**10 `@serial` tests** (pass 2): simulator-subscription delete/restore (6), kuadrant or maas-controller scale (4). Verify: `pytest -m serial tests/ --collect-only -q`.
+**19 `@serial` tests** (pass 2): verify with `pytest -m serial tests/ --collect-only -q`.
 
 Session fixtures suffix resource names with the worker id (for example `e2e-test-inference-key-w0`).

@@ -776,6 +776,7 @@ class TestModelsEndpoint:
             _delete_sa(sa_name, namespace=sa_ns)
             _wait_reconcile()
 
+    @pytest.mark.serial
     def test_different_modelrefs_same_model_id(self):
         """
         Test 7: Different modelRefs serving same model ID return separate entries.
@@ -1288,6 +1289,7 @@ class TestModelsEndpoint:
             _delete_sa(sa_name, namespace=ns)
             _wait_reconcile()
 
+    @pytest.mark.serial
     def test_empty_model_list(self):
         """
         Test 9: Empty model list should return [] not null.
@@ -2156,6 +2158,7 @@ class TestModelsEndpoint:
 
         log.info(f"✅ Unauthenticated request → {r.status_code}")
 
+    @pytest.mark.serial
     def test_central_models_endpoint_exempt_from_rate_limiting(self):
         """
         Test that the central /v1/models endpoint remains accessible when token quota is exhausted.

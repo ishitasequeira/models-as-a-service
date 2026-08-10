@@ -353,6 +353,7 @@ class TestAuthPolicyRemoval:
     deleted, and subsequent requests with the API key should be denied.
     """
 
+    @pytest.mark.serial
     def test_authpolicy_deletion_revokes_access(self):
         """Create auth policy, delete it, verify legacy per-model AuthPolicy is absent.
 
