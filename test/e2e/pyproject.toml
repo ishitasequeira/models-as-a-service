@@ -1,0 +1,6 @@
+[tool.pytest.ini_options]
+markers = [
+    "serial: cluster-wide mutations; scheduled on one xdist worker (xdist_group serial)",
+    "slow: long-running test (may wait for token expiry)",
+]
+addopts = "--strict-markers"

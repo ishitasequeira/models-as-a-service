@@ -16,10 +16,10 @@ Existing cluster (skip deploy):
 SKIP_DEPLOYMENT=true ./test/e2e/scripts/prow_run_smoke_test.sh
 ```
 
-Parallel pytest (requires cluster already deployed; default is serial):
+Parallel pytest on an existing cluster (default 4 workers):
 
 ```bash
-SKIP_DEPLOYMENT=true E2E_PARALLEL_WORKERS=4 ./test/e2e/run-tests-quick.sh
+SKIP_DEPLOYMENT=true ./test/e2e/run-tests-quick.sh
 ```
 
 Smoke helper only:
@@ -78,17 +78,20 @@ External OIDC runs require `EXTERNAL_OIDC=true` and `OIDC_ISSUER_URL`, `OIDC_TOK
 
 ## Parallel execution (pytest-xdist)
 
-By default, CI and `prow_run_smoke_test.sh` run tests **serially** (`E2E_PARALLEL_WORKERS=1`). To run the smoke suite in parallel on an existing cluster:
+By default, CI and `prow_run_smoke_test.sh` run tests with **4 parallel workers** (`E2E_PARALLEL_WORKERS=4`). For serial debugging:
 
 ```bash
-cd test/e2e && source .venv/bin/activate
-E2E_PARALLEL_WORKERS=4 ./run-tests-quick.sh
+E2E_PARALLEL_WORKERS=1 ./run-tests-quick.sh
+```
+
+Parallel on an existing cluster:
+
+```bash
+SKIP_DEPLOYMENT=true ./test/e2e/run-tests-quick.sh
 ```
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `E2E_PARALLEL_WORKERS` | `1` | Number of xdist workers. Set to `4` for parallel file execution. |
+| `E2E_PARALLEL_WORKERS` | `4` | Number of xdist workers. Set to `1` for serial execution. |
 
-Tests marked `@pytest.mark.serial` (cluster-wide mutations: kuadrant/controller scale, `simulator-subscription` delete) share one xdist worker group. Session fixtures suffix resource names with the worker id (for example `e2e-test-inference-key-w0`).
-
-Konflux enables parallel CI by setting `export E2E_PARALLEL_WORKERS=4` in `odh-konflux-central` (separate PR).
+Tests marked `@pytest.mark.serial` share one xdist worker group. Session fixtures suffix resource names with the worker id (for example `e2e-test-inference-key-w0`).

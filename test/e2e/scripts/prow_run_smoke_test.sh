@@ -66,7 +66,7 @@
 #   AITENANT_NAMESPACE - Namespace for AITenant CRs (default: ai-tenants)
 #   GATEWAY_NAMESPACE - Namespace for payload-processing deployment checks (default: openshift-ingress)
 #   MODEL_NAMESPACE - Namespace of models and MaaSModelRefs (default: llm)
-#   E2E_PARALLEL_WORKERS - pytest-xdist worker count (default: 1 = serial). Use 4 for parallel CI.
+#   E2E_PARALLEL_WORKERS - pytest-xdist worker count (default: 4). Set to 1 for serial debugging.
 #
 # TIMEOUT CONFIGURATION (all in seconds, sourced from deployment-helpers.sh):
 #   Customize for CI/CD environments or slow clusters:

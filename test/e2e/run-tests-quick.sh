@@ -53,8 +53,8 @@ echo "  DEPLOYMENT_NAMESPACE: ${DEPLOYMENT_NAMESPACE}"
 echo "  MAAS_SUBSCRIPTION_NAMESPACE: ${MAAS_SUBSCRIPTION_NAMESPACE}"
 echo "  MAAS_API_BASE_URL: ${MAAS_API_BASE_URL}"
 echo "  TOKEN: ${TOKEN:0:20}..."
-if [[ "${E2E_PARALLEL_WORKERS:-1}" -gt 1 ]]; then
-    echo "  E2E_PARALLEL_WORKERS: ${E2E_PARALLEL_WORKERS}"
+if [[ "${E2E_PARALLEL_WORKERS:-4}" -gt 1 ]]; then
+    echo "  E2E_PARALLEL_WORKERS: ${E2E_PARALLEL_WORKERS:-4}"
 fi
 echo ""
 echo "Running tests..."
@@ -74,8 +74,9 @@ else
 fi
 
 pytest_args=(-v --tb=short)
-if [[ "${E2E_PARALLEL_WORKERS:-1}" -gt 1 ]]; then
-    pytest_args+=(-n "${E2E_PARALLEL_WORKERS}" --dist=loadfile)
+E2E_PARALLEL_WORKERS="${E2E_PARALLEL_WORKERS:-4}"
+if [[ "$E2E_PARALLEL_WORKERS" -gt 1 ]]; then
+    pytest_args+=(-n "$E2E_PARALLEL_WORKERS" --dist=loadfile)
 fi
 
 # Run pytest with any args passed to script
