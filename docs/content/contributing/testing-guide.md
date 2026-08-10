@@ -154,13 +154,12 @@ See `test/e2e/tests/conftest.py` and individual test module docstrings for the f
 
 ### Parallel E2E (pytest-xdist)
 
-The smoke suite runs in parallel across test **files** by default (`E2E_PARALLEL_WORKERS=4`):
+The smoke suite runs in **two passes** when `E2E_PARALLEL_WORKERS=4` (default in `prow_run_smoke_test.sh`):
 
-```bash
-SKIP_DEPLOYMENT=true ./test/e2e/run-tests-quick.sh
-```
+1. Parallel bulk: `-m "not serial"` with `--dist=loadfile`
+2. Serial tail: `-m serial` — **10 tests** that mutate shared cluster state (simulator-subscription delete/restore or operator scale)
 
-Set `E2E_PARALLEL_WORKERS=1` for serial debugging. Cluster-wide mutating tests are marked `@pytest.mark.serial` and share one xdist worker group.
+Set `E2E_PARALLEL_WORKERS=1` for a single serial pass (debugging). New tests that delete shared fixtures or scale cluster operators must be marked `@pytest.mark.serial`.
 
 ## CI Pipeline
 

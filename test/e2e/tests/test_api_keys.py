@@ -1498,6 +1498,7 @@ class TestAPIKeySubscriptionPhases:
             _delete_sa(sa_name, namespace=MODEL_NAMESPACE)
             _wait_reconcile()
 
+    @pytest.mark.serial
     def test_create_key_for_pending_subscription(self):
         """API key creation succeeds for Pending subscription."""
         ns = _ns()

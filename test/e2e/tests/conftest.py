@@ -17,7 +17,11 @@ def _xdist_worker_suffix() -> str:
 
 
 def pytest_collection_modifyitems(config, items):
-    """Schedule @serial tests on one worker; keep each file on one worker via loadfile."""
+    """Tag @serial tests for the serial-only pytest pass (see prow_run_smoke_test.sh).
+
+    xdist_group alone does not block other workers from touching shared cluster
+    state (e.g. simulator-subscription). CI runs serial tests in a second pass.
+    """
     for item in items:
         if item.get_closest_marker("serial"):
             item.add_marker(pytest.mark.xdist_group("serial"))

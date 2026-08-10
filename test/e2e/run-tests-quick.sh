@@ -75,9 +75,24 @@ fi
 
 pytest_args=(-v --tb=short)
 E2E_PARALLEL_WORKERS="${E2E_PARALLEL_WORKERS:-4}"
+user_args=("$@")
+
+run_pytest_pass() {
+    python -m pytest "${pytest_args[@]}" "$@"
+}
+
+parallel_rc=0
+serial_rc=0
 if [[ "$E2E_PARALLEL_WORKERS" -gt 1 ]]; then
-    pytest_args+=(-n "$E2E_PARALLEL_WORKERS" --dist=loadfile)
+    echo "Pass 1/2: parallel (-m 'not serial', -n ${E2E_PARALLEL_WORKERS})"
+    run_pytest_pass -n "$E2E_PARALLEL_WORKERS" --dist=loadfile -m "not serial" "${user_args[@]}" || parallel_rc=1
+    echo ""
+    echo "Pass 2/2: serial cluster mutators (-m serial)"
+    run_pytest_pass -m serial "${user_args[@]}" || serial_rc=1
+else
+    run_pytest_pass "${user_args[@]}" || parallel_rc=1
 fi
 
-# Run pytest with any args passed to script
-python -m pytest "${pytest_args[@]}" "$@"
+if [[ "$parallel_rc" -ne 0 || "$serial_rc" -ne 0 ]]; then
+    exit 1
+fi

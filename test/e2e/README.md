@@ -78,7 +78,12 @@ External OIDC runs require `EXTERNAL_OIDC=true` and `OIDC_ISSUER_URL`, `OIDC_TOK
 
 ## Parallel execution (pytest-xdist)
 
-By default, CI and `prow_run_smoke_test.sh` run tests with **4 parallel workers** (`E2E_PARALLEL_WORKERS=4`). For serial debugging:
+By default, CI and `prow_run_smoke_test.sh` run tests in **two passes** when `E2E_PARALLEL_WORKERS=4`:
+
+1. **Pass 1:** `-m "not serial"` — parallel across files (`--dist=loadfile`)
+2. **Pass 2:** `-m serial` — **10 tests** that delete `simulator-subscription` or scale cluster operators (single worker)
+
+For fully serial debugging:
 
 ```bash
 E2E_PARALLEL_WORKERS=1 ./run-tests-quick.sh
@@ -92,6 +97,8 @@ SKIP_DEPLOYMENT=true ./test/e2e/run-tests-quick.sh
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `E2E_PARALLEL_WORKERS` | `4` | Number of xdist workers. Set to `1` for serial execution. |
+| `E2E_PARALLEL_WORKERS` | `4` | Parallel workers for pass 1. Pass 2 (`@serial`) always runs on one worker. Set to `1` to run everything serially in one pass. |
 
-Tests marked `@pytest.mark.serial` share one xdist worker group. Session fixtures suffix resource names with the worker id (for example `e2e-test-inference-key-w0`).
+**10 `@serial` tests** (pass 2): simulator-subscription delete/restore (6), kuadrant or maas-controller scale (4). Verify: `pytest -m serial tests/ --collect-only -q`.
+
+Session fixtures suffix resource names with the worker id (for example `e2e-test-inference-key-w0`).

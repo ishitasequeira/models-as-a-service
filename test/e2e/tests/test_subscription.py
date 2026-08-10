@@ -799,6 +799,7 @@ class TestCascadeDeletion:
         finally:
             _delete_cr("maassubscription", "e2e-temp-sub")
 
+    @pytest.mark.serial
     def test_trlp_persists_during_multi_subscription_deletion(self):
         """Validate CWE-693/CWE-400 fix: TRLP rebuilt in-place during deletion.
 
@@ -920,6 +921,7 @@ class TestCascadeDeletion:
                 _apply_cr(original_sub)
             _wait_reconcile()
 
+    @pytest.mark.serial
     def test_delete_last_subscription_denies_access(self):
         """Delete all subscriptions for a model -> access denied with 403 Forbidden.
 
@@ -1352,6 +1354,7 @@ class TestE2ESubscriptionFlow:
             _delete_sa(sa_name, namespace=ns)
             _wait_reconcile()
 
+    @pytest.mark.serial
     def test_e2e_with_access_but_no_subscription_gets_403(self):
         """
         Test: User with access (MaaSAuthPolicy) but not in any subscription gets 403.
@@ -1444,6 +1447,7 @@ class TestE2ESubscriptionFlow:
             _delete_sa(sa_with_sub, namespace=MODEL_NAMESPACE)
             _wait_reconcile()
 
+    @pytest.mark.serial
     def test_e2e_single_subscription_auto_selects(self):
         """
         Test: User with single subscription auto-selects without header (PR #427).
@@ -1642,6 +1646,7 @@ class TestE2ESubscriptionFlow:
             _delete_sa(sa_name, namespace=ns)
             _wait_reconcile()
 
+    @pytest.mark.serial
     def test_e2e_group_based_auth_but_no_subscription_gets_403(self):
         """
         E2E test: Group-based auth, but user's group not in any subscription (failure case).
