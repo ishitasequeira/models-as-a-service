@@ -100,6 +100,20 @@ from test_helper import (
 
 log = logging.getLogger(__name__)
 
+pytestmark = pytest.mark.xdist_group("worker_mutators")
+
+
+@pytest.fixture(autouse=True)
+def _worker_tenant_context(worker_tenant, request):
+    """Run non-serial subscription tests in a worker-scoped AITenant namespace."""
+    from worker_tenant_fixtures import activate_worker_tenant
+
+    if request.node.get_closest_marker("serial"):
+        yield
+        return
+    with activate_worker_tenant(worker_tenant):
+        yield
+
 
 # Generated resource names (for TestManagedAnnotation)
 AUTH_POLICY_NAME = f"maas-auth-{MODEL_REF}"
@@ -140,10 +154,12 @@ def _get_default_api_key() -> str:
     """
     pid = os.getpid()
     if pid not in _default_api_key_cache:
+        from worker_tenant_fixtures import xdist_worker_suffix
+
         oc_token = _get_cluster_token()
         _default_api_key_cache[pid] = _create_api_key(
             oc_token,
-            name="e2e-default-key",
+            name=f"e2e-default-key-{xdist_worker_suffix()}",
             subscription=SIMULATOR_SUBSCRIPTION,
         )
     return _default_api_key_cache[pid]

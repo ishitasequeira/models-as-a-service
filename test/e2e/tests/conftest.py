@@ -16,6 +16,41 @@ def _xdist_worker_suffix() -> str:
     return worker.replace("gw", "w")
 
 
+@pytest.fixture(scope="session")
+def worker_tenant():
+    """One AITenant per xdist worker with baseline auth/subscriptions (Phase 3 pilot).
+
+    Serial-only pass (no xdist) and E2E_USE_WORKER_TENANT=false yield None so
+    @serial tests keep using the default models-as-a-service namespace.
+    """
+    from worker_tenant_fixtures import (
+        bootstrap_worker_tenant,
+        build_worker_tenant_case,
+        teardown_worker_tenant,
+        worker_tenant_enabled,
+    )
+
+    if not worker_tenant_enabled():
+        yield None
+        return
+
+    # Pass 2 runs without xdist; serial tests must stay on the default tenant.
+    if os.environ.get("PYTEST_XDIST_WORKER", "master") == "master":
+        yield None
+        return
+
+    case = build_worker_tenant_case(_xdist_worker_suffix())
+    try:
+        case = bootstrap_worker_tenant(case)
+        print(
+            f"[worker_tenant] worker={_xdist_worker_suffix()} "
+            f"namespace={case['tenant_ns']} gateway={case['gateway_host']}"
+        )
+        yield case
+    finally:
+        teardown_worker_tenant(case)
+
+
 def pytest_collection_modifyitems(config, items):
     """Tag @serial tests for the serial-only pytest pass (see prow_run_smoke_test.sh).
 
