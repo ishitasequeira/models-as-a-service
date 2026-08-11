@@ -53,8 +53,8 @@ echo "  DEPLOYMENT_NAMESPACE: ${DEPLOYMENT_NAMESPACE}"
 echo "  MAAS_SUBSCRIPTION_NAMESPACE: ${MAAS_SUBSCRIPTION_NAMESPACE}"
 echo "  MAAS_API_BASE_URL: ${MAAS_API_BASE_URL}"
 echo "  TOKEN: ${TOKEN:0:20}..."
-if [[ "${E2E_PARALLEL_WORKERS:-2}" -gt 1 ]]; then
-    echo "  E2E_PARALLEL_WORKERS: ${E2E_PARALLEL_WORKERS:-2}"
+if [[ "${E2E_PARALLEL_WORKERS:-7}" -gt 1 ]]; then
+    echo "  E2E_PARALLEL_WORKERS: ${E2E_PARALLEL_WORKERS:-7}"
 fi
 echo ""
 echo "Running tests..."
@@ -74,7 +74,7 @@ else
 fi
 
 pytest_args=(-v --tb=short)
-E2E_PARALLEL_WORKERS="${E2E_PARALLEL_WORKERS:-2}"
+E2E_PARALLEL_WORKERS="${E2E_PARALLEL_WORKERS:-7}"
 if [[ "$E2E_PARALLEL_WORKERS" -gt 1 ]]; then
     export E2E_AUTHPOLICY_PHASE_TIMEOUT="${E2E_AUTHPOLICY_PHASE_TIMEOUT:-120}"
     export E2E_MAAS_SUBSCRIPTION_PHASE_TIMEOUT="${E2E_MAAS_SUBSCRIPTION_PHASE_TIMEOUT:-90}"
@@ -91,7 +91,7 @@ parallel_rc=0
 serial_rc=0
 if [[ "$E2E_PARALLEL_WORKERS" -gt 1 ]]; then
     echo "Pass 1/2: parallel (-m 'not serial', -n ${E2E_PARALLEL_WORKERS})"
-    run_pytest_pass -n "$E2E_PARALLEL_WORKERS" --dist=loadfile -m "not serial" "${user_args[@]}" || parallel_rc=1
+    run_pytest_pass -n "$E2E_PARALLEL_WORKERS" --dist=loadgroup -m "not serial" "${user_args[@]}" || parallel_rc=1
     echo ""
     echo "Pass 2/2: serial cluster mutators (-m serial)"
     run_pytest_pass -m serial "${user_args[@]}" || serial_rc=1

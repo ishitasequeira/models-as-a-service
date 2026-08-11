@@ -61,6 +61,8 @@ from test_helper import (
 
 log = logging.getLogger(__name__)
 
+pytestmark = pytest.mark.xdist_group("security")
+
 
 # ============================================================================
 # P0: Header Spoofing Tests

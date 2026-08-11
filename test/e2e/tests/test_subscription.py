@@ -100,19 +100,7 @@ from test_helper import (
 
 log = logging.getLogger(__name__)
 
-pytestmark = pytest.mark.xdist_group("worker_mutators")
-
-
-@pytest.fixture(autouse=True)
-def _worker_tenant_context(worker_tenant, request):
-    """Run non-serial subscription tests in a worker-scoped AITenant namespace."""
-    from worker_tenant_fixtures import activate_worker_tenant
-
-    if request.node.get_closest_marker("serial"):
-        yield
-        return
-    with activate_worker_tenant(worker_tenant):
-        yield
+pytestmark = pytest.mark.xdist_group("api_keys")
 
 
 # Generated resource names (for TestManagedAnnotation)

@@ -68,6 +68,8 @@ from test_helper import (
 
 log = logging.getLogger(__name__)
 
+pytestmark = pytest.mark.xdist_group("api_keys")
+
 
 @pytest.fixture(scope="session", autouse=True)
 def _warm_gateway(api_keys_base_url: str, headers: dict):

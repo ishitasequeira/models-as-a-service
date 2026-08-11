@@ -23,6 +23,8 @@ import pytest
 
 log = logging.getLogger(__name__)
 
+pytestmark = pytest.mark.xdist_group("mt_lifecycle")
+
 DEPLOYMENT_NAMESPACE = os.environ.get("DEPLOYMENT_NAMESPACE", "opendatahub")
 KSERVE_CRD = "llminferenceservices.serving.kserve.io"
 KUADRANT_AUTHPOLICY_CRD = "authpolicies.kuadrant.io"

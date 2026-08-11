@@ -70,6 +70,8 @@ from test_helper import (
 
 log = logging.getLogger(__name__)
 
+pytestmark = pytest.mark.xdist_group("models")
+
 # Kuadrant gateway propagation can lag behind MaaS CR readiness.
 # MaaSAuthPolicy "Active" means the controller created the Kuadrant AuthPolicy,
 # but Envoy may not have loaded it yet.  Retry on empty 403 (gateway rejection).

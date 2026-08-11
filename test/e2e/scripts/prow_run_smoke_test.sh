@@ -66,7 +66,7 @@
 #   AITENANT_NAMESPACE - Namespace for AITenant CRs (default: ai-tenants)
 #   GATEWAY_NAMESPACE - Namespace for payload-processing deployment checks (default: openshift-ingress)
 #   MODEL_NAMESPACE - Namespace of models and MaaSModelRefs (default: llm)
-#   E2E_PARALLEL_WORKERS - pytest-xdist worker count (default: 2). Set to 1 for serial debugging.
+#   E2E_PARALLEL_WORKERS - pytest-xdist worker count (default: 7, one per test group). Set to 1 for serial debugging.
 #
 # TIMEOUT CONFIGURATION (all in seconds, sourced from deployment-helpers.sh):
 #   Customize for CI/CD environments or slow clusters:
@@ -844,7 +844,7 @@ run_e2e_tests() {
 
     # Run the default smoke e2e tests
     export E2E_RECONCILE_WAIT="${E2E_RECONCILE_WAIT:-4}"
-    E2E_PARALLEL_WORKERS="${E2E_PARALLEL_WORKERS:-2}"
+    E2E_PARALLEL_WORKERS="${E2E_PARALLEL_WORKERS:-7}"
     if [[ "$E2E_PARALLEL_WORKERS" -gt 1 ]]; then
         export E2E_AUTHPOLICY_PHASE_TIMEOUT="${E2E_AUTHPOLICY_PHASE_TIMEOUT:-120}"
         export E2E_MAAS_SUBSCRIPTION_PHASE_TIMEOUT="${E2E_MAAS_SUBSCRIPTION_PHASE_TIMEOUT:-90}"
@@ -886,10 +886,10 @@ run_e2e_tests() {
     local xml_serial="${xml%.xml}-serial.xml"
 
     if [[ "$E2E_PARALLEL_WORKERS" -gt 1 ]]; then
-        echo "Running E2E pass 1/2: parallel (E2E_PARALLEL_WORKERS=${E2E_PARALLEL_WORKERS}, --dist=loadfile, -m 'not serial')"
+        echo "Running E2E pass 1/2: parallel (E2E_PARALLEL_WORKERS=${E2E_PARALLEL_WORKERS}, --dist=loadgroup, -m 'not serial')"
         if ! PYTHONPATH="$test_dir:${PYTHONPATH:-}" pytest \
             --maxfail=5 \
-            -n "$E2E_PARALLEL_WORKERS" --dist=loadfile \
+            -n "$E2E_PARALLEL_WORKERS" --dist=loadgroup \
             -m "not serial" \
             --junitxml="$xml" \
             --html="$html" --self-contained-html \

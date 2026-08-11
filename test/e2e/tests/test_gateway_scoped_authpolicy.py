@@ -33,6 +33,8 @@ from test_helper import (
 
 log = logging.getLogger(__name__)
 
+pytestmark = pytest.mark.xdist_group("models")
+
 
 def _gateway_auth_rego() -> str:
     ap = get_gateway_authpolicy()

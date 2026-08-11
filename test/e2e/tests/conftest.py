@@ -7,6 +7,14 @@ import requests
 
 from test_helper import MAAS_API_DEPLOYMENT_NAMESPACE
 
+# Populated during collection; read by session fixtures to decide whether this
+# worker needs a per-group tenant or should use the default cluster tenant.
+_WORKER_XDIST_GROUPS: set[str] = set()
+
+# Groups whose tests run against a per-worker tenant instead of the default.
+# readonly / mt_lifecycle / tenant_isolation manage their own tenants or are read-only.
+_GROUPS_NEEDING_WORKER_TENANT = {"api_keys", "models", "security", "external"}
+
 
 def _xdist_worker_suffix() -> str:
     """Stable suffix for per-worker session fixtures under pytest-xdist."""
@@ -18,10 +26,13 @@ def _xdist_worker_suffix() -> str:
 
 @pytest.fixture(scope="session")
 def worker_tenant():
-    """One AITenant per xdist worker with baseline auth/subscriptions (Phase 3 pilot).
+    """One AITenant per xdist worker with baseline auth/subscriptions.
 
-    Serial-only pass (no xdist) and E2E_USE_WORKER_TENANT=false yield None so
-    @serial tests keep using the default models-as-a-service namespace.
+    Yields None (fall back to default tenant) when:
+    - E2E_USE_WORKER_TENANT=false
+    - Running without xdist (serial pass 2)
+    - This worker's group doesn't need a dedicated tenant (readonly,
+      mt_lifecycle, tenant_isolation manage their own)
     """
     from worker_tenant_fixtures import (
         bootstrap_worker_tenant,
@@ -39,6 +50,11 @@ def worker_tenant():
         yield None
         return
 
+    # Skip tenant bootstrap for groups that are read-only or self-manage tenants.
+    if _WORKER_XDIST_GROUPS and not (_WORKER_XDIST_GROUPS & _GROUPS_NEEDING_WORKER_TENANT):
+        yield None
+        return
+
     case = build_worker_tenant_case(_xdist_worker_suffix())
     try:
         case = bootstrap_worker_tenant(case)
@@ -51,16 +67,35 @@ def worker_tenant():
         teardown_worker_tenant(case)
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _activate_worker_tenant_env(worker_tenant):
+    """Set env vars so runtime reads (test_helper._ns(), module constants) see the worker tenant."""
+    if not worker_tenant:
+        yield
+        return
+    os.environ["MAAS_SUBSCRIPTION_NAMESPACE"] = worker_tenant["tenant_ns"]
+    os.environ["GATEWAY_HOST"] = worker_tenant["gateway_host"]
+    os.environ["MAAS_API_BASE_URL"] = worker_tenant["base_url"]
+    os.environ["E2E_GATEWAY_AUTH_POLICY_NAME"] = worker_tenant["gateway_authpolicy_name"]
+    yield
+
+
 def pytest_collection_modifyitems(config, items):
-    """Tag @serial tests for the serial-only pytest pass (see prow_run_smoke_test.sh).
+    """Tag @serial tests and record xdist_group membership for this worker.
 
     xdist_group alone does not block other workers from touching shared cluster
     state (simulator-subscription, UNCONFIGURED model auth, MODEL_REF TRLP churn).
     CI runs serial tests in a second pass.
+
+    _WORKER_XDIST_GROUPS is populated here (before session fixtures) so the
+    worker_tenant fixture knows whether to bootstrap a tenant.
     """
     for item in items:
         if item.get_closest_marker("serial"):
             item.add_marker(pytest.mark.xdist_group("serial"))
+        group_marker = item.get_closest_marker("xdist_group")
+        if group_marker and group_marker.args:
+            _WORKER_XDIST_GROUPS.add(group_marker.args[0])
 
 
 # TLS verification flag - set E2E_SKIP_TLS_VERIFY=true to disable cert verification
@@ -101,15 +136,19 @@ if _GATEWAY_ROUTE_HOST:
 
 
 @pytest.fixture(scope="session")
-def gateway_host() -> str:
+def gateway_host(worker_tenant) -> str:
     """
     Gateway hostname. Primary source of truth for endpoint URLs.
     Can be set via GATEWAY_HOST or derived from MAAS_API_BASE_URL.
+    When a worker_tenant is active, uses the tenant's gateway host.
     """
+    if worker_tenant:
+        return worker_tenant["gateway_host"]
+
     host = os.environ.get("GATEWAY_HOST", "")
     if host:
         return host
-    
+
     # Fall back to deriving from MAAS_API_BASE_URL
     url = os.environ.get("MAAS_API_BASE_URL", "")
     if url:
@@ -121,7 +160,7 @@ def gateway_host() -> str:
         if "://" in url:
             url = url.split("://", 1)[1]
         return url
-    
+
     raise RuntimeError("GATEWAY_HOST or MAAS_API_BASE_URL env var is required")
 
 
@@ -155,10 +194,14 @@ def is_https() -> bool:
 
 
 @pytest.fixture(scope="session")
-def maas_api_base_url(gateway_host: str, is_https: bool) -> str:
+def maas_api_base_url(gateway_host: str, is_https: bool, worker_tenant) -> str:
     """
     MaaS API base URL. Derived from GATEWAY_HOST or MAAS_API_BASE_URL.
+    When a worker_tenant is active, uses the tenant's base URL.
     """
+    if worker_tenant:
+        return worker_tenant["base_url"]
+
     # If explicitly set, use it
     url = os.environ.get("MAAS_API_BASE_URL", "")
     if url:
