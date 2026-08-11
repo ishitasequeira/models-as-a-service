@@ -331,14 +331,21 @@ class TestPerTenantIPPRouting:
 
         _wait_for_gateway_auth_enforced()
         api_key = _create_default_api_key()
-        # Warm default gateway after prior tests may leave auth/Envoy config stale.
-        # Poll with _post_hybrid_chat (which retries transient empty-403 / AUTH_FAILURE)
-        # to match the retry strategy used by the tenant gateway test.
+        # Retry transient auth propagation (403, 500 AUTH_FAILURE) but fail fast
+        # on terminal errors (404, 405, 422) that indicate misconfiguration.
+        _TRANSIENT_WARMUP = {403, 500, 502, 503}
         deadline = time.time() + 90
         warmup = None
         while time.time() < deadline:
             warmup = _post_hybrid_chat(_gateway_url(), MODEL_PATH, api_key)
             if warmup.status_code == 200:
+                break
+            if warmup.status_code not in _TRANSIENT_WARMUP:
+                log.warning(
+                    "Default gateway warmup got terminal %d, not retrying (body: %.300s)",
+                    warmup.status_code,
+                    redact_sensitive(warmup.text[:300]),
+                )
                 break
             log.warning(
                 "Default gateway warmup got %d (body: %.300s), retrying...",
