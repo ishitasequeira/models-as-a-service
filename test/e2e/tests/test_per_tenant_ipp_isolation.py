@@ -89,6 +89,14 @@ def _request_with_gateway_retry(method, url, retries=GATEWAY_PROPAGATION_RETRIES
             )
             time.sleep(GATEWAY_PROPAGATION_DELAY)
             continue
+        if response.status_code not in (200, 201):
+            log.info(
+                "Gateway returned non-retryable %d (attempt %d/%d, body: %.300s)",
+                response.status_code,
+                attempt,
+                retries,
+                response.text[:300],
+            )
         return response
     return response
 
@@ -332,11 +340,16 @@ class TestPerTenantIPPRouting:
             warmup = _post_hybrid_chat(_gateway_url(), MODEL_PATH, api_key)
             if warmup.status_code == 200:
                 break
+            log.warning(
+                "Default gateway warmup got %d (body: %.300s), retrying...",
+                warmup.status_code,
+                redact_sensitive(warmup.text[:300]),
+            )
             time.sleep(2)
         assert warmup is not None and warmup.status_code == 200, (
             f"Default gateway inference warmup failed: "
-            f"{warmup.status_code if warmup else 'no response'} "
-            f"{redact_sensitive(warmup.text[:500]) if warmup else ''}"
+            f"{warmup.status_code if warmup is not None else 'no response'} "
+            f"{redact_sensitive(warmup.text[:500]) if warmup is not None else ''}"
         )
         response = _post_hybrid_chat(_gateway_url(), MODEL_PATH, api_key)
         assert response.status_code == 200, (
