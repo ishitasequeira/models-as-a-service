@@ -579,8 +579,11 @@ func userHasAccess(sub *subscription, username string, groups []string) bool {
 
 // isModelAccessAllowed checks MaaSAuthPolicy access for the resolved model.
 func (s *Selector) isModelAccessAllowed(groups []string, username string, sub *subscription, requestedModel string) bool {
-	if s.accessChecker == nil || requestedModel == "" {
+	if requestedModel == "" {
 		return true
+	}
+	if s.accessChecker == nil {
+		return false
 	}
 	ref := findModelRef(sub, requestedModel)
 	if ref == nil {

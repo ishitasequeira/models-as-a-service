@@ -1066,7 +1066,7 @@ func TestSelect_AccessAllowed(t *testing.T) {
 			wantAccessAllowed: false,
 		},
 		{
-			name: "nil access checker returns AccessAllowed true",
+			name: "nil access checker with model denies (fail-closed)",
 			subscriptions: []*unstructured.Unstructured{
 				createSubscriptionWithModelRefs("sub1", []string{"g1"}, []map[string]any{
 					{"name": "model-a", "namespace": "ns1"},
@@ -1074,6 +1074,18 @@ func TestSelect_AccessAllowed(t *testing.T) {
 			},
 			groups:            []string{"g1"},
 			requestedModel:    "ns1/model-a",
+			accessChecker:     nil,
+			wantAccessAllowed: false,
+		},
+		{
+			name: "nil access checker without model allows",
+			subscriptions: []*unstructured.Unstructured{
+				createSubscriptionWithModelRefs("sub1", []string{"g1"}, []map[string]any{
+					{"name": "model-a", "namespace": "ns1"},
+				}),
+			},
+			groups:            []string{"g1"},
+			requestedModel:    "",
 			accessChecker:     nil,
 			wantAccessAllowed: true,
 		},
