@@ -1014,6 +1014,74 @@ func TestMaaSAuthPolicyReconciler_NonDefaultTenantDeletionPreservesSharedDefault
 	}
 }
 
+// TestMaaSAuthPolicyReconciler_MisidentifiedTenantDoesNotPoisonDefaultGateway verifies
+// that when the last MaaSAuthPolicy in a non-default tenant namespace is deleted after
+// the MaasTenantConfig has been cascade-deleted, handleDeletion does NOT reset the
+// default gateway's maas-gateway-auth to empty model access.
+func TestMaaSAuthPolicyReconciler_MisidentifiedTenantDoesNotPoisonDefaultGateway(t *testing.T) {
+	const (
+		gatewayNS        = "openshift-ingress"
+		gatewayName      = "maas-default-gateway"
+		policyName       = "orphan-policy"
+		foreignNamespace = "ai-tenant-deleted-team"
+	)
+
+	// MaaSAuthPolicy in a non-default namespace with finalizer, already marked for deletion.
+	// MaasTenantConfig is NOT present (simulates AITenant cascade cleanup already ran).
+	policy := &maasv1alpha1.MaaSAuthPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       policyName,
+			Namespace:  foreignNamespace,
+			Finalizers: []string{maasAuthPolicyFinalizer},
+		},
+	}
+
+	// The default gateway's maas-gateway-auth with real model access (not empty).
+	gwAuth := &unstructured.Unstructured{}
+	gwAuth.SetGroupVersionKind(schema.GroupVersionKind{Group: "kuadrant.io", Version: "v1", Kind: "AuthPolicy"})
+	gwAuth.SetName(maasGatewayAuthPolicyName)
+	gwAuth.SetNamespace(gatewayNS)
+	gwAuth.SetLabels(map[string]string{
+		"app.kubernetes.io/managed-by": "maas-controller",
+	})
+	_ = unstructured.SetNestedField(gwAuth.Object, "sentinel-model-access", "spec", "defaults", "rules", "authorization", "require-group-membership", "opa", "rego")
+
+	c := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithRESTMapper(testRESTMapper()).
+		WithObjects(policy, gwAuth).
+		WithStatusSubresource(&maasv1alpha1.MaaSAuthPolicy{}).
+		Build()
+
+	if err := c.Delete(context.Background(), policy); err != nil {
+		t.Fatalf("Delete MaaSAuthPolicy: %v", err)
+	}
+
+	r := &MaaSAuthPolicyReconciler{
+		Client:           c,
+		Scheme:           scheme,
+		GatewayNamespace: gatewayNS,
+		GatewayName:      gatewayName,
+		TenantNamespace:  "models-as-a-service",
+	}
+
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: policyName, Namespace: foreignNamespace}}
+	if _, err := r.Reconcile(context.Background(), req); err != nil {
+		t.Fatalf("Reconcile orphan policy deletion: %v", err)
+	}
+
+	// Verify maas-gateway-auth was NOT reset — the sentinel rego should be unchanged.
+	result := &unstructured.Unstructured{}
+	result.SetGroupVersionKind(schema.GroupVersionKind{Group: "kuadrant.io", Version: "v1", Kind: "AuthPolicy"})
+	if err := c.Get(context.Background(), types.NamespacedName{Name: maasGatewayAuthPolicyName, Namespace: gatewayNS}, result); err != nil {
+		t.Fatalf("maas-gateway-auth should still exist: %v", err)
+	}
+	rego, _, _ := unstructured.NestedString(result.Object, "spec", "defaults", "rules", "authorization", "require-group-membership", "opa", "rego")
+	if rego != "sentinel-model-access" {
+		t.Errorf("maas-gateway-auth rego was modified (default gateway poisoned): got %q, want %q", rego, "sentinel-model-access")
+	}
+}
+
 // TestMaaSAuthPolicyReconciler_CachingConfiguration verifies that the controller
 // generates cache blocks on metadata and authorization evaluators with configurable TTLs.
 //
