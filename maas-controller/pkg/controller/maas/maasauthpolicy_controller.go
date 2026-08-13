@@ -827,6 +827,22 @@ allow { true }`,
 
 	authorizationRules := map[string]any{
 		"tenant-gateway-isolation": tenantGatewayIsolationRule,
+		// Reject client-supplied identity headers; Authorino injects these after auth.
+		"deny-client-identity-headers": map[string]any{
+			"metrics":  false,
+			"priority": int64(0),
+			"patternMatching": map[string]any{
+				"patterns": []any{
+					map[string]any{
+						// CEL has() only works on message fields; use `in` for map keys.
+						"predicate": `!("x-maas-username" in request.headers)`,
+					},
+					map[string]any{
+						"predicate": `!("x-maas-group" in request.headers)`,
+					},
+				},
+			},
+		},
 		"auth-valid": map[string]any{
 			"metrics":  false,
 			"priority": int64(0),
