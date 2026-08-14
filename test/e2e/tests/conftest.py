@@ -13,7 +13,10 @@ _WORKER_XDIST_GROUPS: set[str] = set()
 
 # Groups whose tests run against a per-worker tenant instead of the default.
 # readonly / mt_lifecycle / tenant_isolation manage their own tenants or are read-only.
-_GROUPS_NEEDING_WORKER_TENANT = {"api_keys", "models", "security", "external"}
+# Disabled: worker tenant bootstrap creates subscriptions referencing default-gateway
+# models (llm namespace), but worker tenants have their own gateways → subscription
+# phase=Failed. Re-enable once _apply_baseline_stack provisions per-tenant models.
+_GROUPS_NEEDING_WORKER_TENANT: set[str] = set()
 
 
 def _xdist_worker_suffix() -> str:
