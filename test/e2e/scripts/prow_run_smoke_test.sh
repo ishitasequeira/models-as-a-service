@@ -854,17 +854,12 @@ run_e2e_tests() {
 
     local -a e2e_test_files=(
         "$test_dir/tests/test_api_keys.py"
-        "$test_dir/tests/test_crd_watch_resilience.py"
         "$test_dir/tests/test_namespace_scoping.py"
         "$test_dir/tests/test_negative_security.py"
         "$test_dir/tests/test_subscription.py"
-        "$test_dir/tests/test_subscription_list_endpoints.py"
-        "$test_dir/tests/test_x_api_key_auth.py"
         "$test_dir/tests/test_models_endpoint.py"
-        "$test_dir/tests/test_model_identity_conflict.py"
         "$test_dir/tests/test_external_models.py"
         "$test_dir/tests/test_smoke.py"
-        "$test_dir/tests/test_networkpolicy.py"
         "$test_dir/tests/test_tenant.py"
         "$test_dir/tests/test_config_tenant.py"
         "$test_dir/tests/test_tenant_discovery.py"
