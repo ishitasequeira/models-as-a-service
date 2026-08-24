@@ -205,6 +205,34 @@ EOF
   esac
 }
 
+wait_for_operator_ready() {
+  local operator_ns
+  case "$OPERATOR_TYPE" in
+    odh) operator_ns="opendatahub-operator-system" ;;
+    rhoai) operator_ns="redhat-ods-operator" ;;
+  esac
+
+  local timeout=300
+  local elapsed=0
+  local interval=10
+
+  while [[ $elapsed -lt $timeout ]]; do
+    local phase
+    phase=$(kubectl get csv -n "$operator_ns" --no-headers 2>/dev/null \
+      | grep -E "^(opendatahub|rhods)-operator" | head -1 | awk '{print $NF}')
+    if [[ "$phase" == "Succeeded" ]]; then
+      log_info "Operator CSV is Succeeded in $operator_ns"
+      kubectl wait deployment -n "$operator_ns" -l app.kubernetes.io/part-of=opendatahub-operator \
+        --for=condition=Available --timeout=120s 2>/dev/null || true
+      return 0
+    fi
+    log_info "  Operator CSV phase: ${phase:-pending} (${elapsed}s / ${timeout}s)"
+    sleep $interval
+    elapsed=$((elapsed + interval))
+  done
+  log_warn "Operator CSV not Succeeded after ${timeout}s — proceeding anyway"
+}
+
 run_helm_install() {
   log_info "Running: helm upgrade --install $HELM_RELEASE_NAME"
   helm upgrade --install "$HELM_RELEASE_NAME" "$CHART_PATH" \
@@ -282,6 +310,20 @@ main() {
   wait_for_crd "dscinitializations.dscinitialization.opendatahub.io" "$CRD_WAIT_TIMEOUT"
   wait_for_crd "datascienceclusters.datasciencecluster.opendatahub.io" "$CRD_WAIT_TIMEOUT"
   wait_for_crd "kuadrants.kuadrant.io" "$CRD_WAIT_TIMEOUT"
+
+  log_info ""
+  log_info "Waiting for ODH operator to be ready (webhook must be serving)..."
+  wait_for_operator_ready
+
+  log_info ""
+  log_info "Applying latest MaaS CRDs from local repo..."
+  local project_root
+  project_root="$(cd "$SCRIPT_DIR/.." && pwd)"
+  install_maas_controller_crds_and_wait "${project_root}/deployment/base/maas-controller/crd"
+
+  log_info "Applying latest MaaS RBAC from local repo..."
+  kubectl apply -k "${project_root}/deployment/base/maas-controller/rbac"
+  kubectl apply -k "${project_root}/deployment/base/maas-controller/rbac/ocp" 2>/dev/null || true
 
   log_info ""
   log_info "Phase 2: Applying CRD-dependent resources (DSC, DSCI, Kuadrant CR)..."
