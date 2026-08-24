@@ -86,8 +86,8 @@ build_helm_sets() {
     --set profile=maas
     --set "operator.type=${OPERATOR_TYPE}"
     --set components.kserve.dsc.rawDeploymentServiceConfig=Headed
-    --set 'components.aigateway.modelsAsAService.gateway.spec.listeners[0].allowedRoutes.namespaces.from=All'
-    --set 'components.kserve.gateway.spec.listeners[0].allowedRoutes.namespaces.from=All'
+    --set-json 'components.aigateway.modelsAsAService.gateway.spec.listeners=[{"name":"https","port":443,"protocol":"HTTPS","allowedRoutes":{"namespaces":{"from":"All"}}}]'
+    --set-json 'components.kserve.gateway.spec.listeners=[{"name":"https","port":443,"protocol":"HTTPS","allowedRoutes":{"namespaces":{"from":"All"}}}]'
   )
 
   if [[ -n "$OPERATOR_CHANNEL" ]]; then
