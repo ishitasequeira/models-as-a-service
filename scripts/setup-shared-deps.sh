@@ -58,6 +58,9 @@ RHCL_NAMESPACE="${RHCL_NAMESPACE:-kuadrant-system}"
 
 CRD_WAIT_TIMEOUT="${CRD_WAIT_TIMEOUT:-600}"
 
+_CLONE_TMP_DIR=""
+trap '[[ -n "$_CLONE_TMP_DIR" ]] && rm -rf "$_CLONE_TMP_DIR"' EXIT
+
 resolve_chart_path() {
   if [[ -n "$ODH_GITOPS_CHART_PATH" ]]; then
     CHART_PATH="$ODH_GITOPS_CHART_PATH"
@@ -65,13 +68,11 @@ resolve_chart_path() {
     return
   fi
 
-  local tmp_dir
-  tmp_dir="$(mktemp -d)"
-  trap 'rm -rf "$tmp_dir"' EXIT
+  _CLONE_TMP_DIR="$(mktemp -d)"
 
   log_info "Cloning odh-gitops chart (branch: $ODH_GITOPS_BRANCH)..."
-  git clone --depth 1 --branch "$ODH_GITOPS_BRANCH" "$ODH_GITOPS_REPO" "$tmp_dir/odh-gitops" 2>&1 | tail -1
-  CHART_PATH="$tmp_dir/odh-gitops/charts/rhai-on-openshift-chart"
+  git clone --depth 1 --branch "$ODH_GITOPS_BRANCH" "$ODH_GITOPS_REPO" "$_CLONE_TMP_DIR/odh-gitops" 2>&1 | tail -1
+  CHART_PATH="$_CLONE_TMP_DIR/odh-gitops/charts/rhai-on-openshift-chart"
 
   if [[ ! -f "$CHART_PATH/Chart.yaml" ]]; then
     log_error "Chart.yaml not found at $CHART_PATH"
