@@ -108,7 +108,7 @@ build_helm_sets() {
       --set "operator.${OPERATOR_TYPE}.olm.config.env[${env_idx}].name=RELATED_IMAGE_ODH_MAAS_CONTROLLER_IMAGE"
       --set "operator.${OPERATOR_TYPE}.olm.config.env[${env_idx}].value=${MAAS_CONTROLLER_IMAGE}"
     )
-    ((env_idx++))
+    env_idx=$((env_idx + 1))
   fi
 
   if [[ -n "$MAAS_API_IMAGE" ]]; then
@@ -116,7 +116,7 @@ build_helm_sets() {
       --set "operator.${OPERATOR_TYPE}.olm.config.env[${env_idx}].name=RELATED_IMAGE_ODH_MAAS_API_IMAGE"
       --set "operator.${OPERATOR_TYPE}.olm.config.env[${env_idx}].value=${MAAS_API_IMAGE}"
     )
-    ((env_idx++))
+    env_idx=$((env_idx + 1))
   fi
 
   if [[ -n "$AI_GATEWAY_OPERATOR_IMAGE" ]]; then
@@ -124,7 +124,7 @@ build_helm_sets() {
       --set "operator.${OPERATOR_TYPE}.olm.config.env[${env_idx}].name=RELATED_IMAGE_ODH_AI_GATEWAY_OPERATOR_IMAGE"
       --set "operator.${OPERATOR_TYPE}.olm.config.env[${env_idx}].value=${AI_GATEWAY_OPERATOR_IMAGE}"
     )
-    ((env_idx++))
+    env_idx=$((env_idx + 1))
   fi
 
   if [[ -n "$PAYLOAD_PROCESSING_IMAGE" ]]; then
@@ -132,7 +132,7 @@ build_helm_sets() {
       --set "operator.${OPERATOR_TYPE}.olm.config.env[${env_idx}].name=RELATED_IMAGE_ODH_AI_GATEWAY_PAYLOAD_PROCESSING_IMAGE"
       --set "operator.${OPERATOR_TYPE}.olm.config.env[${env_idx}].value=${PAYLOAD_PROCESSING_IMAGE}"
     )
-    ((env_idx++))
+    env_idx=$((env_idx + 1))
   fi
 
   if [[ -n "$OPERATOR_CATALOG" ]]; then
