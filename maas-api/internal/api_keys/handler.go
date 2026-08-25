@@ -26,7 +26,15 @@ const (
 	apiKeySubscriptionResolutionErrMsg  = "Unable to resolve a subscription for this API key" //nolint:gosec // G101: public JSON error text, not a credential
 )
 
+// Regular expressions to match invalid control characters in key name and label values.
 var invalidKeyNameCharsPattern = regexp.MustCompile(`[\x00-\x1F\x7F]`)
+var invalidLabelCharsPattern = regexp.MustCompile(`[\x00-\x1F\x7F]`)
+// Kubernetes-style label keys: optional DNS prefix + name
+// https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#syntax-and-character-set
+// Prefix: DNS subdomain (alphanumeric, dots, hyphens) ending with /
+// Name: alphanumeric, dots, underscores, hyphens
+// Examples: "environment", "app.kubernetes.io/name", "company.com/project-id".
+var validLabelKeyPattern = regexp.MustCompile(`^([a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?/)?[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?$`)
 
 // AdminChecker is an interface for checking if a user is an admin.
 // The SARAdminChecker implementation uses Kubernetes SubjectAccessReview
@@ -179,11 +187,12 @@ func (h *Handler) GetAPIKey(c *gin.Context) {
 // If expiresIn is not provided, defaults to API_KEY_MAX_EXPIRATION_DAYS (or 1hr for ephemeral).
 // Users can only create keys for themselves - the key inherits the user's groups.
 type CreateAPIKeyRequest struct {
-	Name         string          `json:"name,omitempty"` // Required for regular keys, optional for ephemeral
-	Description  string          `json:"description,omitempty"`
-	Subscription string          `json:"subscription,omitempty"` // Optional MaaSSubscription name; when omitted, highest-priority accessible subscription is used
-	ExpiresIn    *token.Duration `json:"expiresIn,omitempty"`    // Optional - defaults to API_KEY_MAX_EXPIRATION_DAYS (1hr for ephemeral)
-	Ephemeral    bool            `json:"ephemeral,omitempty"`    // Short-lived programmatic token (default: false)
+	Name         string            `json:"name,omitempty"` // Required for regular keys, optional for ephemeral
+	Description  string            `json:"description,omitempty"`
+	Subscription string            `json:"subscription,omitempty"` // Optional MaaSSubscription name; when omitted, highest-priority accessible subscription is used
+	ExpiresIn    *token.Duration   `json:"expiresIn,omitempty"`    // Optional - defaults to API_KEY_MAX_EXPIRATION_DAYS (1hr for ephemeral)
+	Ephemeral    bool              `json:"ephemeral,omitempty"`    // Short-lived programmatic token (default: false)
+	Labels       map[string]string `json:"labels,omitempty"`       // Structured key-value pairs for API key metadata
 }
 
 // CreateAPIKey handles POST /v1/api-keys
@@ -206,6 +215,12 @@ func (h *Handler) CreateAPIKey(c *gin.Context) {
 	// Validate name requirement for non-ephemeral keys
 	if !req.Ephemeral && req.Name == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "name is required for non-ephemeral keys"})
+		return
+	}
+
+	// Validate labels if provided
+	if err := validateLabels(req.Labels); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -250,7 +265,9 @@ func (h *Handler) CreateAPIKey(c *gin.Context) {
 		expiresIn,
 		req.Ephemeral,
 		strings.TrimSpace(req.Subscription),
-		user.Tenant)
+		user.Tenant,
+		req.Labels,
+	)
 	if err != nil {
 		h.logger.Error("Failed to create API key", "error", err)
 		if errors.Is(err, ErrExpirationNotPositive) || errors.Is(err, ErrExpirationExceedsMax) {
@@ -301,6 +318,50 @@ func (h *Handler) CreateAPIKey(c *gin.Context) {
 
 	// Return the key - THIS IS THE ONLY TIME THE PLAINTEXT IS SHOWN
 	c.JSON(http.StatusCreated, result)
+}
+
+// validateLabels validates the labels map for security and size constraints.
+// Labels are user-defined key-value pairs for organizing and filtering API keys.
+func validateLabels(labels map[string]string) error {
+    if labels == nil {
+        return nil
+    }
+    
+    // Limit number of label entries (prevent abuse)
+    if len(labels) > constant.MaxLabelsEntries {
+        return fmt.Errorf("labels cannot exceed %d key-value pairs", constant.MaxLabelsEntries)
+    }
+    
+    // Validate each key-value pair
+    for key, value := range labels {
+        // Key validation
+        if len(key) == 0 {
+            return errors.New("label keys cannot be empty")
+        }
+        if len(key) > constant.MaxLabelKeyLength {
+            return fmt.Errorf("label key '%s' exceeds %d characters", key, constant.MaxLabelKeyLength)
+        }
+        // Only allow alphanumerics, underscores, hyphens, dots (similar to K8s labels). 
+		// Use a package-level variable for comparison to avoid recomputing the regex every iteration of the loop.
+        if !validLabelKeyPattern.MatchString(key) {
+            return fmt.Errorf("label key '%s' contains invalid characters (only alphanumerics, dots, underscores, hyphens allowed)", key)
+        }
+        
+        // Value validation
+		if len(value) == 0 {
+			return fmt.Errorf("label value for key '%s' cannot be empty", key)
+		}
+        if len(value) > constant.MaxLabelValueLength {
+            return fmt.Errorf("label value for key '%s' exceeds %d characters", key, constant.MaxLabelValueLength)
+        }
+
+        // Reject control characters in values
+		if invalidLabelCharsPattern.MatchString(value) {
+            return fmt.Errorf("label value for key '%s' contains invalid control characters", key)
+        }
+    }
+    
+    return nil
 }
 
 // ValidateAPIKeyRequest is the request body for validating an API key.
@@ -535,6 +596,12 @@ func (h *Handler) SearchAPIKeys(c *gin.Context) {
 		return
 	}
 
+	// Validate the labels provided as a filter in the request.
+	if err := validateLabels(req.Filters.LabelsContain); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
 	// Call service layer (tenant scoping is mandatory)
 	result, err := h.service.Search(
 		c.Request.Context(),
@@ -606,11 +673,23 @@ func (h *Handler) RevokeTenantAPIKeys(c *gin.Context) {
 }
 
 // BulkRevokeAPIKeys handles POST /v1/api-keys/bulk-revoke
-// Revokes all active API keys for a specific user.
+// Revokes all active API keys matching the scope: by username, subscription, or both.
+// Supports dryRun=true to preview how many keys would be revoked without mutating.
+// Subscription-scoped revocation is admin-only.
 func (h *Handler) BulkRevokeAPIKeys(c *gin.Context) {
 	var req BulkRevokeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	req.Username = strings.TrimSpace(req.Username)
+	req.Subscription = strings.TrimSpace(req.Subscription)
+
+	if req.Username == "" && req.Subscription == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "at least one of username or subscription is required",
+		})
 		return
 	}
 
@@ -619,8 +698,11 @@ func (h *Handler) BulkRevokeAPIKeys(c *gin.Context) {
 		return
 	}
 
-	// Authorization: users can revoke own keys, admins can revoke any user's keys
-	if req.Username != user.Username {
+	// Authorization rules:
+	// - Subscription-scoped revocation always requires admin
+	// - Username-scoped: users can revoke own keys, admins can revoke any user's keys
+	needsAdmin := req.Subscription != "" || (req.Username != "" && req.Username != user.Username)
+	if needsAdmin {
 		isAdmin, adminErr := h.isAdmin(c.Request.Context(), user)
 		if adminErr != nil {
 			h.logger.Error("Failed to check admin status", "error", adminErr)
@@ -631,20 +713,47 @@ func (h *Handler) BulkRevokeAPIKeys(c *gin.Context) {
 			h.logger.Warn("Unauthorized bulk revoke attempt",
 				"requestingUser", logger.RedactValue(user.Username),
 				"targetUser", logger.RedactValue(req.Username),
+				"targetSubscription", logger.RedactValue(req.Subscription),
 			)
 			c.JSON(http.StatusForbidden, gin.H{
-				"error": "Access denied: you can only bulk revoke your own API keys",
+				"error": "Access denied: admin privileges required for this bulk revoke operation",
 			})
 			return
 		}
 	}
 
+	scopeDesc := h.bulkRevokeScopeDescription(req)
+	logScope := h.bulkRevokeLogScope(req)
+
+	// Dry-run: return count of keys that would be revoked without mutating
+	if req.DryRun {
+		count, err := h.service.BulkRevokeAPIKeys(c.Request.Context(), req.Username, req.Subscription, user.Tenant, true)
+		if err != nil {
+			h.logger.Error("Dry-run bulk revoke failed", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to perform dry-run"})
+			return
+		}
+
+		h.reqLogger(c).Info("Dry-run bulk revoke",
+			"count", count,
+			"scope", logScope,
+			"actor", logger.RedactValue(user.Username),
+		)
+
+		c.JSON(http.StatusOK, BulkRevokeResponse{
+			RevokedCount: count,
+			Message:      fmt.Sprintf("Dry run: %d active key(s) would be revoked for %s", count, scopeDesc),
+			DryRun:       true,
+		})
+		return
+	}
+
 	// Perform bulk revocation (scoped to caller's tenant)
-	count, err := h.service.BulkRevokeAPIKeys(c.Request.Context(), req.Username, user.Tenant)
+	count, err := h.service.BulkRevokeAPIKeys(c.Request.Context(), req.Username, req.Subscription, user.Tenant, false)
 	if err != nil {
 		h.logger.Error("Failed to bulk revoke API keys",
 			"error", err,
-			"targetUser", logger.RedactValue(req.Username),
+			"scope", logScope,
 			"requestingUser", logger.RedactValue(user.Username),
 		)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to revoke API keys"})
@@ -653,14 +762,54 @@ func (h *Handler) BulkRevokeAPIKeys(c *gin.Context) {
 
 	h.reqLogger(c).Info("Bulk revoked API keys",
 		"count", count,
-		"targetUser", logger.RedactValue(req.Username),
+		"scope", logScope,
 		"revokedBy", logger.RedactValue(user.Username),
 	)
 
-	response := BulkRevokeResponse{
-		RevokedCount: count,
-		Message:      fmt.Sprintf("Successfully revoked %d active API key(s) for user %s", count, req.Username),
-	}
+	h.emitBulkRevokeAudit(c, user, req, count)
 
-	c.JSON(http.StatusOK, response)
+	c.JSON(http.StatusOK, BulkRevokeResponse{
+		RevokedCount: count,
+		Message:      fmt.Sprintf("Successfully revoked %d active API key(s) for %s", count, scopeDesc),
+	})
+}
+
+// bulkRevokeScopeDescription returns a human-readable description for HTTP responses.
+func (h *Handler) bulkRevokeScopeDescription(req BulkRevokeRequest) string {
+	switch {
+	case req.Username != "" && req.Subscription != "":
+		return fmt.Sprintf("user %s in subscription %s", req.Username, req.Subscription)
+	case req.Subscription != "":
+		return fmt.Sprintf("subscription %s", req.Subscription)
+	default:
+		return fmt.Sprintf("user %s", req.Username)
+	}
+}
+
+// bulkRevokeLogScope returns a redacted scope description safe for logging (CWE-532).
+func (h *Handler) bulkRevokeLogScope(req BulkRevokeRequest) string {
+	switch {
+	case req.Username != "" && req.Subscription != "":
+		return fmt.Sprintf("user %s in subscription %s", logger.RedactValue(req.Username), logger.RedactValue(req.Subscription))
+	case req.Subscription != "":
+		return fmt.Sprintf("subscription %s", logger.RedactValue(req.Subscription))
+	default:
+		return fmt.Sprintf("user %s", logger.RedactValue(req.Username))
+	}
+}
+
+// emitBulkRevokeAudit writes a structured audit record for actual bulk revoke
+// operations. Not called for dry-runs — dry-runs are read-only previews and
+// should not produce audit records.
+// Fields follow a stable schema so log aggregators (Splunk, ELK, CloudWatch)
+// can index them without custom parsing.
+func (h *Handler) emitBulkRevokeAudit(c *gin.Context, user *token.UserContext, req BulkRevokeRequest, count int) {
+	h.reqLogger(c).Info("AUDIT bulk-revoke",
+		"audit.action", "bulk-revoke",
+		"audit.actor", logger.RedactValue(user.Username),
+		"audit.tenant", user.Tenant,
+		"audit.targetUser", logger.RedactValue(req.Username),
+		"audit.targetSubscription", logger.RedactValue(req.Subscription),
+		"audit.revokedCount", count,
+	)
 }

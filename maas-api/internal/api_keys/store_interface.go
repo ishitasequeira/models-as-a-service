@@ -36,6 +36,7 @@ type MetadataStore interface {
 	//     per-key salt encoded in the API key format (sk-oai-{embedded_key_id}_{secret})
 	//   - userGroups: array of user's groups (used for authorization)
 	//   - ephemeral: marks the key as short-lived for programmatic use
+	//   - labels: caller-validated key/value metadata; this layer does not re-validate or enforce limits.
 	//
 	// Note: keyPrefix is NOT stored (security - reduces brute-force attack surface).
 	AddKey(ctx context.Context,
@@ -48,7 +49,8 @@ type MetadataStore interface {
 		subscription,
 		tenant string,
 		expiresAt *time.Time,
-		ephemeral bool) error
+		ephemeral bool,
+		labels map[string]string) error
 
 	// Search returns API keys matching the search criteria.
 	// Supports filtering, sorting, and pagination.
@@ -70,9 +72,13 @@ type MetadataStore interface {
 	// Returns ErrKeyNotFound if key doesn't exist, ErrInvalidKey if revoked or expired.
 	GetByHash(ctx context.Context, keyHash string) (*ApiKey, error)
 
-	// InvalidateAll marks all active tokens for a user within a tenant as revoked.
-	// Returns the count of keys that were revoked.
-	InvalidateAll(ctx context.Context, username string, tenant string) (int, error)
+	// BulkRevoke handles both actual revocation and dry-run counting in a single
+	// method. When dryRun is false, it marks all active, non-expired keys matching
+	// the scope as revoked in a single atomic UPDATE and returns the revoked count.
+	// When dryRun is true, it returns the count of keys that would be revoked
+	// without mutating any data. At least one of username or subscription must be
+	// non-empty.
+	BulkRevoke(ctx context.Context, username, subscription, tenant string, dryRun bool) (int, error)
 
 	// InvalidateTenant marks all active tokens within a tenant as revoked.
 	// Returns the count of keys that were revoked.

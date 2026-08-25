@@ -53,6 +53,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	crwebhook "sigs.k8s.io/controller-runtime/pkg/webhook"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -73,6 +74,10 @@ const (
 	tlsProfileFetchMaxRetries = 3
 	tlsProfileFetchTimeout    = 10 * time.Second
 	tlsProfileFetchRetryDelay = 2 * time.Second
+
+	// metricsCertDir is where OpenShift service-ca mounts the metrics serving cert.
+	// Must match the Deployment volumeMount added for SecureServing.
+	metricsCertDir = "/tmp/k8s-metrics-server/metrics-certs"
 )
 
 var tlsProfileRetryDelay = tlsProfileFetchRetryDelay
@@ -87,7 +92,6 @@ func init() {
 }
 
 //+kubebuilder:rbac:groups="",resources=namespaces,verbs=get;create;patch
-//+kubebuilder:rbac:groups=config.openshift.io,resources=apiservers,verbs=get;list;watch
 
 // ensureManagedNamespaceWithClient checks whether a controller-managed namespace exists
 // and creates it if missing. It checks for existence first so that the controller can
@@ -827,6 +831,32 @@ func (c managerTLSConfig) registerWatcher(mgr ctrl.Manager, cancel context.Cance
 	}
 }
 
+// buildMetricsServerOptions configures the controller-runtime metrics endpoint.
+// When secureMetrics is true, metrics are served over HTTPS with authn/authz
+// filters and the cluster TLS profile applied (plus NextProtos).
+func buildMetricsServerOptions(
+	bindAddress string,
+	secureMetrics bool,
+	serverTLSOpt func(*tls.Config),
+	nextProtosOpt func(*tls.Config),
+) metricsserver.Options {
+	tlsOpts := []func(*tls.Config){nextProtosOpt}
+	if secureMetrics {
+		tlsOpts = []func(*tls.Config){serverTLSOpt, nextProtosOpt}
+	}
+
+	opts := metricsserver.Options{
+		BindAddress:   bindAddress,
+		SecureServing: secureMetrics,
+		TLSOpts:       tlsOpts,
+	}
+	if secureMetrics {
+		opts.FilterProvider = filters.WithAuthenticationAndAuthorization
+		opts.CertDir = metricsCertDir
+	}
+	return opts
+}
+
 // resolveInfraNamespace determines the infrastructure namespace for maas-api and maas-db-config.
 // Note: PostgreSQL itself can be external (e.g., AWS RDS) - only maas-api and the connection secret deploy here.
 // If infraNs is "AUTO", derives the namespace from the controller namespace.
@@ -846,6 +876,19 @@ func resolveInfraNamespace(infraNs, controllerNs string) string {
 
 // deriveInfraNamespace maps controller namespace to infrastructure namespace.
 // This implements namespace separation: controller runs in one namespace, infrastructure services in another.
+func clampConcurrentReconciles(v int) int {
+	const minConcurrent, maxConcurrent = 1, 10
+	if v < minConcurrent {
+		setupLog.Info("clamping --max-concurrent-reconciles to minimum", "requested", v, "using", minConcurrent)
+		return minConcurrent
+	}
+	if v > maxConcurrent {
+		setupLog.Info("clamping --max-concurrent-reconciles to maximum", "requested", v, "using", maxConcurrent)
+		return maxConcurrent
+	}
+	return v
+}
+
 func deriveInfraNamespace(controllerNs string) string {
 	switch controllerNs {
 	case "redhat-ods-applications":
@@ -915,6 +958,7 @@ func setupWebhooks(mgr ctrl.Manager, aitenantNamespace, gatewayNamespace string)
 
 func main() {
 	var metricsAddr string
+	var secureMetrics bool
 	var enableLeaderElection bool
 	var probeAddr string
 	var gatewayName string
@@ -927,11 +971,14 @@ func main() {
 	var authzCacheTTL int64
 	var subscriptionNamespaceMaintainInterval time.Duration
 	var enableTenantNamespaceDiscovery bool
+	var maxConcurrentReconciles int
 	var observabilityManifestsPath string
 	var monitoringNamespace string
 	var usageLogsManifestPath string
 
-	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metrics endpoint binds to.")
+	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8443", "The address the metrics endpoint binds to.")
+	flag.BoolVar(&secureMetrics, "metrics-secure", true,
+		"If true, serve metrics via HTTPS with authentication and authorization. Set false for non-OpenShift/xKS.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager.")
@@ -951,12 +998,16 @@ func main() {
 	flag.DurationVar(&subscriptionNamespaceMaintainInterval, "subscription-namespace-maintain-interval", 30*time.Second,
 		"How often to re-check controller-managed namespaces while the manager is running (recreate if deleted). "+
 			"Larger values reduce apiserver load; smaller values detect external deletions sooner.")
+	flag.IntVar(&maxConcurrentReconciles, "max-concurrent-reconciles", 5,
+		"Maximum number of concurrent reconciles for subscription and auth policy controllers (1-10). Values above 5 may require increased CPU/memory on the controller pod.")
 	flag.BoolVar(&enableTenantNamespaceDiscovery, "enable-tenant-namespace-discovery", false,
 		"Discover AITenant-managed tenant namespaces labeled ai-gateway.opendatahub.io/tenant or maas.opendatahub.io/managed-by-aitenant=true and reconcile MaaS tenant CRs from them.")
 
 	opts := zap.Options{Development: false}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
+
+	maxConcurrentReconciles = clampConcurrentReconciles(maxConcurrentReconciles)
 
 	// Allow empty monitoring-namespace to disable observability features (e.g. on xKS
 	// where the monitoring namespace may not exist). Non-empty values must be valid.
@@ -1086,13 +1137,14 @@ func main() {
 		c.NextProtos = []string{"h2", "http/1.1"}
 	}
 
+	metricsServerOptions := buildMetricsServerOptions(
+		metricsAddr, secureMetrics, tlsConfig.serverTLSOpt, nextProtosOpt,
+	)
+
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
-		Scheme: scheme,
-		Cache:  cacheOpts,
-		Metrics: metricsserver.Options{
-			BindAddress: metricsAddr,
-			TLSOpts:     []func(*tls.Config){nextProtosOpt},
-		},
+		Scheme:                 scheme,
+		Cache:                  cacheOpts,
+		Metrics:                metricsServerOptions,
 		WebhookServer:          crwebhook.NewServer(crwebhook.Options{TLSOpts: []func(*tls.Config){tlsConfig.serverTLSOpt, nextProtosOpt}}),
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
@@ -1136,6 +1188,7 @@ func main() {
 		MetadataCacheTTL:                metadataCacheTTL,
 		AuthzCacheTTL:                   authzCacheTTL,
 		TenantNamespaceDiscoveryEnabled: enableTenantNamespaceDiscovery,
+		MaxConcurrentReconciles:         maxConcurrentReconciles,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "MaaSAuthPolicy")
 		os.Exit(1)
@@ -1147,6 +1200,7 @@ func main() {
 		TenantNamespaceDiscoveryEnabled: enableTenantNamespaceDiscovery,
 		GatewayName:                     gatewayName,
 		GatewayNamespace:                gatewayNamespace,
+		MaxConcurrentReconciles:         maxConcurrentReconciles,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "MaaSSubscription")
 		os.Exit(1)
@@ -1206,7 +1260,10 @@ func main() {
 
 	manifestPath := os.Getenv("MAAS_PLATFORM_MANIFESTS")
 	if manifestPath == "" {
-		manifestPath = tenantreconcile.DefaultManifestPath()
+		// tlsConfig.available reflects whether config.openshift.io API exists,
+		// which is the authoritative signal for OCP vs vanilla Kubernetes.
+		isOCP := tlsConfig.available
+		manifestPath = tenantreconcile.ManifestPathForPlatform(isOCP)
 	}
 	if abs, err := filepath.Abs(manifestPath); err == nil {
 		manifestPath = abs
@@ -1225,6 +1282,7 @@ func main() {
 		ClusterAudience:                 clusterAudience,
 		TenantNamespaceDiscoveryEnabled: enableTenantNamespaceDiscovery,
 		MetadataCacheTTL:                metadataCacheTTL,
+		MonitoringNamespace:             monitoringNamespace,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "MaasTenantConfig")
 		os.Exit(1)

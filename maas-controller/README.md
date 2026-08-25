@@ -377,6 +377,10 @@ kubectl annotate authpolicy <name> -n <namespace> opendatahub.io/managed-
 kubectl annotate tokenratelimitpolicy <name> -n <namespace> opendatahub.io/managed-
 ```
 
+### IPP plugins ConfigMap
+
+The `payload-processing-plugins` ConfigMap (gateway namespace) is stamped with `opendatahub.io/managed=false` after the controller creates or migrates it, so operators can edit the IPP plugin profile (for example re-enable response `api-translation`) without reconcile overwriting the change. Set `opendatahub.io/managed=true` to opt back into continuous reconciler management, or remove the annotation for a one-shot reset to product defaults. See [External Model Setup — IPP response translation](../docs/content/install/external-model-setup.md#ipp-response-translation-opt-in).
+
 > **Warning: orphaned resources.** An opted-out policy can become permanently orphaned (no longer reconciled and not deleted) in the following situations:
 >
 > - **Last owner deleted.** When the last `MaaSAuthPolicy` or `MaaSSubscription` that references a model is deleted, the controller skips deletion of any opted-out generated policy for that model. The policy will persist until it is manually deleted.
@@ -481,7 +485,8 @@ The controller accepts the following command-line flags:
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--metrics-bind-address` | `:8080` | The address the metrics endpoint binds to. |
+| `--metrics-bind-address` | `:8443` | The address the metrics endpoint binds to. |
+| `--metrics-secure` | `true` | Serve metrics over HTTPS with authn/authz. Set `false` for non-OpenShift/xKS. |
 | `--health-probe-bind-address` | `:8081` | The address the probe endpoint binds to. |
 | `--leader-elect` | `false` | Enable leader election for controller manager. |
 | `--gateway-name` | `maas-default-gateway` | The name of the Gateway resource to use for model HTTPRoutes. |

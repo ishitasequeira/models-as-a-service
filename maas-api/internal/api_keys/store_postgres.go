@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"encoding/json"
 
 	"github.com/lib/pq"
 
@@ -48,8 +49,10 @@ func NewPostgresStore(db *sql.DB, log *logger.Logger, tenantName string) *Postgr
 // API key string (sk-oai-{embedded_key_id}_{secret}).
 //
 // Note: keyPrefix is NOT stored (security - reduces brute-force attack surface).
+// labels are stored as JSONB (NULL if empty) for efficient lookups and filtering.
 func (s *PostgresStore) AddKey(
 	ctx context.Context, username, keyID, keyHash, name, description string, userGroups []string, subscription string, tenant string, expiresAt *time.Time, ephemeral bool,
+	labels map[string]string,
 ) error {
 	if keyID == "" {
 		return ErrEmptyJTI
@@ -74,12 +77,30 @@ func (s *PostgresStore) AddKey(
 		userGroups = []string{}
 	}
 
+    // Marshal labels to JSONB (NULL if empty)
+    var labelsJSON []byte
+    var err error
+    if len(labels) > 0 {
+        labelsJSON, err = json.Marshal(labels)
+        if err != nil {
+            return fmt.Errorf("failed to marshal labels: %w", err)
+        }
+    }
+
 	query := `
-		INSERT INTO api_keys (id, username, name, description, key_hash, user_groups, subscription, tenant, status, created_at, expires_at, ephemeral)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'active', $9, $10, $11)
+		INSERT INTO api_keys (id, username, name, description, key_hash, user_groups, subscription, tenant, status, created_at, expires_at, ephemeral, labels)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'active', $9, $10, $11, $12)
 	`
+
+    var labelsParam any
+    if labelsJSON != nil {
+        labelsParam = labelsJSON
+    } else {
+        labelsParam = nil
+    }
+
 	// Use pq.Array to handle PostgreSQL TEXT[] type
-	_, err := s.db.ExecContext(ctx, query, keyID, username, name, description, keyHash, pq.Array(userGroups), subscription, tenant, time.Now().UTC(), expiresAt, ephemeral)
+	_, err = s.db.ExecContext(ctx, query, keyID, username, name, description, keyHash, pq.Array(userGroups), subscription, tenant, time.Now().UTC(), expiresAt, ephemeral, labelsParam)
 	if err != nil {
 		return fmt.Errorf("failed to insert API key: %w", err)
 	}
@@ -140,7 +161,6 @@ func (s *PostgresStore) List(ctx context.Context, username string, params Pagina
 	// Fetch limit+1 to determine hasMore
 	fetchLimit := params.Limit + 1
 
-	//nolint:gosec // Dynamic WHERE clause is safe - uses parameterized queries
 	query := fmt.Sprintf(`
 		SELECT id, name, description, subscription, tenant, created_at, expires_at, status, last_used_at, ephemeral
 		FROM api_keys
@@ -259,21 +279,44 @@ func (s *PostgresStore) Search(
 		argPos++
 	}
 
+    // Add labels containment filter
+    if len(filters.LabelsContain) > 0 {
+        // Convert filter to JSONB for @> containment operator
+        filterJSON, err := json.Marshal(filters.LabelsContain)
+        if err != nil {
+            return nil, fmt.Errorf("failed to marshal labels filter: %w", err)
+        }
+        whereClauses = append(whereClauses, fmt.Sprintf("labels @> $%d::jsonb", argPos))
+        args = append(args, filterJSON)
+        argPos++
+    }
+
 	// Build final WHERE clause
 	whereClause := ""
 	if len(whereClauses) > 0 {
 		whereClause = "WHERE " + strings.Join(whereClauses, " AND ")
 	}
 
+	// Enforce sort defaults and allowlist at the store boundary, independent of
+	// handler validation, to prevent SQL injection from any direct caller.
+	sortBy := sort.By
+	if !ValidSortFields[sortBy] {
+		sortBy = DefaultSortBy
+	}
+	sortOrder := strings.ToLower(sort.Order)
+	if !ValidSortOrders[sortOrder] {
+		sortOrder = DefaultSortOrder
+	}
+
 	// Build ORDER BY clause
-	orderByClause := fmt.Sprintf("ORDER BY %s %s", sort.By, strings.ToUpper(sort.Order))
+	orderByClause := fmt.Sprintf("ORDER BY %s %s", sortBy, strings.ToUpper(sortOrder))
 
 	// Handle NULL values for nullable timestamp columns (NULLS LAST)
-	if sort.By == "expires_at" || sort.By == "last_used_at" {
-		if sort.Order == "asc" {
-			orderByClause = fmt.Sprintf("ORDER BY %s ASC NULLS LAST", sort.By)
+	if sortBy == "expires_at" || sortBy == "last_used_at" {
+		if sortOrder == "asc" {
+			orderByClause = fmt.Sprintf("ORDER BY %s ASC NULLS LAST", sortBy)
 		} else {
-			orderByClause = fmt.Sprintf("ORDER BY %s DESC NULLS LAST", sort.By)
+			orderByClause = fmt.Sprintf("ORDER BY %s DESC NULLS LAST", sortBy)
 		}
 	}
 
@@ -283,9 +326,9 @@ func (s *PostgresStore) Search(
 	// Use effective status in SELECT to match WHERE clause filtering
 	effectiveStatusSelect := "CASE WHEN status = 'active' AND expires_at IS NOT NULL AND expires_at < NOW() THEN 'expired' ELSE status END"
 
-	//nolint:gosec // Dynamic ORDER BY is safe - sort.By/Order validated against allowlist in handler
+	//nolint:gosec // G201: Dynamic ORDER BY is safe - sortBy/sortOrder validated against ValidSortFields/ValidSortOrders above
 	query := fmt.Sprintf(`
-		SELECT id, name, description, subscription, tenant, username, created_at, expires_at, %s AS status, last_used_at, ephemeral
+		SELECT id, name, description, subscription, tenant, username, created_at, expires_at, %s AS status, last_used_at, ephemeral, labels
 		FROM api_keys
 		%s
 		%s
@@ -306,6 +349,7 @@ func (s *PostgresStore) Search(
 		var key ApiKey
 		var createdAt, expiresAt, lastUsedAt sql.NullTime
 		var description sql.NullString
+		var labelsJSON []byte
 
 		err := rows.Scan(
 			&key.ID,
@@ -319,6 +363,7 @@ func (s *PostgresStore) Search(
 			&key.Status,
 			&lastUsedAt,
 			&key.Ephemeral,
+			&labelsJSON,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan API key: %w", err)
@@ -336,6 +381,14 @@ func (s *PostgresStore) Search(
 		}
 		if lastUsedAt.Valid {
 			key.LastUsedAt = lastUsedAt.Time.Format(time.RFC3339)
+		}
+
+		// Parse labels JSONB
+		if labelsJSON != nil {
+			if err := json.Unmarshal(labelsJSON, &key.Labels); err != nil {
+				s.logger.Warn("Failed to unmarshal labels", "keyId", key.ID, "error", err)
+				key.Labels = nil // Set to nil on unmarshal error (defensive)
+			}
 		}
 
 		keys = append(keys, key)
@@ -363,7 +416,7 @@ func (s *PostgresStore) Get(ctx context.Context, keyID string) (*ApiKey, error) 
 	query := `
 		SELECT id, name, description, username, subscription, tenant, created_at, expires_at,
 			CASE WHEN status = 'active' AND expires_at IS NOT NULL AND expires_at < NOW() THEN 'expired' ELSE status END AS status,
-			last_used_at, ephemeral
+			last_used_at, ephemeral, labels
 		FROM api_keys
 		WHERE id = $1 AND tenant = $2
 	`
@@ -373,8 +426,9 @@ func (s *PostgresStore) Get(ctx context.Context, keyID string) (*ApiKey, error) 
 	var createdAt time.Time
 	var expiresAt, lastUsedAt sql.NullTime
 	var description sql.NullString
+    var labelsJSON []byte
 
-	if err := row.Scan(&k.ID, &k.Name, &description, &k.Username, &k.Subscription, &k.Tenant, &createdAt, &expiresAt, &k.Status, &lastUsedAt, &k.Ephemeral); err != nil {
+	if err := row.Scan(&k.ID, &k.Name, &description, &k.Username, &k.Subscription, &k.Tenant, &createdAt, &expiresAt, &k.Status, &lastUsedAt, &k.Ephemeral, &labelsJSON); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, ErrKeyNotFound
 		}
@@ -391,6 +445,14 @@ func (s *PostgresStore) Get(ctx context.Context, keyID string) (*ApiKey, error) 
 	if lastUsedAt.Valid {
 		k.LastUsedAt = lastUsedAt.Time.UTC().Format(time.RFC3339)
 	}
+
+    // Parse labels JSONB
+    if labelsJSON != nil {
+        if err := json.Unmarshal(labelsJSON, &k.Labels); err != nil {
+            s.logger.Warn("Failed to unmarshal labels", "keyId", keyID, "error", err)
+            k.Labels = nil // Set to a safe value (empty map) on unmarshal error (defensive)
+        }
+    }
 
 	return &k, nil
 }
@@ -447,15 +509,58 @@ func (s *PostgresStore) GetByHash(ctx context.Context, keyHash string) (*ApiKey,
 	return &k, nil
 }
 
-// InvalidateAll revokes all active keys for a user within this tenant.
-// Returns the count of keys that were revoked.
-func (s *PostgresStore) InvalidateAll(ctx context.Context, username string, tenant string) (int, error) {
-	// Use store's tenant for isolation (tenant parameter is for backward compatibility)
-	query := `UPDATE api_keys SET status = 'revoked' WHERE username = $1 AND tenant = $2 AND status = 'active'`
+// bulkRevokeWhereClause builds a parameterized WHERE clause for bulk revoke
+// operations. It dynamically adds username and/or subscription filters alongside
+// the mandatory tenant and status=active predicates.
+func (s *PostgresStore) bulkRevokeWhereClause(username, subscription string) (string, []any) {
+	conditions := []string{"tenant = $1", "status = 'active'", "(expires_at IS NULL OR expires_at > NOW())"}
+	args := []any{s.tenantName}
+	paramIdx := 2
 
-	result, err := s.db.ExecContext(ctx, query, username, s.tenantName)
+	if username != "" {
+		conditions = append(conditions, fmt.Sprintf("username = $%d", paramIdx))
+		args = append(args, username)
+		paramIdx++
+	}
+	if subscription != "" {
+		conditions = append(conditions, fmt.Sprintf("subscription = $%d", paramIdx))
+		args = append(args, subscription)
+	}
+
+	return strings.Join(conditions, " AND "), args
+}
+
+// BulkRevoke handles both actual revocation and dry-run counting. When dryRun
+// is false, it marks all active, non-expired keys matching the scope as revoked
+// in a single atomic UPDATE and returns the affected count. When dryRun is true,
+// it returns the count without mutating any data.
+func (s *PostgresStore) BulkRevoke(ctx context.Context, username, subscription, tenant string, dryRun bool) (int, error) {
+	if username == "" && subscription == "" {
+		return 0, errors.New("at least one of username or subscription is required")
+	}
+	if tenant != s.tenantName {
+		return 0, fmt.Errorf("%w: attempted to revoke keys for tenant %q but store is scoped to %q", ErrTenantMismatch, tenant, s.tenantName)
+	}
+
+	where, args := s.bulkRevokeWhereClause(username, subscription)
+
+	if dryRun {
+		//nolint:gosec // where clause uses static column names with parameterized $N placeholders
+		query := fmt.Sprintf("SELECT COUNT(*) FROM api_keys WHERE %s", where)
+
+		var count int
+		if err := s.db.QueryRowContext(ctx, query, args...).Scan(&count); err != nil {
+			return 0, fmt.Errorf("dry-run count query failed: %w", err)
+		}
+		return count, nil
+	}
+
+	//nolint:gosec // where clause uses static column names with parameterized $N placeholders
+	query := fmt.Sprintf("UPDATE api_keys SET status = 'revoked' WHERE %s", where)
+
+	result, err := s.db.ExecContext(ctx, query, args...)
 	if err != nil {
-		return 0, fmt.Errorf("failed to revoke keys: %w", err)
+		return 0, fmt.Errorf("failed to bulk revoke keys: %w", err)
 	}
 
 	rows, err := result.RowsAffected()
@@ -464,7 +569,11 @@ func (s *PostgresStore) InvalidateAll(ctx context.Context, username string, tena
 	}
 
 	count := int(rows)
-	s.logger.Info("Revoked all keys for user", "count", count, "user", logger.RedactValue(username))
+	s.logger.Info("Bulk revoked keys",
+		"count", count,
+		"user", logger.RedactValue(username),
+		"subscription", logger.RedactValue(subscription),
+	)
 	return count, nil
 }
 

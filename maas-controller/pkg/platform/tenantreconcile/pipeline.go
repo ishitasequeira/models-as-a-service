@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strconv"
 
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -52,6 +54,7 @@ func RunPlatform(
 	appNs string,
 	controllerNs string,
 	clusterAudience string,
+	monitoringNamespace string,
 	mcfg *maasv1alpha1.Config,
 ) (*RunResult, error) {
 	manifestPath, err := filepath.Abs(manifestPath)
@@ -74,9 +77,19 @@ func RunPlatform(
 		return nil, fmt.Errorf("gateway lookup: %w", err)
 	}
 
-	params, err := BuildPlatformParams(tenant, platformContext, appNs, controllerNs, clusterAudience, log)
+	params, err := BuildPlatformParams(tenant, platformContext, appNs, controllerNs, clusterAudience, monitoringNamespace, log)
 	if err != nil {
 		return nil, fmt.Errorf("build params: %w", err)
+	}
+
+	wasmPresent, err := gatewayHasKuadrantWasmAuth(ctx, c, platformContext.GatewayRef.Namespace, platformContext.GatewayRef.Name)
+	if err != nil {
+		return nil, fmt.Errorf("detect gateway kuadrant wasm: %w", err)
+	}
+	params.PayloadProcessingRouterExtProcFallback = !wasmPresent
+	if params.PayloadProcessingRouterExtProcFallback {
+		log.Info("Kuadrant WASM auth not found on gateway; enabling ext_proc router fallback patches",
+			"gateway", platformContext.GatewayRef.Namespace+"/"+platformContext.GatewayRef.Name)
 	}
 
 	rendered, err := RenderKustomize(manifestPath, appNs)
@@ -87,6 +100,14 @@ func RunPlatform(
 	resources, err := PostRender(ctx, log, tenant, rendered, params)
 	if err != nil {
 		return nil, fmt.Errorf("post-render: %w", err)
+	}
+
+	// Clean up orphaned HPA before applying static replicas. When autoscaling is
+	// disabled, the HPA must be deleted first so it cannot reset spec.replicas
+	// between the apply and the next reconciliation. SSA only creates/updates
+	// resources in the rendered set; it does NOT delete absent resources.
+	if err := cleanupPayloadProcessingHPA(ctx, c, params, log); err != nil {
+		return nil, fmt.Errorf("cleanup payload-processing HPA: %w", err)
 	}
 
 	if err := ApplyRendered(ctx, c, scheme, tenant, appNs, mcfg, resources); err != nil {
@@ -108,6 +129,13 @@ func RunPlatform(
 	if !ready {
 		return &RunResult{DeploymentPending: true, Detail: detail, Warnings: params.Warnings}, nil
 	}
+	ready, detail, err = PayloadProcessingEnvoyFilterReady(ctx, c, params.GatewayNamespace, params.GatewayName, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("payload-processing EnvoyFilter status: %w", err)
+	}
+	if !ready {
+		return &RunResult{DeploymentPending: true, Detail: detail, Warnings: params.Warnings}, nil
+	}
 	return &RunResult{Warnings: params.Warnings}, nil
 }
 
@@ -123,6 +151,7 @@ func Run(
 	manifestPath string,
 	controllerNs string,
 	clusterAudience string,
+	monitoringNamespace string,
 	mcfg *maasv1alpha1.Config,
 ) (*RunResult, error) {
 	manifestPath, err := filepath.Abs(manifestPath)
@@ -148,7 +177,7 @@ func Run(
 		return nil, err
 	}
 
-	return RunPlatform(ctx, log, c, scheme, tenant, platformContext, manifestPath, appNs, controllerNs, clusterAudience, mcfg)
+	return RunPlatform(ctx, log, c, scheme, tenant, platformContext, manifestPath, appNs, controllerNs, clusterAudience, monitoringNamespace, mcfg)
 }
 
 const maasParametersConfigMapName = "maas-parameters"
@@ -212,4 +241,90 @@ func MaasAPIDeploymentReady(ctx context.Context, c client.Client, appNamespace, 
 		return false, fmt.Sprintf("available replicas %d/%d", dep.Status.AvailableReplicas, desired), nil
 	}
 	return true, "", nil
+}
+
+// PayloadProcessingEnvoyFilterReady verifies the per-tenant gateway EnvoyFilter that
+// wires ext_proc is present with a priority high enough to run after Kuadrant's wasm
+// insert. Without that, RHCL body-routed inference returns 404 NR on that gateway.
+//
+// This is a config-shape check (not a live config_dump). Use
+// scripts/check-payload-ext-proc-filters.sh to confirm filters are in the proxy.
+func PayloadProcessingEnvoyFilterReady(ctx context.Context, c client.Client, gatewayNamespace, gatewayName, tenantID string) (ready bool, detail string, err error) {
+	efName := PayloadProcessingEnvoyFilterName(tenantID)
+	ef := &unstructured.Unstructured{}
+	ef.SetGroupVersionKind(GVKEnvoyFilter)
+	key := types.NamespacedName{Namespace: gatewayNamespace, Name: efName}
+	if err := c.Get(ctx, key, ef); err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, fmt.Sprintf(
+				"EnvoyFilter %s/%s not found — ext_proc will not run; body-routed /v1/* returns 404 NR",
+				gatewayNamespace, efName), nil
+		}
+		return false, "", err
+	}
+
+	priority, found, err := unstructured.NestedInt64(ef.Object, "spec", "priority")
+	if err != nil {
+		return false, "", fmt.Errorf("read EnvoyFilter priority: %w", err)
+	}
+	if !found || priority < PayloadProcessingEnvoyFilterPriority {
+		shown := "missing"
+		if found {
+			shown = strconv.FormatInt(priority, 10)
+		}
+		return false, fmt.Sprintf(
+			"EnvoyFilter %s/%s spec.priority=%s; need >= %d so HTTP_FILTER inserts apply after Kuadrant wasm (otherwise body-routed /v1/* returns 404 NR)",
+			gatewayNamespace, efName, shown, PayloadProcessingEnvoyFilterPriority), nil
+	}
+
+	// Istio 1.26+: targetRefs and workloadSelector are mutually exclusive. MaaS
+	// EnvoyFilters use workloadSelector keyed by gateway-name (see params patch).
+	wsLabels, found, err := unstructured.NestedStringMap(ef.Object, "spec", "workloadSelector", "labels")
+	if err != nil {
+		return false, "", fmt.Errorf("read EnvoyFilter workloadSelector: %w", err)
+	}
+	const gatewayNameLabel = "gateway.networking.k8s.io/gateway-name"
+	if !found || wsLabels[gatewayNameLabel] == "" {
+		return false, fmt.Sprintf(
+			"EnvoyFilter %s/%s has no workloadSelector.labels[%q]",
+			gatewayNamespace, efName, gatewayNameLabel), nil
+	}
+	if got := wsLabels[gatewayNameLabel]; got != gatewayName {
+		return false, fmt.Sprintf(
+			"EnvoyFilter %s/%s workloadSelector.labels[%q]=%q; expected gateway %q",
+			gatewayNamespace, efName, gatewayNameLabel, got, gatewayName), nil
+	}
+	return true, "", nil
+}
+
+// cleanupPayloadProcessingHPA deletes the payload-processing HPA when autoscaling
+// is disabled. This is necessary because SSA only creates/updates resources but never
+// deletes resources that are no longer in the rendered set. Without explicit cleanup,
+// an HPA created during an autoscaling-enabled reconcile would remain active after
+// the autoscaling annotation is removed, continuing to scale pods.
+func cleanupPayloadProcessingHPA(ctx context.Context, c client.Client, params PlatformParams, log logr.Logger) error {
+	if params.PayloadProcessingAutoscaling {
+		// Autoscaling is enabled; the HPA is (being) created, nothing to clean up.
+		return nil
+	}
+
+	tenantID := params.TenantIdentifier
+	hpaName := PayloadProcessingHPAName(tenantID)
+	hpa := &unstructured.Unstructured{}
+	hpa.SetGroupVersionKind(GVKHPA)
+	key := types.NamespacedName{Namespace: params.GatewayNamespace, Name: hpaName}
+
+	if err := c.Get(ctx, key, hpa); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil // No HPA exists, nothing to clean up.
+		}
+		return fmt.Errorf("get HPA %s/%s: %w", params.GatewayNamespace, hpaName, err)
+	}
+
+	log.Info("Deleting orphaned payload-processing HPA (autoscaling disabled)",
+		"hpa", hpaName, "namespace", params.GatewayNamespace)
+	if err := c.Delete(ctx, hpa); err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("delete HPA %s/%s: %w", params.GatewayNamespace, hpaName, err)
+	}
+	return nil
 }

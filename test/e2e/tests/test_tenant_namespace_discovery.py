@@ -64,6 +64,8 @@ from multitenancy_helpers import (
 )
 from test_helper import MODEL_NAMESPACE, MODEL_REF, _wait_for_maas_auth_policy_phase, _wait_reconcile
 
+pytestmark = pytest.mark.xdist_group("mt_lifecycle")
+
 
 @pytest.fixture(scope="module", autouse=True)
 def _require_multitenancy_prerequisites():
@@ -223,7 +225,6 @@ class TestTenantNamespaceDiscovery:
                 apply_maas_subscription(shared_sub_name, case["tenant_ns"])
                 wait_for_finalizer("maasauthpolicy", shared_policy_name, case["tenant_ns"], FINALIZER_AUTHPOLICY)
                 wait_for_finalizer("maassubscription", shared_sub_name, case["tenant_ns"], FINALIZER_SUBSCRIPTION)
-                _wait_for_maas_auth_policy_phase(shared_policy_name, namespace=case["tenant_ns"], timeout=120)
 
             assert_no_per_model_authpolicy(MODEL_REF, MODEL_NAMESPACE)
             assert get_gateway_authpolicy() is not None

@@ -8,6 +8,8 @@ Runs in default CI (no tenant namespace discovery required).
 """
 
 import json
+import logging
+import os
 import uuid
 
 import pytest
@@ -29,6 +31,10 @@ from test_helper import (
     _wait_for_maas_auth_policy_phase,
     _wait_reconcile,
 )
+
+log = logging.getLogger(__name__)
+
+pytestmark = pytest.mark.xdist_group("models")
 
 
 def _gateway_auth_rego() -> str:
@@ -76,27 +82,41 @@ class TestGatewayAuthPolicyStructure:
 class TestGatewayAuthPolicyLifecycle:
     """S10: Gateway auth is reconciled from MaaSAuthPolicy changes."""
 
-    def test_gateway_auth_embeds_model_allowlist(self):
-        """6.3: Aggregated subject allowlists appear in gateway auth rego."""
+    def test_gateway_auth_rego_is_fixed_size(self):
+        """6.3: Gateway auth rego is fixed-size — no model-specific data embedded."""
         suffix = uuid.uuid4().hex[:8]
         policy_name = f"e2e-gw-auth-{suffix}"
         unique_group = f"e2e-gw-group-{suffix}"
 
         try:
+            ap_before = get_gateway_authpolicy()
+            gen_before = (ap_before or {}).get("metadata", {}).get("generation")
+
             _create_test_auth_policy(policy_name, MODEL_REF, groups=[unique_group])
             _wait_for_maas_auth_policy_phase(policy_name, timeout=120, require_auth_policies=False)
 
             rego = _gateway_auth_rego()
-            assert unique_group in rego, (
-                f"expected gateway auth rego to include group {unique_group!r}"
+            assert "accessAllowed" in rego, (
+                f"gateway auth rego must reference accessAllowed from subscription-info metadata, got:\n{rego}"
+            )
+            assert unique_group not in rego, (
+                f"gateway auth rego must NOT contain model-specific group {unique_group!r} "
+                f"(rego should be fixed-size), got:\n{rego}"
             )
             assert_no_per_model_authpolicy(MODEL_REF, MODEL_NAMESPACE)
+
+            ap_after = get_gateway_authpolicy()
+            gen_after = (ap_after or {}).get("metadata", {}).get("generation")
+            assert gen_before == gen_after, (
+                f"gateway AuthPolicy generation must not change when a MaaSAuthPolicy is added "
+                f"(rego is fixed-size). Before: {gen_before}, after: {gen_after}"
+            )
         finally:
             _delete_cr("maasauthpolicy", policy_name)
             _wait_reconcile()
 
     def test_only_one_gateway_authpolicy_named_maas_gateway_auth(self):
-        """6.2: Exactly one maas-gateway-auth exists in the gateway namespace."""
+        """6.2: Exactly one maas-gateway-auth exists targeting the default gateway."""
         ap = get_gateway_authpolicy()
         assert ap is not None
 
@@ -118,9 +138,18 @@ class TestGatewayAuthPolicyLifecycle:
             pytest.fail(result.stderr.strip() or result.stdout.strip())
 
         items = json.loads(result.stdout).get("items") or []
-        names = [item.get("metadata", {}).get("name") for item in items]
+        # Filter to policies targeting the default gateway — per-tenant gateways
+        # also get this label, which is correct behavior, not a bug.
+        default_gw = os.environ.get("GATEWAY_NAME", DEFAULT_GATEWAY_NAME)
+        default_gw_policies = [
+            item for item in items
+            if item.get("spec", {}).get("targetRef", {}).get("name") == default_gw
+        ]
+        names = [item.get("metadata", {}).get("name") for item in default_gw_policies]
         assert GATEWAY_AUTH_POLICY_NAME in names
-        assert len(items) == 1, f"expected one gateway auth policy, got {names!r}"
+        assert len(default_gw_policies) == 1, (
+            f"expected exactly one gateway auth policy targeting {default_gw}, got {names!r}"
+        )
 
 
 class TestGatewayAuthPolicyManagementEndpointAccess:
@@ -132,14 +161,27 @@ class TestGatewayAuthPolicyManagementEndpointAccess:
     on clusters with zero subscriptions.
     """
 
-    def test_gateway_auth_rego_allows_empty_model_identity(self):
-        """OPA rego must allow requests where model_identity is empty (management endpoints)."""
-        rego = _gateway_auth_rego()
-        assert rego, "gateway auth rego must not be empty"
-        assert 'model_identity == ""' in rego, (
-            "gateway auth rego must contain an allow rule for empty model_identity "
-            "(management endpoints like /v1/api-keys, /maas-api/*). "
-            f"Got rego:\n{rego}"
+    def test_gateway_auth_group_membership_has_when_guard(self):
+        """require-group-membership must have a when guard to skip management endpoints."""
+        ap = get_gateway_authpolicy()
+        assert ap is not None
+
+        authorization = (
+            ((ap.get("spec") or {}).get("defaults") or {})
+            .get("rules", {})
+            .get("authorization")
+            or {}
+        )
+        membership = authorization.get("require-group-membership") or {}
+        when_list = membership.get("when") or []
+        assert len(when_list) > 0, (
+            "require-group-membership must have a 'when' guard so it only runs for "
+            "model inference, not management endpoints (replaces old model_identity == '' rego)"
+        )
+        predicate = when_list[0].get("predicate", "")
+        assert "request.path.split" in predicate and "x-gateway-model-name" in predicate, (
+            "require-group-membership 'when' predicate must use the model-identity CEL expression "
+            f"(path-based + header-based check), got: {predicate}"
         )
 
     def test_gateway_auth_subscription_check_gated_by_model_identity(self):

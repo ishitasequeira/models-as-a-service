@@ -32,6 +32,7 @@ type ApiKey struct {
 	Status         Status   `json:"status"`                   // "active", "expired", "revoked"
 	LastUsedAt     string   `json:"lastUsedAt,omitempty"`     // Tracks when key was last used for validation
 	Ephemeral      bool     `json:"ephemeral"`                // Short-lived programmatic key
+	Labels         map[string]string `json:"labels,omitempty"`   // Structured key-value pairs for API key metadata
 }
 
 // ValidationResult holds the result of API key validation (for Authorino HTTP callback).
@@ -96,6 +97,9 @@ type SearchFilters struct {
 
 	// Ephemeral key filter
 	IncludeEphemeral *bool `json:"includeEphemeral,omitempty"` // Include ephemeral keys in results (default: false)
+
+	// Labels filter
+	LabelsContain  map[string]string `json:"labelsContain,omitempty"` // Filter by structured key-value pairs for API key metadata
 }
 
 // SortParams specifies sorting criteria.
@@ -147,14 +151,18 @@ type SearchAPIKeysResponse struct {
 // ============================================================
 
 // BulkRevokeRequest for POST /v1/api-keys/bulk-revoke.
+// At least one of Username or Subscription must be provided.
 type BulkRevokeRequest struct {
-	Username string `binding:"required" json:"username"`
+	Username     string `json:"username,omitempty"`
+	Subscription string `json:"subscription,omitempty"`
+	DryRun       bool   `json:"dryRun,omitempty"`
 }
 
 // BulkRevokeResponse returns count of revoked keys.
 type BulkRevokeResponse struct {
 	RevokedCount int    `json:"revokedCount"`
 	Message      string `json:"message"`
+	DryRun       bool   `json:"dryRun,omitempty"`
 }
 
 // TenantRevokeResponse returns count of revoked keys for tenant-wide cleanup.

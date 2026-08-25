@@ -26,6 +26,9 @@ const (
 	AnnotationMaaSAPIReplicas = "maas.opendatahub.io/maas-api-replicas"
 
 	// AnnotationPayloadProcessingReplicas overrides the payload-processing Deployment replica count for a tenant.
+	// When autoscaling is enabled via spec.payloadProcessing.autoscaling, this value sets HPA minReplicas instead.
+	//
+	// Deprecated: prefer spec.payloadProcessing.replicas on MaasTenantConfig/Tenant.
 	AnnotationPayloadProcessingReplicas = "maas.opendatahub.io/payload-processing-replicas"
 
 	// ComponentName is the ODH component label key suffix (app.opendatahub.io/<name>).
@@ -45,6 +48,10 @@ const (
 	// use this label to discover tenant namespaces dynamically.
 	LabelManagedByAITenant = "maas.opendatahub.io/managed-by-aitenant"
 
+	// LabelGatewayAccess is set to "true" on tenant namespaces so that the MaaS Gateway
+	// allowedRoutes selector accepts HTTPRoutes from those namespaces.
+	LabelGatewayAccess = "maas.opendatahub.io/gateway-access"
+
 	// DefaultAITenantNamespace is the default namespace where AITenant CRs are created.
 	DefaultAITenantNamespace = "ai-tenants"
 
@@ -63,10 +70,24 @@ const (
 	DefaultMaaSAPIKeyCleanupImage  = "registry.redhat.io/ubi9/ubi-minimal:9.7"
 	DefaultAPIKeyMaxExpirationDays = "90"
 
+	// DefaultOTLPCollectorService is the platform DSCI OpenTelemetry collector Service name.
+	DefaultOTLPCollectorService = "data-science-collector-collector"
+	// DefaultOTLPCollectorPodLabelKey labels OpenTelemetry operator collector pods.
+	DefaultOTLPCollectorPodLabelKey = "app.kubernetes.io/name"
+	// DefaultOTLPCollectorComponentLabelKey labels OpenTelemetry operator collector pods.
+	DefaultOTLPCollectorComponentLabelKey = "app.kubernetes.io/component"
+	// DefaultOTLPCollectorComponentLabelValue is the component label on DSCI collector pods.
+	DefaultOTLPCollectorComponentLabelValue = "opentelemetry-collector"
+	// DefaultOTLPCollectorPort is the gRPC OTLP ingest port on the platform collector.
+	DefaultOTLPCollectorPort int32 = 4317
+	// DefaultOTELTracesSampler is the sampler accepted by the pinned llm-d build.
+	DefaultOTELTracesSampler = "parentbased_traceidratio"
+	// DefaultOTELTracesSamplerArg samples all traces on dev/CI clusters (use 0.1 in prod).
+	DefaultOTELTracesSamplerArg = "1.0"
+
 	// Resource name base constants for multi-tenant resources.
 	// These are used with tenant identifiers to create unique resource names per tenant.
 	// For legacy/default tenant (empty tenantID), these values are used as-is.
-	baseGatewayDefaultAuthPolicyName               = "gateway-default-auth"
 	baseGatewayTokenRateLimitDefaultDenyPolicyName = "gateway-default-deny"
 	baseMaaSAPIAuthPolicyName                      = "maas-api-auth-policy"
 	baseMaaSAPIRouteName                           = "maas-api-route"
@@ -78,6 +99,7 @@ const (
 	baseMaaSAPIServiceName                         = "maas-api"
 	baseMaaSAPIKeyCleanupScriptConfigMapName       = "maas-api-key-cleanup-script" //nolint:gosec // Kubernetes resource name, not a credential
 	baseMaaSAPIDeploymentNSNetworkPolicyName       = "maas-api-allow-deployment-ns"
+	baseMaaSAPIServingCertName                     = "maas-api-serving-cert"
 
 	// Base IPP resource names in kustomize manifests. Per-tenant deployments suffix
 	// these with "-{tenantID}" (default tenant keeps unsuffixed names).
@@ -85,6 +107,9 @@ const (
 	PayloadPreProcessingName                      = "payload-pre-processing"
 	PayloadProcessingPluginsConfigMapName         = "payload-processing-plugins"
 	PayloadProcessingReaderClusterRoleBindingName = "payload-processing-reader"
+	// PayloadProcessingEnvoyFilterPriority runs after Kuadrant's default-priority (0)
+	// EnvoyFilter so RHCL's envoy.filters.http.wasm anchor exists when we INSERT_*.
+	PayloadProcessingEnvoyFilterPriority int64 = 10
 
 	// LabelTenantInstance distinguishes pods when multiple IPP stacks share a gateway namespace.
 	LabelTenantInstance = "maas.opendatahub.io/tenant-instance"
@@ -121,6 +146,8 @@ var (
 	GVKNetworkPolicy        = schema.GroupVersionKind{Group: "networking.k8s.io", Version: "v1", Kind: "NetworkPolicy"}
 	GVKPersesDashboard      = schema.GroupVersionKind{Group: "perses.dev", Version: "v1alpha1", Kind: "PersesDashboard"}
 	GVKPersesDatasource     = schema.GroupVersionKind{Group: "perses.dev", Version: "v1alpha1", Kind: "PersesDatasource"}
+	GVKCertificate          = schema.GroupVersionKind{Group: "cert-manager.io", Version: "v1", Kind: "Certificate"}
+	GVKHPA                  = schema.GroupVersionKind{Group: "autoscaling", Version: "v2", Kind: "HorizontalPodAutoscaler"}
 )
 
 // Resource naming functions for multi-tenant deployment.
@@ -147,10 +174,6 @@ func resourceNameForTenant(baseName, tenantID string) string {
 		return baseName
 	}
 	return baseName + "-" + tenantID
-}
-
-func GatewayDefaultAuthPolicyName(tenantID string) string {
-	return resourceNameForTenant(baseGatewayDefaultAuthPolicyName, tenantID)
 }
 
 func GatewayTokenRateLimitDefaultDenyPolicyName(tenantID string) string {
@@ -223,6 +246,14 @@ func PayloadProcessingServiceAccountName(tenantID string) string {
 
 func PayloadProcessingNetworkPolicyName(tenantID string) string {
 	return resourceNameForTenant(PayloadProcessingName, tenantID)
+}
+
+func PayloadProcessingHPAName(tenantID string) string {
+	return resourceNameForTenant(PayloadProcessingName, tenantID)
+}
+
+func MaaSAPIServingCertName(tenantID string) string {
+	return resourceNameForTenant(baseMaaSAPIServingCertName, tenantID)
 }
 
 func PayloadProcessingReaderClusterRoleBindingNameForTenant(tenantID string) string {

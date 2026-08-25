@@ -45,7 +45,18 @@ var _ MetadataStore = (*MockStore)(nil)
 // ephemeral marks the key as short-lived for programmatic use.
 // Note: keyPrefix is NOT stored (security - reduces brute-force attack surface).
 func (m *MockStore) AddKey(
-	ctx context.Context, username, keyID, keyHash, name, description string, userGroups []string, subscription string, tenant string, expiresAt *time.Time, ephemeral bool,
+	ctx context.Context, 
+	username, 
+	keyID, 
+	keyHash, 
+	name, 
+	description string, 
+	userGroups []string, 
+	subscription string, 
+	tenant string, 
+	expiresAt *time.Time, 
+	ephemeral bool, 
+	labels map[string]string,
 ) error {
 	if keyID == "" {
 		return ErrEmptyJTI
@@ -65,6 +76,10 @@ func (m *MockStore) AddKey(
 		expiresAtTime = *expiresAt
 	}
 
+	if len(labels) == 0 {
+		labels = nil 
+	}
+
 	// userGroups is already []string - no parsing needed
 	m.keys[keyID] = &storedKey{
 		metadata: ApiKey{
@@ -77,6 +92,7 @@ func (m *MockStore) AddKey(
 			Status:       StatusActive,
 			CreationDate: time.Now().UTC().Format(time.RFC3339),
 			Ephemeral:    ephemeral,
+			Labels:       labels,
 		},
 		username:  username,
 		keyHash:   keyHash,
@@ -357,6 +373,16 @@ func (m *MockStore) Search(
 		allKeys = filtered
 	}
 
+	if len(filters.LabelsContain) > 0 {
+		filtered := allKeys[:0]
+		for _, k := range allKeys {
+			if labelsContain(k.Labels, filters.LabelsContain) {
+				filtered = append(filtered, k)
+			}
+		}
+		allKeys = filtered
+	}
+
 	// Sort keys
 	sort.Slice(allKeys, func(i, j int) bool {
 		return compareKeys(allKeys[i], allKeys[j], sortParams.By, sortParams.Order)
@@ -369,6 +395,22 @@ func (m *MockStore) Search(
 		Keys:    keys,
 		HasMore: hasMore,
 	}, nil
+}
+
+// Helper function to check if the have map contains all the keys and values in the want map.
+func labelsContain(have, want map[string]string) bool {
+	if len(want) == 0 {
+		return true
+	}
+	if have == nil {
+		return false
+	}
+	for k, v := range want {
+		if have[k] != v {
+			return false
+		}
+	}
+	return true
 }
 
 func (m *MockStore) Get(ctx context.Context, keyID string) (*ApiKey, error) {
@@ -429,18 +471,53 @@ func (m *MockStore) GetByHash(ctx context.Context, keyHash string) (*ApiKey, err
 	return nil, ErrKeyNotFound
 }
 
-func (m *MockStore) InvalidateAll(ctx context.Context, username string, tenant string) (int, error) {
+// bulkRevokeMatch returns true if the key matches the bulk revoke scope.
+// Keys with a past expiresAt are treated as expired even when the persisted
+// status is still "active", consistent with the Get/Search auto-expire logic.
+func bulkRevokeMatch(k *storedKey, username, subscription, tenant string) bool {
+	if k.metadata.Status != StatusActive || k.metadata.Tenant != tenant {
+		return false
+	}
+	if !k.expiresAt.IsZero() && k.expiresAt.Before(time.Now().UTC()) {
+		return false
+	}
+	if username != "" && k.username != username {
+		return false
+	}
+	if subscription != "" && k.metadata.Subscription != subscription {
+		return false
+	}
+	return true
+}
+
+func (m *MockStore) BulkRevoke(ctx context.Context, username, subscription, tenant string, dryRun bool) (int, error) {
+	if username == "" && subscription == "" {
+		return 0, errors.New("at least one of username or subscription is required")
+	}
+
+	if dryRun {
+		m.mu.RLock()
+		defer m.mu.RUnlock()
+
+		count := 0
+		for _, k := range m.keys {
+			if bulkRevokeMatch(k, username, subscription, tenant) {
+				count++
+			}
+		}
+		return count, nil
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	count := 0
 	for _, k := range m.keys {
-		if k.username == username && k.metadata.Tenant == tenant && k.metadata.Status == StatusActive {
+		if bulkRevokeMatch(k, username, subscription, tenant) {
 			k.metadata.Status = StatusRevoked
 			count++
 		}
 	}
-
 	return count, nil
 }
 

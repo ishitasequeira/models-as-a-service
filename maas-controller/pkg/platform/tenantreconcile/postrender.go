@@ -68,6 +68,9 @@ func PostRender(ctx context.Context, log logr.Logger, tenant client.Object, reso
 	if err := configureIstioTelemetryResources(log, tenant, &filteredResources, params); err != nil {
 		return nil, err
 	}
+	if err := configurePayloadProcessingHPA(log, &filteredResources, params); err != nil {
+		return nil, err
+	}
 	if err := applyPlatformParams(log, filteredResources, params); err != nil {
 		return nil, err
 	}
@@ -342,6 +345,107 @@ func configureIstioTelemetryResources(log logr.Logger, tenant client.Object, res
 	return nil
 }
 
+// configurePayloadProcessingHPA appends an HPA for payload-processing when autoscaling is enabled.
+// The HPA is generated in PostRender (not from kustomize) to avoid name-reference conflicts
+// with the pre-processing Deployment that shares the same base name.
+func configurePayloadProcessingHPA(log logr.Logger, resources *[]unstructured.Unstructured, params PlatformParams) error {
+	if !params.PayloadProcessingAutoscaling {
+		return nil
+	}
+
+	tenantID := params.TenantIdentifier
+	gatewayNamespace := params.GatewayNamespace
+	hpaName := PayloadProcessingHPAName(tenantID)
+	deploymentName := PayloadProcessingDeploymentName(tenantID)
+
+	// Determine minReplicas: use the replica annotation as the floor, default 1.
+	minReplicas := int64(1)
+	if params.PayloadProcessingReplicas != nil {
+		minReplicas = int64(*params.PayloadProcessingReplicas)
+	}
+
+	hpa := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "autoscaling/v2",
+			"kind":       "HorizontalPodAutoscaler",
+			"metadata": map[string]any{
+				"name":      hpaName,
+				"namespace": gatewayNamespace,
+			},
+			"spec": map[string]any{
+				"scaleTargetRef": map[string]any{
+					"apiVersion": "apps/v1",
+					"kind":       "Deployment",
+					"name":       deploymentName,
+				},
+				"minReplicas": minReplicas,
+				"maxReplicas": int64(params.PayloadProcessingMaxReplicas),
+				"metrics": []any{
+					map[string]any{
+						"type": "Resource",
+						"resource": map[string]any{
+							"name": "cpu",
+							"target": map[string]any{
+								"type":               "Utilization",
+								"averageUtilization": int64(params.PayloadProcessingTargetCPU),
+							},
+						},
+					},
+					map[string]any{
+						"type": "Resource",
+						"resource": map[string]any{
+							"name": "memory",
+							"target": map[string]any{
+								"type":               "Utilization",
+								"averageUtilization": int64(params.PayloadProcessingTargetMemory),
+							},
+						},
+					},
+				},
+				"behavior": map[string]any{
+					"scaleDown": map[string]any{
+						"stabilizationWindowSeconds": int64(300),
+						"policies": []any{
+							map[string]any{
+								"type":          "Percent",
+								"value":         int64(25),
+								"periodSeconds": int64(60),
+							},
+						},
+					},
+					"scaleUp": map[string]any{
+						"stabilizationWindowSeconds": int64(0),
+						"policies": []any{
+							map[string]any{
+								"type":          "Percent",
+								"value":         int64(100),
+								"periodSeconds": int64(15),
+							},
+							map[string]any{
+								"type":          "Pods",
+								"value":         int64(4),
+								"periodSeconds": int64(15),
+							},
+						},
+						"selectPolicy": "Max",
+					},
+				},
+			},
+		},
+	}
+
+	log.V(2).Info("Appending payload-processing HPA",
+		"name", hpaName,
+		"namespace", gatewayNamespace,
+		"scaleTarget", deploymentName,
+		"minReplicas", minReplicas,
+		"maxReplicas", params.PayloadProcessingMaxReplicas,
+		"targetCPU", params.PayloadProcessingTargetCPU,
+		"targetMemory", params.PayloadProcessingTargetMemory)
+	*resources = append(*resources, *hpa)
+	return nil
+}
+
 func buildTelemetryLabels(log logr.Logger, config *maasv1alpha1.TenantTelemetryConfig) map[string]any {
 	captureOrganization := true
 	captureUser := false
@@ -364,17 +468,17 @@ func buildTelemetryLabels(log logr.Logger, config *maasv1alpha1.TenantTelemetryC
 	}
 	labels := map[string]any{
 		"subscription": "auth.identity.selected_subscription",
-		"cost_center":  "auth.identity.subscription_info.costCenter",
+		"cost_center":  `has(auth.identity.subscription_info.costCenter) ? auth.identity.subscription_info.costCenter : ""`,
 	}
 	if captureOrganization {
-		labels["organization_id"] = "auth.identity.subscription_info.organizationId"
+		labels["organization_id"] = `has(auth.identity.subscription_info.organizationId) ? auth.identity.subscription_info.organizationId : ""`
 	}
 	if captureUser {
 		log.Info("WARNING: User identity metrics enabled - ensure GDPR/privacy compliance", "field", "captureUser", "value", true)
 		labels["user"] = "auth.identity.userid"
 	}
 	if captureGroup {
-		labels["group"] = "auth.identity.group"
+		labels["group"] = "auth.identity.groups_str"
 	}
 	if captureModelUsage {
 		labels["model"] = "responseBodyJSON(\"/model\")"

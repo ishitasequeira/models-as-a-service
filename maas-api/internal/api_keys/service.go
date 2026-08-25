@@ -96,6 +96,7 @@ type CreateAPIKeyResponse struct {
 	CreatedAt    string  `json:"createdAt"`
 	ExpiresAt    *string `json:"expiresAt,omitempty"` // RFC3339 timestamp
 	Ephemeral    bool    `json:"ephemeral"`           // Short-lived programmatic key
+	Labels       map[string]string `json:"labels,omitempty"` // Structured key-value pairs for API key metadata
 }
 
 // CreateAPIKey creates a new API key (sk-oai-* format).
@@ -108,7 +109,7 @@ type CreateAPIKeyResponse struct {
 // Admins can create keys for other users by specifying a different username.
 func (s *Service) CreateAPIKey(
 	ctx context.Context, username string, userGroups []string, name, description string,
-	expiresIn *time.Duration, ephemeral bool, requestedSubscription string, tenant string,
+	expiresIn *time.Duration, ephemeral bool, requestedSubscription string, tenant string, labels map[string]string,
 ) (*CreateAPIKeyResponse, error) {
 	// Validate group names against allowlist pattern (CWE-116/CWE-74 mitigation).
 	// AuthPolicy uses CEL to build JSON arrays from groups, and CEL lacks JSON escaping
@@ -186,7 +187,7 @@ func (s *Service) CreateAPIKey(
 	// Note: prefix is NOT stored (security - reduces brute-force attack surface)
 	// userGroups stored as PostgreSQL TEXT[] array (no JSON marshaling needed)
 	// Hash is SHA-256(key_id + secret) where key_id is embedded in the API key as per-key salt
-	if err := s.store.AddKey(ctx, username, keyID, hash, name, description, userGroups, subscriptionName, tenant, &expiresAt, ephemeral); err != nil {
+	if err := s.store.AddKey(ctx, username, keyID, hash, name, description, userGroups, subscriptionName, tenant, &expiresAt, ephemeral, labels); err != nil {
 		return nil, fmt.Errorf("failed to store API key: %w", err)
 	}
 
@@ -203,6 +204,7 @@ func (s *Service) CreateAPIKey(
 		CreatedAt:    time.Now().UTC().Format(time.RFC3339),
 		ExpiresAt:    &formatted,
 		Ephemeral:    ephemeral,
+		Labels:       labels,
 	}
 
 	return response, nil
@@ -342,13 +344,14 @@ func (s *Service) Search(
 	return s.store.Search(ctx, username, tenant, filters, sort, pagination)
 }
 
-// BulkRevokeAPIKeys revokes all active keys for a user
-// Returns count of revoked keys.
-func (s *Service) BulkRevokeAPIKeys(ctx context.Context, username string, tenant string) (int, error) {
-	if username == "" {
-		return 0, errors.New("username is required")
+// BulkRevokeAPIKeys revokes all active keys matching the scope (username and/or subscription),
+// or performs a dry-run count when dryRun is true.
+// At least one of username or subscription must be provided.
+func (s *Service) BulkRevokeAPIKeys(ctx context.Context, username, subscription, tenant string, dryRun bool) (int, error) {
+	if username == "" && subscription == "" {
+		return 0, errors.New("at least one of username or subscription is required")
 	}
-	return s.store.InvalidateAll(ctx, username, tenant)
+	return s.store.BulkRevoke(ctx, username, subscription, tenant, dryRun)
 }
 
 // RevokeTenantAPIKeys revokes all active keys for a tenant.
