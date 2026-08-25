@@ -810,8 +810,24 @@ deploy_via_operator() {
     deploy_keycloak
   fi
 
-  # Wait for maas-controller (deployed by ai-gateway-operator).
-  log_info "Waiting for maas-controller deployment..."
+  # Wait for maas-controller (deployed by ai-gateway-operator via DSC reconciliation).
+  # The deployment may not exist yet — wait for it to be created, then wait for rollout.
+  local controller_wait=${CONTROLLER_WAIT_TIMEOUT:-600}
+  log_info "Waiting for maas-controller deployment to be created (timeout: ${controller_wait}s)..."
+  if ! wait_for_resource "deployment" "maas-controller" "$NAMESPACE" "$controller_wait"; then
+    log_error "maas-controller deployment was not created within ${controller_wait}s."
+    log_error "Check DSC reconciliation status and ai-gateway-operator logs."
+    local dsc_name_diag
+    dsc_name_diag=$(kubectl get datasciencecluster -A -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+    if [[ -n "$dsc_name_diag" ]]; then
+      log_error "Failing DataScienceCluster module conditions:"
+      kubectl get datasciencecluster "$dsc_name_diag" \
+        -o jsonpath='{range .status.conditions[?(@.status=="False")]}  {.type}: {.reason} - {.message}{"\n"}{end}' 2>/dev/null \
+        | while IFS= read -r line; do log_error "$line"; done
+    fi
+    exit 1
+  fi
+  log_info "Waiting for maas-controller rollout..."
   if ! kubectl rollout status deployment/maas-controller -n "$NAMESPACE" --timeout="${POD_TIMEOUT:-300}s"; then
     log_error "maas-controller not ready (timeout: ${POD_TIMEOUT:-300}s)"
     exit 1
