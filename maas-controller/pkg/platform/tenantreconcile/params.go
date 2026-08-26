@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -57,6 +58,12 @@ type PlatformParams struct {
 	// Kuadrant WASM auth is absent on the gateway (avoids duplicate ext_proc when WASM exists).
 	PayloadProcessingRouterExtProcFallback bool
 
+	// PayloadProcessingResources overrides resource requests/limits for the payload-processing container.
+	// Full replacement: when set, the entire resources block is replaced (not merged with base manifest).
+	PayloadProcessingResources *corev1.ResourceRequirements
+	// PayloadPreProcessingResources overrides resource requests/limits for the payload-pre-processing container.
+	PayloadPreProcessingResources *corev1.ResourceRequirements
+
 	// Warnings collects non-fatal issues found during param resolution (e.g. invalid annotations).
 	Warnings []string
 }
@@ -88,7 +95,7 @@ func BuildPlatformParams(tenant client.Object, platformContext PlatformContext, 
 	params.MaaSAPIReplicas, params.PayloadProcessingReplicas, params.Warnings = resolveReplicaAnnotations(tenant, log)
 
 	var ppReplicas *int32
-	params.PayloadProcessingAutoscaling, ppReplicas, params.PayloadProcessingMaxReplicas, params.PayloadProcessingTargetCPU, params.PayloadProcessingTargetMemory = resolvePayloadProcessingConfig(tenant, log)
+	params.PayloadProcessingAutoscaling, ppReplicas, params.PayloadProcessingMaxReplicas, params.PayloadProcessingTargetCPU, params.PayloadProcessingTargetMemory, params.PayloadProcessingResources, params.PayloadPreProcessingResources = resolvePayloadProcessingConfig(tenant, log)
 
 	// Spec-based replicas take precedence over annotation-based replicas for payload-processing.
 	if ppReplicas != nil {
@@ -183,22 +190,31 @@ func parseReplicaAnnotation(annotationKey, value string) (*int32, string) {
 	return &r, ""
 }
 
-// resolvePayloadProcessingConfig reads autoscaling configuration from the tenant spec
-// and returns resolved values with defaults applied.
-func resolvePayloadProcessingConfig(tenant client.Object, log logr.Logger) (enabled bool, replicas *int32, maxReplicas, targetCPU, targetMemory int32) {
+// resolvePayloadProcessingConfig reads autoscaling and resource configuration from the
+// tenant spec and returns resolved values with defaults applied.
+func resolvePayloadProcessingConfig(tenant client.Object, log logr.Logger) (enabled bool, replicas *int32, maxReplicas, targetCPU, targetMemory int32, resources, preProcessingResources *corev1.ResourceRequirements) {
 	maxReplicas = defaultMaxReplicas
 	targetCPU = defaultTargetCPU
 	targetMemory = defaultTargetMemory
 
 	cfg := payloadProcessingConfigFor(tenant)
 	if cfg == nil {
-		return false, nil, maxReplicas, targetCPU, targetMemory
+		return false, nil, maxReplicas, targetCPU, targetMemory, nil, nil
 	}
 
 	replicas = cfg.Replicas
+	resources = cfg.Resources
+	preProcessingResources = cfg.PreProcessingResources
+
+	if resources != nil {
+		log.Info("Payload-processing resource overrides configured")
+	}
+	if preProcessingResources != nil {
+		log.Info("Payload-pre-processing resource overrides configured")
+	}
 
 	if cfg.Autoscaling == nil {
-		return false, replicas, maxReplicas, targetCPU, targetMemory
+		return false, replicas, maxReplicas, targetCPU, targetMemory, resources, preProcessingResources
 	}
 
 	enabled = true
@@ -214,7 +230,7 @@ func resolvePayloadProcessingConfig(tenant client.Object, log logr.Logger) (enab
 		targetMemory = *cfg.Autoscaling.TargetMemoryUtilization
 	}
 
-	return enabled, replicas, maxReplicas, targetCPU, targetMemory
+	return enabled, replicas, maxReplicas, targetCPU, targetMemory, resources, preProcessingResources
 }
 
 func payloadProcessingConfigFor(tenant client.Object) *maasv1alpha1.TenantPayloadProcessingConfig {
@@ -511,6 +527,12 @@ func patchPayloadProcessingDeployment(log logr.Logger, r *unstructured.Unstructu
 	if err := patchPayloadProcessingTracing(log, r, params); err != nil {
 		return fmt.Errorf("patch payload-processing tracing: %w", err)
 	}
+	if params.PayloadProcessingResources != nil {
+		if err := setContainerResources(r, "payload-processing", params.PayloadProcessingResources); err != nil {
+			return fmt.Errorf("patch payload-processing resources: %w", err)
+		}
+		log.V(4).Info("Patched payload-processing resources", "deployment", deploymentName)
+	}
 	return nil
 }
 
@@ -533,6 +555,12 @@ func patchPreProcessingDeployment(log logr.Logger, r *unstructured.Unstructured,
 	}
 	if err := patchConfigMapVolumeRef(r, "plugins-config-volume", PayloadProcessingPluginsConfigMapForTenant(params.TenantIdentifier)); err != nil {
 		return fmt.Errorf("patch plugins ConfigMap volume: %w", err)
+	}
+	if params.PayloadPreProcessingResources != nil {
+		if err := setContainerResources(r, PayloadPreProcessingName, params.PayloadPreProcessingResources); err != nil {
+			return fmt.Errorf("patch payload-pre-processing resources: %w", err)
+		}
+		log.V(4).Info("Patched payload-pre-processing resources", "deployment", deploymentName)
 	}
 	return nil
 }
@@ -1051,6 +1079,38 @@ func patchPayloadProcessingNetworkPolicy(log logr.Logger, r *unstructured.Unstru
 	log.V(4).Info("Configured payload-processing NetworkPolicy podSelector",
 		"tenantInstances", tenantInstances)
 	return nil
+}
+
+func setContainerResources(r *unstructured.Unstructured, containerName string, res *corev1.ResourceRequirements) error {
+	containers, found, err := unstructured.NestedSlice(r.Object, "spec", "template", "spec", "containers")
+	if err != nil || !found {
+		return errors.New("containers not found")
+	}
+	for i, c := range containers {
+		cm, ok := c.(map[string]any)
+		if !ok || cm["name"] != containerName {
+			continue
+		}
+		resMap := make(map[string]any)
+		if res.Requests != nil {
+			req := make(map[string]any)
+			for k, v := range res.Requests {
+				req[string(k)] = v.String()
+			}
+			resMap["requests"] = req
+		}
+		if res.Limits != nil {
+			lim := make(map[string]any)
+			for k, v := range res.Limits {
+				lim[string(k)] = v.String()
+			}
+			resMap["limits"] = lim
+		}
+		cm["resources"] = resMap
+		containers[i] = cm
+		return unstructured.SetNestedSlice(r.Object, containers, "spec", "template", "spec", "containers")
+	}
+	return fmt.Errorf("container %q not found", containerName)
 }
 
 func setContainerImage(r *unstructured.Unstructured, containerName, image string) error {

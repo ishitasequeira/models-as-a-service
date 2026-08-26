@@ -5,6 +5,7 @@
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 )
@@ -1210,6 +1211,16 @@ func (in *TenantPayloadProcessingConfig) DeepCopyInto(out *TenantPayloadProcessi
 	if in.Autoscaling != nil {
 		in, out := &in.Autoscaling, &out.Autoscaling
 		*out = new(TenantAutoscalingConfig)
+		(*in).DeepCopyInto(*out)
+	}
+	if in.Resources != nil {
+		in, out := &in.Resources, &out.Resources
+		*out = new(corev1.ResourceRequirements)
+		(*in).DeepCopyInto(*out)
+	}
+	if in.PreProcessingResources != nil {
+		in, out := &in.PreProcessingResources, &out.PreProcessingResources
+		*out = new(corev1.ResourceRequirements)
 		(*in).DeepCopyInto(*out)
 	}
 }

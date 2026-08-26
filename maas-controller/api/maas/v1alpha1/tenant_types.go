@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -133,7 +134,7 @@ type TenantAPIKeysConfig struct {
 	MaxExpirationDays *int32 `json:"maxExpirationDays,omitempty"`
 }
 
-// TenantPayloadProcessingConfig defines scaling configuration for payload-processing pods.
+// TenantPayloadProcessingConfig defines scaling and resource configuration for payload-processing pods.
 type TenantPayloadProcessingConfig struct {
 	// Replicas overrides the payload-processing Deployment replica count.
 	// When Autoscaling is enabled, this value sets the HPA minReplicas floor.
@@ -146,6 +147,18 @@ type TenantPayloadProcessingConfig struct {
 	// When enabled, an HPA is created targeting the payload-processing Deployment.
 	// +kubebuilder:validation:Optional
 	Autoscaling *TenantAutoscalingConfig `json:"autoscaling,omitempty"`
+
+	// Resources overrides the resource requests and limits for the payload-processing container.
+	// When set, replaces the entire resource block (full replacement, not merge).
+	// When autoscaling is enabled, HPA utilization targets are calculated against
+	// the overridden request values — overriding only limits has no effect on HPA.
+	// +kubebuilder:validation:Optional
+	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
+
+	// PreProcessingResources overrides the resource requests and limits for the
+	// payload-pre-processing container. When set, replaces the entire resource block.
+	// +kubebuilder:validation:Optional
+	PreProcessingResources *corev1.ResourceRequirements `json:"preProcessingResources,omitempty"`
 }
 
 // TenantAutoscalingConfig defines HPA autoscaling parameters for payload-processing.

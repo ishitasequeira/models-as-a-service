@@ -9,6 +9,8 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
@@ -1051,5 +1053,373 @@ func TestPatchPayloadProcessingDeployment_AutoscalingSkipsReplicas(t *testing.T)
 		// spec.replicas should be absent so the HPA has sole ownership
 		_, found, _ := unstructured.NestedInt64(dep.Object, "spec", "replicas")
 		assert.False(t, found, "spec.replicas should be removed when autoscaling is enabled")
+	})
+}
+
+func TestBuildPlatformParams_ResourceOverrides(t *testing.T) {
+	t.Setenv("RELATED_IMAGE_ODH_MAAS_API_IMAGE", "")
+	t.Setenv("RELATED_IMAGE_ODH_AI_GATEWAY_PAYLOAD_PROCESSING_IMAGE", "")
+	t.Setenv("RELATED_IMAGE_UBI_MINIMAL_IMAGE", "")
+
+	platformContext := PlatformContext{GatewayRef: maasv1alpha1.TenantGatewayRef{
+		Namespace: "openshift-ingress",
+		Name:      "maas-default-gateway",
+	}}
+
+	t.Run("nil payloadProcessing yields nil resources", func(t *testing.T) {
+		tenant := &maasv1alpha1.MaasTenantConfig{}
+		tenant.SetNamespace("models-as-a-service")
+		tenant.SetName("default-tenant")
+
+		got, err := BuildPlatformParams(tenant, platformContext, "opendatahub", "opendatahub", "https://kubernetes.default.svc", "opendatahub", logr.Discard())
+		require.NoError(t, err)
+		assert.Nil(t, got.PayloadProcessingResources)
+		assert.Nil(t, got.PayloadPreProcessingResources)
+	})
+
+	t.Run("payloadProcessing without resources yields nil resources", func(t *testing.T) {
+		replicas := int32(2)
+		tenant := &maasv1alpha1.MaasTenantConfig{
+			Spec: maasv1alpha1.MaasTenantConfigSpec{
+				PayloadProcessing: &maasv1alpha1.TenantPayloadProcessingConfig{
+					Replicas: &replicas,
+				},
+			},
+		}
+		tenant.SetNamespace("models-as-a-service")
+		tenant.SetName("default-tenant")
+
+		got, err := BuildPlatformParams(tenant, platformContext, "opendatahub", "opendatahub", "https://kubernetes.default.svc", "opendatahub", logr.Discard())
+		require.NoError(t, err)
+		assert.Nil(t, got.PayloadProcessingResources)
+		assert.Nil(t, got.PayloadPreProcessingResources)
+	})
+
+	t.Run("resources are resolved from spec", func(t *testing.T) {
+		tenant := &maasv1alpha1.MaasTenantConfig{
+			Spec: maasv1alpha1.MaasTenantConfigSpec{
+				PayloadProcessing: &maasv1alpha1.TenantPayloadProcessingConfig{
+					Resources: &corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceMemory: resource.MustParse("256Mi"),
+							corev1.ResourceCPU:    resource.MustParse("200m"),
+						},
+						Limits: corev1.ResourceList{
+							corev1.ResourceMemory: resource.MustParse("2Gi"),
+							corev1.ResourceCPU:    resource.MustParse("2"),
+						},
+					},
+					PreProcessingResources: &corev1.ResourceRequirements{
+						Limits: corev1.ResourceList{
+							corev1.ResourceMemory: resource.MustParse("1Gi"),
+						},
+					},
+				},
+			},
+		}
+		tenant.SetNamespace("models-as-a-service")
+		tenant.SetName("default-tenant")
+
+		got, err := BuildPlatformParams(tenant, platformContext, "opendatahub", "opendatahub", "https://kubernetes.default.svc", "opendatahub", logr.Discard())
+		require.NoError(t, err)
+		require.NotNil(t, got.PayloadProcessingResources)
+		assert.Equal(t, resource.MustParse("2Gi"), got.PayloadProcessingResources.Limits[corev1.ResourceMemory])
+		assert.Equal(t, resource.MustParse("256Mi"), got.PayloadProcessingResources.Requests[corev1.ResourceMemory])
+		require.NotNil(t, got.PayloadPreProcessingResources)
+		assert.Equal(t, resource.MustParse("1Gi"), got.PayloadPreProcessingResources.Limits[corev1.ResourceMemory])
+	})
+
+	t.Run("resources-only without pre-processing", func(t *testing.T) {
+		tenant := &maasv1alpha1.MaasTenantConfig{
+			Spec: maasv1alpha1.MaasTenantConfigSpec{
+				PayloadProcessing: &maasv1alpha1.TenantPayloadProcessingConfig{
+					Resources: &corev1.ResourceRequirements{
+						Limits: corev1.ResourceList{
+							corev1.ResourceMemory: resource.MustParse("1Gi"),
+						},
+					},
+				},
+			},
+		}
+		tenant.SetNamespace("models-as-a-service")
+		tenant.SetName("default-tenant")
+
+		got, err := BuildPlatformParams(tenant, platformContext, "opendatahub", "opendatahub", "https://kubernetes.default.svc", "opendatahub", logr.Discard())
+		require.NoError(t, err)
+		require.NotNil(t, got.PayloadProcessingResources)
+		assert.Nil(t, got.PayloadPreProcessingResources)
+	})
+
+	t.Run("resources coexist with autoscaling", func(t *testing.T) {
+		tenant := &maasv1alpha1.MaasTenantConfig{
+			Spec: maasv1alpha1.MaasTenantConfigSpec{
+				PayloadProcessing: &maasv1alpha1.TenantPayloadProcessingConfig{
+					Autoscaling: &maasv1alpha1.TenantAutoscalingConfig{},
+					Resources: &corev1.ResourceRequirements{
+						Limits: corev1.ResourceList{
+							corev1.ResourceMemory: resource.MustParse("2Gi"),
+						},
+					},
+				},
+			},
+		}
+		tenant.SetNamespace("models-as-a-service")
+		tenant.SetName("default-tenant")
+
+		got, err := BuildPlatformParams(tenant, platformContext, "opendatahub", "opendatahub", "https://kubernetes.default.svc", "opendatahub", logr.Discard())
+		require.NoError(t, err)
+		assert.True(t, got.PayloadProcessingAutoscaling)
+		require.NotNil(t, got.PayloadProcessingResources)
+		assert.Equal(t, resource.MustParse("2Gi"), got.PayloadProcessingResources.Limits[corev1.ResourceMemory])
+	})
+}
+
+func TestSetContainerResources(t *testing.T) {
+	makeDeployment := func() *unstructured.Unstructured {
+		return &unstructured.Unstructured{
+			Object: map[string]any{
+				"apiVersion": "apps/v1",
+				"kind":       "Deployment",
+				"metadata":   map[string]any{"name": "test-deploy"},
+				"spec": map[string]any{
+					"template": map[string]any{
+						"spec": map[string]any{
+							"containers": []any{
+								map[string]any{
+									"name":  "payload-processing",
+									"image": "test-image",
+									"resources": map[string]any{
+										"requests": map[string]any{"memory": "64Mi", "cpu": "50m"},
+										"limits":   map[string]any{"memory": "256Mi", "cpu": "500m"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+	}
+
+	t.Run("full replacement sets all resource fields", func(t *testing.T) {
+		dep := makeDeployment()
+		res := &corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{
+				corev1.ResourceMemory: resource.MustParse("256Mi"),
+				corev1.ResourceCPU:    resource.MustParse("200m"),
+			},
+			Limits: corev1.ResourceList{
+				corev1.ResourceMemory: resource.MustParse("2Gi"),
+				corev1.ResourceCPU:    resource.MustParse("2"),
+			},
+		}
+
+		err := setContainerResources(dep, "payload-processing", res)
+		require.NoError(t, err)
+
+		containers, _, _ := unstructured.NestedSlice(dep.Object, "spec", "template", "spec", "containers")
+		cm := containers[0].(map[string]any)
+		resources := cm["resources"].(map[string]any)
+		requests := resources["requests"].(map[string]any)
+		limits := resources["limits"].(map[string]any)
+
+		assert.Equal(t, "256Mi", requests["memory"])
+		assert.Equal(t, "200m", requests["cpu"])
+		assert.Equal(t, "2Gi", limits["memory"])
+		assert.Equal(t, "2", limits["cpu"])
+	})
+
+	t.Run("limits-only replaces entire block", func(t *testing.T) {
+		dep := makeDeployment()
+		res := &corev1.ResourceRequirements{
+			Limits: corev1.ResourceList{
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+			},
+		}
+
+		err := setContainerResources(dep, "payload-processing", res)
+		require.NoError(t, err)
+
+		containers, _, _ := unstructured.NestedSlice(dep.Object, "spec", "template", "spec", "containers")
+		cm := containers[0].(map[string]any)
+		resources := cm["resources"].(map[string]any)
+		_, hasRequests := resources["requests"]
+		assert.False(t, hasRequests, "requests should be absent when only limits are set (full replacement)")
+		limits := resources["limits"].(map[string]any)
+		assert.Equal(t, "1Gi", limits["memory"])
+	})
+
+	t.Run("container not found returns error", func(t *testing.T) {
+		dep := makeDeployment()
+		res := &corev1.ResourceRequirements{
+			Limits: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("1Gi")},
+		}
+
+		err := setContainerResources(dep, "nonexistent-container", res)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "nonexistent-container")
+	})
+}
+
+func TestPatchPayloadProcessingDeployment_Resources(t *testing.T) {
+	makeDeployment := func() *unstructured.Unstructured {
+		return &unstructured.Unstructured{
+			Object: map[string]any{
+				"apiVersion": "apps/v1",
+				"kind":       "Deployment",
+				"metadata": map[string]any{
+					"name":      "payload-processing",
+					"namespace": "openshift-ingress",
+				},
+				"spec": map[string]any{
+					"replicas": int64(1),
+					"selector": map[string]any{
+						"matchLabels": map[string]any{"app": "payload-processing"},
+					},
+					"template": map[string]any{
+						"metadata": map[string]any{
+							"labels": map[string]any{"app": "payload-processing"},
+						},
+						"spec": map[string]any{
+							"serviceAccountName": "payload-processing",
+							"containers": []any{
+								map[string]any{
+									"name":  "payload-processing",
+									"image": "test-image",
+									"resources": map[string]any{
+										"requests": map[string]any{"memory": "64Mi", "cpu": "50m"},
+										"limits":   map[string]any{"memory": "256Mi", "cpu": "500m"},
+									},
+								},
+							},
+							"volumes": []any{
+								map[string]any{
+									"name": "plugins-config-volume",
+									"configMap": map[string]any{
+										"name": "payload-processing-plugins",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+	}
+
+	t.Run("nil resources preserves kustomize defaults", func(t *testing.T) {
+		dep := makeDeployment()
+		params := PlatformParams{
+			GatewayNamespace:      "openshift-ingress",
+			PayloadProcessingImage: "test-image",
+		}
+
+		err := patchPayloadProcessingDeployment(logr.Discard(), dep, params)
+		require.NoError(t, err)
+
+		containers, _, _ := unstructured.NestedSlice(dep.Object, "spec", "template", "spec", "containers")
+		cm := containers[0].(map[string]any)
+		resources := cm["resources"].(map[string]any)
+		limits := resources["limits"].(map[string]any)
+		assert.Equal(t, "256Mi", limits["memory"])
+	})
+
+	t.Run("resource overrides are applied", func(t *testing.T) {
+		dep := makeDeployment()
+		params := PlatformParams{
+			GatewayNamespace:      "openshift-ingress",
+			PayloadProcessingImage: "test-image",
+			PayloadProcessingResources: &corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceMemory: resource.MustParse("256Mi"),
+					corev1.ResourceCPU:    resource.MustParse("200m"),
+				},
+				Limits: corev1.ResourceList{
+					corev1.ResourceMemory: resource.MustParse("2Gi"),
+					corev1.ResourceCPU:    resource.MustParse("2"),
+				},
+			},
+		}
+
+		err := patchPayloadProcessingDeployment(logr.Discard(), dep, params)
+		require.NoError(t, err)
+
+		containers, _, _ := unstructured.NestedSlice(dep.Object, "spec", "template", "spec", "containers")
+		cm := containers[0].(map[string]any)
+		resources := cm["resources"].(map[string]any)
+		limits := resources["limits"].(map[string]any)
+		requests := resources["requests"].(map[string]any)
+		assert.Equal(t, "2Gi", limits["memory"])
+		assert.Equal(t, "2", limits["cpu"])
+		assert.Equal(t, "256Mi", requests["memory"])
+		assert.Equal(t, "200m", requests["cpu"])
+	})
+}
+
+func TestPatchPreProcessingDeployment_Resources(t *testing.T) {
+	dep := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "apps/v1",
+			"kind":       "Deployment",
+			"metadata": map[string]any{
+				"name":      PayloadPreProcessingName,
+				"namespace": "openshift-ingress",
+			},
+			"spec": map[string]any{
+				"selector": map[string]any{
+					"matchLabels": map[string]any{"app": PayloadPreProcessingName},
+				},
+				"template": map[string]any{
+					"metadata": map[string]any{
+						"labels": map[string]any{"app": PayloadPreProcessingName},
+					},
+					"spec": map[string]any{
+						"serviceAccountName": "payload-processing",
+						"containers": []any{
+							map[string]any{
+								"name":  PayloadPreProcessingName,
+								"image": "test-image",
+								"resources": map[string]any{
+									"requests": map[string]any{"memory": "32Mi", "cpu": "25m"},
+									"limits":   map[string]any{"memory": "128Mi", "cpu": "200m"},
+								},
+							},
+						},
+						"volumes": []any{
+							map[string]any{
+								"name": "plugins-config-volume",
+								"configMap": map[string]any{
+									"name": "payload-processing-plugins",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	t.Run("resource overrides are applied to pre-processing", func(t *testing.T) {
+		d := dep.DeepCopy()
+		params := PlatformParams{
+			GatewayNamespace:      "openshift-ingress",
+			PayloadProcessingImage: "test-image",
+			PayloadPreProcessingResources: &corev1.ResourceRequirements{
+				Limits: corev1.ResourceList{
+					corev1.ResourceMemory: resource.MustParse("1Gi"),
+					corev1.ResourceCPU:    resource.MustParse("1"),
+				},
+			},
+		}
+
+		err := patchPreProcessingDeployment(logr.Discard(), d, params)
+		require.NoError(t, err)
+
+		containers, _, _ := unstructured.NestedSlice(d.Object, "spec", "template", "spec", "containers")
+		cm := containers[0].(map[string]any)
+		resources := cm["resources"].(map[string]any)
+		limits := resources["limits"].(map[string]any)
+		assert.Equal(t, "1Gi", limits["memory"])
+		assert.Equal(t, "1", limits["cpu"])
 	})
 }
