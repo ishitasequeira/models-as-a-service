@@ -321,18 +321,6 @@ main() {
   project_root="$(cd "$SCRIPT_DIR/.." && pwd)"
   install_maas_controller_crds_and_wait "${project_root}/deployment/base/maas-controller/crd"
 
-  log_info "Applying latest MaaS RBAC (cluster-scoped) from local repo..."
-  local rbac_dir="${project_root}/deployment/base/maas-controller/rbac"
-  kubectl apply -f "${rbac_dir}/clusterrole.yaml" \
-                -f "${rbac_dir}/clusterrole_maas_configs.yaml" \
-                -f "${rbac_dir}/clusterrole_binding.yaml" \
-                -f "${rbac_dir}/clusterrolebinding_maas_configs.yaml"
-  local ocp_rbac_dir="${rbac_dir}/ocp"
-  if [[ -d "$ocp_rbac_dir" ]]; then
-    kubectl apply -f "${ocp_rbac_dir}/clusterrole_ocp.yaml" \
-                  -f "${ocp_rbac_dir}/clusterrolebinding_ocp.yaml" 2>/dev/null || true
-  fi
-
   log_info ""
   log_info "Phase 2: Applying CRD-dependent resources (DSC, DSCI, Kuadrant CR)..."
   run_helm_install
