@@ -47,7 +47,7 @@ See [AITenant CRD](ai-tenant.md) for creating additional tenants.
 |-------|------|----------|---------|-------------|
 | replicas | int32 | No | 1 | Sets the Deployment `spec.replicas`. When `autoscaling` is also configured, this value becomes the HPA `minReplicas` floor instead. Valid range: 1–100. |
 | autoscaling | PayloadProcessingAutoscaling | No | - | Presence of this section enables HPA-based autoscaling for payload-processing pods. |
-| resources | [ResourceRequirements](https://kubernetes.io/docs/reference/kubernetes-api/workload-resources/pod-v1/#resources) | No | requests: 128Mi/100m, limits: 512Mi/1 | Overrides the resource requests and limits for the payload-processing container. When set, replaces the entire resource block (full replacement, not merge). |
+| resources | [ResourceRequirements](https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#resources) | No | requests: 128Mi/100m, limits: 512Mi/1 | Overrides the resource requests and limits for the payload-processing container. When set, replaces the entire resource block (full replacement, not merge). Resource claims are not supported. |
 
 ### PayloadProcessingAutoscaling
 
@@ -67,9 +67,9 @@ Remove the `autoscaling` section to disable autoscaling. The HPA will be removed
 
 ### Resource Overrides
 
-Use `resources` to override the default container resource requests and limits for the payload-processing container. When set, the entire resource block is replaced (not merged with defaults). When not set, the base manifest defaults are used.
+Use `resources` to override the default container resource requests and limits for the payload-processing container. When set, the entire resource block is replaced (not merged with defaults). When not set, the base manifest defaults are used. Only `requests` and `limits` are accepted; resource claims are not supported.
 
-When autoscaling is enabled, HPA utilization targets are calculated against the request values. Overriding only limits has no effect on HPA scaling behavior.
+If autoscaling is enabled, `resources.requests.cpu` and `resources.requests.memory` must both be specified when overriding resources. Incomplete overrides are rejected and the manifest defaults are preserved. Because `resources` replaces the entire block, a limits-only override removes existing requests. That can cause `FailedGetResourceMetric` for the affected HPA metric; another valid metric may still drive scaling.
 
 ```yaml
 spec:

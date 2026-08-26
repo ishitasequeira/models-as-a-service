@@ -1122,7 +1122,7 @@ func TestBuildPlatformParams_ResourceOverrides(t *testing.T) {
 		tenant := &maasv1alpha1.MaasTenantConfig{
 			Spec: maasv1alpha1.MaasTenantConfigSpec{
 				PayloadProcessing: &maasv1alpha1.TenantPayloadProcessingConfig{
-					Resources: &corev1.ResourceRequirements{
+					Resources: &maasv1alpha1.TenantResourceRequirements{
 						Requests: corev1.ResourceList{
 							corev1.ResourceMemory: resource.MustParse("256Mi"),
 							corev1.ResourceCPU:    resource.MustParse("200m"),
@@ -1149,7 +1149,7 @@ func TestBuildPlatformParams_ResourceOverrides(t *testing.T) {
 		tenant := &maasv1alpha1.MaasTenantConfig{
 			Spec: maasv1alpha1.MaasTenantConfigSpec{
 				PayloadProcessing: &maasv1alpha1.TenantPayloadProcessingConfig{
-					Resources: &corev1.ResourceRequirements{
+					Resources: &maasv1alpha1.TenantResourceRequirements{
 						Limits: corev1.ResourceList{
 							corev1.ResourceMemory: resource.MustParse("1Gi"),
 						},
@@ -1171,7 +1171,11 @@ func TestBuildPlatformParams_ResourceOverrides(t *testing.T) {
 			Spec: maasv1alpha1.MaasTenantConfigSpec{
 				PayloadProcessing: &maasv1alpha1.TenantPayloadProcessingConfig{
 					Autoscaling: &maasv1alpha1.TenantAutoscalingConfig{},
-					Resources: &corev1.ResourceRequirements{
+					Resources: &maasv1alpha1.TenantResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceMemory: resource.MustParse("256Mi"),
+							corev1.ResourceCPU:    resource.MustParse("200m"),
+						},
 						Limits: corev1.ResourceList{
 							corev1.ResourceMemory: resource.MustParse("2Gi"),
 						},
@@ -1187,6 +1191,54 @@ func TestBuildPlatformParams_ResourceOverrides(t *testing.T) {
 		assert.True(t, got.PayloadProcessingAutoscaling)
 		require.NotNil(t, got.PayloadProcessingResources)
 		assert.Equal(t, resource.MustParse("2Gi"), got.PayloadProcessingResources.Limits[corev1.ResourceMemory])
+		assert.Empty(t, got.Warnings)
+	})
+
+	t.Run("autoscaling rejects limits-only resource override", func(t *testing.T) {
+		tenant := &maasv1alpha1.MaasTenantConfig{
+			Spec: maasv1alpha1.MaasTenantConfigSpec{
+				PayloadProcessing: &maasv1alpha1.TenantPayloadProcessingConfig{
+					Autoscaling: &maasv1alpha1.TenantAutoscalingConfig{},
+					Resources: &maasv1alpha1.TenantResourceRequirements{
+						Limits: corev1.ResourceList{
+							corev1.ResourceMemory: resource.MustParse("2Gi"),
+						},
+					},
+				},
+			},
+		}
+		tenant.SetNamespace("models-as-a-service")
+		tenant.SetName("default-tenant")
+
+		got, err := BuildPlatformParams(tenant, platformContext, "opendatahub", "opendatahub", "https://kubernetes.default.svc", "opendatahub", logr.Discard())
+		require.NoError(t, err)
+		assert.True(t, got.PayloadProcessingAutoscaling)
+		assert.Nil(t, got.PayloadProcessingResources)
+		require.Len(t, got.Warnings, 1)
+		assert.Contains(t, got.Warnings[0], "spec.payloadProcessing.resources.requests")
+	})
+
+	t.Run("autoscaling rejects missing cpu request", func(t *testing.T) {
+		tenant := &maasv1alpha1.MaasTenantConfig{
+			Spec: maasv1alpha1.MaasTenantConfigSpec{
+				PayloadProcessing: &maasv1alpha1.TenantPayloadProcessingConfig{
+					Autoscaling: &maasv1alpha1.TenantAutoscalingConfig{},
+					Resources: &maasv1alpha1.TenantResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceMemory: resource.MustParse("256Mi"),
+						},
+					},
+				},
+			},
+		}
+		tenant.SetNamespace("models-as-a-service")
+		tenant.SetName("default-tenant")
+
+		got, err := BuildPlatformParams(tenant, platformContext, "opendatahub", "opendatahub", "https://kubernetes.default.svc", "opendatahub", logr.Discard())
+		require.NoError(t, err)
+		assert.Nil(t, got.PayloadProcessingResources)
+		require.Len(t, got.Warnings, 1)
+		assert.Contains(t, got.Warnings[0], "requests.cpu")
 	})
 }
 
@@ -1265,6 +1317,18 @@ func TestSetContainerResources(t *testing.T) {
 		err := setContainerResources(dep, "nonexistent-container", res)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "nonexistent-container")
+	})
+
+	t.Run("resource claims are rejected", func(t *testing.T) {
+		dep := makeDeployment()
+		res := &corev1.ResourceRequirements{
+			Claims: []corev1.ResourceClaim{{Name: "gpu"}},
+			Limits: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("1Gi")},
+		}
+
+		err := setContainerResources(dep, "payload-processing", res)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "resource claims are not supported")
 	})
 }
 

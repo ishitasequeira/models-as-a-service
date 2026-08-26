@@ -93,12 +93,15 @@ func BuildPlatformParams(tenant client.Object, platformContext PlatformContext, 
 	params.MaaSAPIReplicas, params.PayloadProcessingReplicas, params.Warnings = resolveReplicaAnnotations(tenant, log)
 
 	var ppReplicas *int32
+	var resourceWarnings []string
 	params.PayloadProcessingAutoscaling,
 		ppReplicas,
 		params.PayloadProcessingMaxReplicas,
 		params.PayloadProcessingTargetCPU,
 		params.PayloadProcessingTargetMemory,
-		params.PayloadProcessingResources = resolvePayloadProcessingConfig(tenant, log)
+		params.PayloadProcessingResources,
+		resourceWarnings = resolvePayloadProcessingConfig(tenant, log)
+	params.Warnings = append(params.Warnings, resourceWarnings...)
 
 	// Spec-based replicas take precedence over annotation-based replicas for payload-processing.
 	if ppReplicas != nil {
@@ -195,25 +198,34 @@ func parseReplicaAnnotation(annotationKey, value string) (*int32, string) {
 
 // resolvePayloadProcessingConfig reads autoscaling and resource configuration from the
 // tenant spec and returns resolved values with defaults applied.
-func resolvePayloadProcessingConfig(tenant client.Object, log logr.Logger) (enabled bool, replicas *int32, maxReplicas, targetCPU, targetMemory int32, resources *corev1.ResourceRequirements) {
+func resolvePayloadProcessingConfig(tenant client.Object, log logr.Logger) (
+	enabled bool,
+	replicas *int32,
+	maxReplicas, targetCPU, targetMemory int32,
+	resources *corev1.ResourceRequirements,
+	warnings []string,
+) {
 	maxReplicas = defaultMaxReplicas
 	targetCPU = defaultTargetCPU
 	targetMemory = defaultTargetMemory
 
 	cfg := payloadProcessingConfigFor(tenant)
 	if cfg == nil {
-		return false, nil, maxReplicas, targetCPU, targetMemory, nil
+		return false, nil, maxReplicas, targetCPU, targetMemory, nil, nil
 	}
 
 	replicas = cfg.Replicas
-	resources = cfg.Resources
+	resourceWarnings, resources := validatePayloadProcessingResources(cfg)
+	if len(resourceWarnings) > 0 {
+		warnings = append(warnings, resourceWarnings...)
+	}
 
 	if resources != nil {
 		log.Info("Payload-processing resource overrides configured")
 	}
 
 	if cfg.Autoscaling == nil {
-		return false, replicas, maxReplicas, targetCPU, targetMemory, resources
+		return false, replicas, maxReplicas, targetCPU, targetMemory, resources, warnings
 	}
 
 	enabled = true
@@ -229,7 +241,49 @@ func resolvePayloadProcessingConfig(tenant client.Object, log logr.Logger) (enab
 		targetMemory = *cfg.Autoscaling.TargetMemoryUtilization
 	}
 
-	return enabled, replicas, maxReplicas, targetCPU, targetMemory, resources
+	return enabled, replicas, maxReplicas, targetCPU, targetMemory, resources, warnings
+}
+
+func validatePayloadProcessingResources(cfg *maasv1alpha1.TenantPayloadProcessingConfig) (warnings []string, resources *corev1.ResourceRequirements) {
+	if cfg.Resources == nil {
+		return nil, nil
+	}
+
+	resources = tenantResourcesToCorev1(cfg.Resources)
+	if resources == nil {
+		return nil, nil
+	}
+
+	if cfg.Autoscaling != nil {
+		if resources.Requests == nil {
+			return []string{
+				"spec.payloadProcessing.resources.requests is required when autoscaling is enabled; " +
+					"specify both cpu and memory requests or remove spec.payloadProcessing.resources to use manifest defaults",
+			}, nil
+		}
+		if _, ok := resources.Requests[corev1.ResourceCPU]; !ok {
+			return []string{
+				"spec.payloadProcessing.resources.requests.cpu is required when autoscaling is enabled",
+			}, nil
+		}
+		if _, ok := resources.Requests[corev1.ResourceMemory]; !ok {
+			return []string{
+				"spec.payloadProcessing.resources.requests.memory is required when autoscaling is enabled",
+			}, nil
+		}
+	}
+
+	return nil, resources
+}
+
+func tenantResourcesToCorev1(in *maasv1alpha1.TenantResourceRequirements) *corev1.ResourceRequirements {
+	if in == nil {
+		return nil
+	}
+	return &corev1.ResourceRequirements{
+		Requests: in.Requests,
+		Limits:   in.Limits,
+	}
 }
 
 func payloadProcessingConfigFor(tenant client.Object) *maasv1alpha1.TenantPayloadProcessingConfig {
@@ -1075,6 +1129,9 @@ func patchPayloadProcessingNetworkPolicy(log logr.Logger, r *unstructured.Unstru
 }
 
 func setContainerResources(r *unstructured.Unstructured, containerName string, res *corev1.ResourceRequirements) error {
+	if len(res.Claims) > 0 {
+		return errors.New("resource claims are not supported")
+	}
 	containers, found, err := unstructured.NestedSlice(r.Object, "spec", "template", "spec", "containers")
 	if err != nil || !found {
 		return errors.New("containers not found")

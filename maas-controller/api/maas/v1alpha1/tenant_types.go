@@ -150,10 +150,22 @@ type TenantPayloadProcessingConfig struct {
 
 	// Resources overrides the resource requests and limits for the payload-processing container.
 	// When set, replaces the entire resource block (full replacement, not merge).
-	// When autoscaling is enabled, HPA utilization targets are calculated against
-	// the overridden request values — overriding only limits has no effect on HPA.
+	// When autoscaling is enabled, both requests.cpu and requests.memory must be specified.
+	// Resource claims are not supported.
 	// +kubebuilder:validation:Optional
-	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
+	Resources *TenantResourceRequirements `json:"resources,omitempty"`
+}
+
+// TenantResourceRequirements defines CPU and memory requests and limits for a container.
+// Only requests and limits are supported; resource claims are not accepted.
+type TenantResourceRequirements struct {
+	// Limits defines the maximum amount of compute resources allowed.
+	// +optional
+	Limits corev1.ResourceList `json:"limits,omitempty"`
+
+	// Requests defines the minimum amount of compute resources required.
+	// +optional
+	Requests corev1.ResourceList `json:"requests,omitempty"`
 }
 
 // TenantAutoscalingConfig defines HPA autoscaling parameters for payload-processing.
