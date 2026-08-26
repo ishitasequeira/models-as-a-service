@@ -154,11 +154,6 @@ type TenantPayloadProcessingConfig struct {
 	// the overridden request values — overriding only limits has no effect on HPA.
 	// +kubebuilder:validation:Optional
 	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
-
-	// PreProcessingResources overrides the resource requests and limits for the
-	// payload-pre-processing container. When set, replaces the entire resource block.
-	// +kubebuilder:validation:Optional
-	PreProcessingResources *corev1.ResourceRequirements `json:"preProcessingResources,omitempty"`
 }
 
 // TenantAutoscalingConfig defines HPA autoscaling parameters for payload-processing.

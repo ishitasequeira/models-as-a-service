@@ -618,6 +618,31 @@ func requireContainerImage(t *testing.T, r *unstructured.Unstructured, fields ..
 	return image
 }
 
+func requireContainerResources(t *testing.T, dep *unstructured.Unstructured) (requests, limits map[string]any) {
+	t.Helper()
+
+	containers, found, err := unstructured.NestedSlice(dep.Object, "spec", "template", "spec", "containers")
+	require.NoError(t, err)
+	require.True(t, found)
+	require.NotEmpty(t, containers)
+
+	cm, ok := containers[0].(map[string]any)
+	require.True(t, ok)
+
+	resources, ok := cm["resources"].(map[string]any)
+	require.True(t, ok)
+
+	if rawRequests, hasRequests := resources["requests"]; hasRequests {
+		requests, ok = rawRequests.(map[string]any)
+		require.True(t, ok)
+	}
+	if rawLimits, hasLimits := resources["limits"]; hasLimits {
+		limits, ok = rawLimits.(map[string]any)
+		require.True(t, ok)
+	}
+	return requests, limits
+}
+
 func requireEnvVarValue(t *testing.T, r *unstructured.Unstructured, containerName, envName string) string {
 	t.Helper()
 
@@ -1074,7 +1099,6 @@ func TestBuildPlatformParams_ResourceOverrides(t *testing.T) {
 		got, err := BuildPlatformParams(tenant, platformContext, "opendatahub", "opendatahub", "https://kubernetes.default.svc", "opendatahub", logr.Discard())
 		require.NoError(t, err)
 		assert.Nil(t, got.PayloadProcessingResources)
-		assert.Nil(t, got.PayloadPreProcessingResources)
 	})
 
 	t.Run("payloadProcessing without resources yields nil resources", func(t *testing.T) {
@@ -1092,7 +1116,6 @@ func TestBuildPlatformParams_ResourceOverrides(t *testing.T) {
 		got, err := BuildPlatformParams(tenant, platformContext, "opendatahub", "opendatahub", "https://kubernetes.default.svc", "opendatahub", logr.Discard())
 		require.NoError(t, err)
 		assert.Nil(t, got.PayloadProcessingResources)
-		assert.Nil(t, got.PayloadPreProcessingResources)
 	})
 
 	t.Run("resources are resolved from spec", func(t *testing.T) {
@@ -1109,11 +1132,6 @@ func TestBuildPlatformParams_ResourceOverrides(t *testing.T) {
 							corev1.ResourceCPU:    resource.MustParse("2"),
 						},
 					},
-					PreProcessingResources: &corev1.ResourceRequirements{
-						Limits: corev1.ResourceList{
-							corev1.ResourceMemory: resource.MustParse("1Gi"),
-						},
-					},
 				},
 			},
 		}
@@ -1125,11 +1143,9 @@ func TestBuildPlatformParams_ResourceOverrides(t *testing.T) {
 		require.NotNil(t, got.PayloadProcessingResources)
 		assert.Equal(t, resource.MustParse("2Gi"), got.PayloadProcessingResources.Limits[corev1.ResourceMemory])
 		assert.Equal(t, resource.MustParse("256Mi"), got.PayloadProcessingResources.Requests[corev1.ResourceMemory])
-		require.NotNil(t, got.PayloadPreProcessingResources)
-		assert.Equal(t, resource.MustParse("1Gi"), got.PayloadPreProcessingResources.Limits[corev1.ResourceMemory])
 	})
 
-	t.Run("resources-only without pre-processing", func(t *testing.T) {
+	t.Run("resources with limits-only", func(t *testing.T) {
 		tenant := &maasv1alpha1.MaasTenantConfig{
 			Spec: maasv1alpha1.MaasTenantConfigSpec{
 				PayloadProcessing: &maasv1alpha1.TenantPayloadProcessingConfig{
@@ -1147,7 +1163,7 @@ func TestBuildPlatformParams_ResourceOverrides(t *testing.T) {
 		got, err := BuildPlatformParams(tenant, platformContext, "opendatahub", "opendatahub", "https://kubernetes.default.svc", "opendatahub", logr.Discard())
 		require.NoError(t, err)
 		require.NotNil(t, got.PayloadProcessingResources)
-		assert.Nil(t, got.PayloadPreProcessingResources)
+		assert.Equal(t, resource.MustParse("1Gi"), got.PayloadProcessingResources.Limits[corev1.ResourceMemory])
 	})
 
 	t.Run("resources coexist with autoscaling", func(t *testing.T) {
@@ -1217,12 +1233,7 @@ func TestSetContainerResources(t *testing.T) {
 		err := setContainerResources(dep, "payload-processing", res)
 		require.NoError(t, err)
 
-		containers, _, _ := unstructured.NestedSlice(dep.Object, "spec", "template", "spec", "containers")
-		cm := containers[0].(map[string]any)
-		resources := cm["resources"].(map[string]any)
-		requests := resources["requests"].(map[string]any)
-		limits := resources["limits"].(map[string]any)
-
+		requests, limits := requireContainerResources(t, dep)
 		assert.Equal(t, "256Mi", requests["memory"])
 		assert.Equal(t, "200m", requests["cpu"])
 		assert.Equal(t, "2Gi", limits["memory"])
@@ -1240,12 +1251,8 @@ func TestSetContainerResources(t *testing.T) {
 		err := setContainerResources(dep, "payload-processing", res)
 		require.NoError(t, err)
 
-		containers, _, _ := unstructured.NestedSlice(dep.Object, "spec", "template", "spec", "containers")
-		cm := containers[0].(map[string]any)
-		resources := cm["resources"].(map[string]any)
-		_, hasRequests := resources["requests"]
-		assert.False(t, hasRequests, "requests should be absent when only limits are set (full replacement)")
-		limits := resources["limits"].(map[string]any)
+		requests, limits := requireContainerResources(t, dep)
+		assert.Nil(t, requests, "requests should be absent when only limits are set (full replacement)")
 		assert.Equal(t, "1Gi", limits["memory"])
 	})
 
@@ -1310,24 +1317,21 @@ func TestPatchPayloadProcessingDeployment_Resources(t *testing.T) {
 	t.Run("nil resources preserves kustomize defaults", func(t *testing.T) {
 		dep := makeDeployment()
 		params := PlatformParams{
-			GatewayNamespace:      "openshift-ingress",
+			GatewayNamespace:       "openshift-ingress",
 			PayloadProcessingImage: "test-image",
 		}
 
 		err := patchPayloadProcessingDeployment(logr.Discard(), dep, params)
 		require.NoError(t, err)
 
-		containers, _, _ := unstructured.NestedSlice(dep.Object, "spec", "template", "spec", "containers")
-		cm := containers[0].(map[string]any)
-		resources := cm["resources"].(map[string]any)
-		limits := resources["limits"].(map[string]any)
+		_, limits := requireContainerResources(t, dep)
 		assert.Equal(t, "256Mi", limits["memory"])
 	})
 
 	t.Run("resource overrides are applied", func(t *testing.T) {
 		dep := makeDeployment()
 		params := PlatformParams{
-			GatewayNamespace:      "openshift-ingress",
+			GatewayNamespace:       "openshift-ingress",
 			PayloadProcessingImage: "test-image",
 			PayloadProcessingResources: &corev1.ResourceRequirements{
 				Requests: corev1.ResourceList{
@@ -1344,82 +1348,10 @@ func TestPatchPayloadProcessingDeployment_Resources(t *testing.T) {
 		err := patchPayloadProcessingDeployment(logr.Discard(), dep, params)
 		require.NoError(t, err)
 
-		containers, _, _ := unstructured.NestedSlice(dep.Object, "spec", "template", "spec", "containers")
-		cm := containers[0].(map[string]any)
-		resources := cm["resources"].(map[string]any)
-		limits := resources["limits"].(map[string]any)
-		requests := resources["requests"].(map[string]any)
+		requests, limits := requireContainerResources(t, dep)
 		assert.Equal(t, "2Gi", limits["memory"])
 		assert.Equal(t, "2", limits["cpu"])
 		assert.Equal(t, "256Mi", requests["memory"])
 		assert.Equal(t, "200m", requests["cpu"])
-	})
-}
-
-func TestPatchPreProcessingDeployment_Resources(t *testing.T) {
-	dep := &unstructured.Unstructured{
-		Object: map[string]any{
-			"apiVersion": "apps/v1",
-			"kind":       "Deployment",
-			"metadata": map[string]any{
-				"name":      PayloadPreProcessingName,
-				"namespace": "openshift-ingress",
-			},
-			"spec": map[string]any{
-				"selector": map[string]any{
-					"matchLabels": map[string]any{"app": PayloadPreProcessingName},
-				},
-				"template": map[string]any{
-					"metadata": map[string]any{
-						"labels": map[string]any{"app": PayloadPreProcessingName},
-					},
-					"spec": map[string]any{
-						"serviceAccountName": "payload-processing",
-						"containers": []any{
-							map[string]any{
-								"name":  PayloadPreProcessingName,
-								"image": "test-image",
-								"resources": map[string]any{
-									"requests": map[string]any{"memory": "32Mi", "cpu": "25m"},
-									"limits":   map[string]any{"memory": "128Mi", "cpu": "200m"},
-								},
-							},
-						},
-						"volumes": []any{
-							map[string]any{
-								"name": "plugins-config-volume",
-								"configMap": map[string]any{
-									"name": "payload-processing-plugins",
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	t.Run("resource overrides are applied to pre-processing", func(t *testing.T) {
-		d := dep.DeepCopy()
-		params := PlatformParams{
-			GatewayNamespace:      "openshift-ingress",
-			PayloadProcessingImage: "test-image",
-			PayloadPreProcessingResources: &corev1.ResourceRequirements{
-				Limits: corev1.ResourceList{
-					corev1.ResourceMemory: resource.MustParse("1Gi"),
-					corev1.ResourceCPU:    resource.MustParse("1"),
-				},
-			},
-		}
-
-		err := patchPreProcessingDeployment(logr.Discard(), d, params)
-		require.NoError(t, err)
-
-		containers, _, _ := unstructured.NestedSlice(d.Object, "spec", "template", "spec", "containers")
-		cm := containers[0].(map[string]any)
-		resources := cm["resources"].(map[string]any)
-		limits := resources["limits"].(map[string]any)
-		assert.Equal(t, "1Gi", limits["memory"])
-		assert.Equal(t, "1", limits["cpu"])
 	})
 }

@@ -61,8 +61,6 @@ type PlatformParams struct {
 	// PayloadProcessingResources overrides resource requests/limits for the payload-processing container.
 	// Full replacement: when set, the entire resources block is replaced (not merged with base manifest).
 	PayloadProcessingResources *corev1.ResourceRequirements
-	// PayloadPreProcessingResources overrides resource requests/limits for the payload-pre-processing container.
-	PayloadPreProcessingResources *corev1.ResourceRequirements
 
 	// Warnings collects non-fatal issues found during param resolution (e.g. invalid annotations).
 	Warnings []string
@@ -95,7 +93,12 @@ func BuildPlatformParams(tenant client.Object, platformContext PlatformContext, 
 	params.MaaSAPIReplicas, params.PayloadProcessingReplicas, params.Warnings = resolveReplicaAnnotations(tenant, log)
 
 	var ppReplicas *int32
-	params.PayloadProcessingAutoscaling, ppReplicas, params.PayloadProcessingMaxReplicas, params.PayloadProcessingTargetCPU, params.PayloadProcessingTargetMemory, params.PayloadProcessingResources, params.PayloadPreProcessingResources = resolvePayloadProcessingConfig(tenant, log)
+	params.PayloadProcessingAutoscaling,
+		ppReplicas,
+		params.PayloadProcessingMaxReplicas,
+		params.PayloadProcessingTargetCPU,
+		params.PayloadProcessingTargetMemory,
+		params.PayloadProcessingResources = resolvePayloadProcessingConfig(tenant, log)
 
 	// Spec-based replicas take precedence over annotation-based replicas for payload-processing.
 	if ppReplicas != nil {
@@ -192,29 +195,25 @@ func parseReplicaAnnotation(annotationKey, value string) (*int32, string) {
 
 // resolvePayloadProcessingConfig reads autoscaling and resource configuration from the
 // tenant spec and returns resolved values with defaults applied.
-func resolvePayloadProcessingConfig(tenant client.Object, log logr.Logger) (enabled bool, replicas *int32, maxReplicas, targetCPU, targetMemory int32, resources, preProcessingResources *corev1.ResourceRequirements) {
+func resolvePayloadProcessingConfig(tenant client.Object, log logr.Logger) (enabled bool, replicas *int32, maxReplicas, targetCPU, targetMemory int32, resources *corev1.ResourceRequirements) {
 	maxReplicas = defaultMaxReplicas
 	targetCPU = defaultTargetCPU
 	targetMemory = defaultTargetMemory
 
 	cfg := payloadProcessingConfigFor(tenant)
 	if cfg == nil {
-		return false, nil, maxReplicas, targetCPU, targetMemory, nil, nil
+		return false, nil, maxReplicas, targetCPU, targetMemory, nil
 	}
 
 	replicas = cfg.Replicas
 	resources = cfg.Resources
-	preProcessingResources = cfg.PreProcessingResources
 
 	if resources != nil {
 		log.Info("Payload-processing resource overrides configured")
 	}
-	if preProcessingResources != nil {
-		log.Info("Payload-pre-processing resource overrides configured")
-	}
 
 	if cfg.Autoscaling == nil {
-		return false, replicas, maxReplicas, targetCPU, targetMemory, resources, preProcessingResources
+		return false, replicas, maxReplicas, targetCPU, targetMemory, resources
 	}
 
 	enabled = true
@@ -230,7 +229,7 @@ func resolvePayloadProcessingConfig(tenant client.Object, log logr.Logger) (enab
 		targetMemory = *cfg.Autoscaling.TargetMemoryUtilization
 	}
 
-	return enabled, replicas, maxReplicas, targetCPU, targetMemory, resources, preProcessingResources
+	return enabled, replicas, maxReplicas, targetCPU, targetMemory, resources
 }
 
 func payloadProcessingConfigFor(tenant client.Object) *maasv1alpha1.TenantPayloadProcessingConfig {
@@ -555,12 +554,6 @@ func patchPreProcessingDeployment(log logr.Logger, r *unstructured.Unstructured,
 	}
 	if err := patchConfigMapVolumeRef(r, "plugins-config-volume", PayloadProcessingPluginsConfigMapForTenant(params.TenantIdentifier)); err != nil {
 		return fmt.Errorf("patch plugins ConfigMap volume: %w", err)
-	}
-	if params.PayloadPreProcessingResources != nil {
-		if err := setContainerResources(r, PayloadPreProcessingName, params.PayloadPreProcessingResources); err != nil {
-			return fmt.Errorf("patch payload-pre-processing resources: %w", err)
-		}
-		log.V(4).Info("Patched payload-pre-processing resources", "deployment", deploymentName)
 	}
 	return nil
 }

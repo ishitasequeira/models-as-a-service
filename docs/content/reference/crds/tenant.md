@@ -48,7 +48,6 @@ See [AITenant CRD](ai-tenant.md) for creating additional tenants.
 | replicas | int32 | No | 1 | Sets the Deployment `spec.replicas`. When `autoscaling` is also configured, this value becomes the HPA `minReplicas` floor instead. Valid range: 1–100. |
 | autoscaling | PayloadProcessingAutoscaling | No | - | Presence of this section enables HPA-based autoscaling for payload-processing pods. |
 | resources | [ResourceRequirements](https://kubernetes.io/docs/reference/kubernetes-api/workload-resources/pod-v1/#resources) | No | requests: 128Mi/100m, limits: 512Mi/1 | Overrides the resource requests and limits for the payload-processing container. When set, replaces the entire resource block (full replacement, not merge). |
-| preProcessingResources | [ResourceRequirements](https://kubernetes.io/docs/reference/kubernetes-api/workload-resources/pod-v1/#resources) | No | requests: 64Mi/50m, limits: 256Mi/500m | Overrides the resource requests and limits for the payload-pre-processing container. When set, replaces the entire resource block. |
 
 ### PayloadProcessingAutoscaling
 
@@ -68,7 +67,7 @@ Remove the `autoscaling` section to disable autoscaling. The HPA will be removed
 
 ### Resource Overrides
 
-Use `resources` and `preProcessingResources` to override the default container resource requests and limits. When set, the entire resource block is replaced (not merged with defaults). When not set, the base manifest defaults are used.
+Use `resources` to override the default container resource requests and limits for the payload-processing container. When set, the entire resource block is replaced (not merged with defaults). When not set, the base manifest defaults are used.
 
 When autoscaling is enabled, HPA utilization targets are calculated against the request values. Overriding only limits has no effect on HPA scaling behavior.
 
@@ -83,10 +82,6 @@ spec:
       limits:
         memory: "2Gi"
         cpu: "2"
-    preProcessingResources:
-      limits:
-        memory: "1Gi"
-        cpu: "1"
 ```
 
 ---
