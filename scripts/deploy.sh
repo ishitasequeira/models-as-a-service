@@ -827,9 +827,10 @@ deploy_via_operator() {
     fi
     exit 1
   fi
-  # Apply latest RBAC from local repo AFTER the operator has created maas-controller.
-  # The ai-gateway-operator bundles its own RBAC, which may be outdated (e.g. missing HPA
-  # permissions). Applying here overrides the operator's rules with the latest from this repo.
+  # Apply latest RBAC from local repo after operator has deployed maas-controller.
+  # The operator bundles an older copy of the ClusterRole (e.g. missing HPA permissions).
+  # Applying here overwrites it. No pod restart needed — RBAC takes effect immediately
+  # and the running controller picks up permissions on its next reconcile retry.
   log_info "Applying latest MaaS RBAC (cluster-scoped) from local repo..."
   local project_root
   project_root="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -843,9 +844,6 @@ deploy_via_operator() {
     kubectl apply -f "${ocp_rbac_dir}/clusterrole_ocp.yaml" \
                   -f "${ocp_rbac_dir}/clusterrolebinding_ocp.yaml" 2>/dev/null || true
   fi
-
-  # Restart controller so it picks up updated RBAC immediately instead of waiting for backoff
-  kubectl rollout restart deployment/maas-controller -n "$NAMESPACE"
   log_info "Waiting for maas-controller rollout..."
   if ! kubectl rollout status deployment/maas-controller -n "$NAMESPACE" --timeout="${POD_TIMEOUT:-300}s"; then
     log_error "maas-controller not ready (timeout: ${POD_TIMEOUT:-300}s)"
