@@ -69,6 +69,10 @@ type TenantSpec struct {
 	// +kubebuilder:validation:Optional
 	Telemetry *TenantTelemetryConfig `json:"telemetry,omitempty"`
 
+	// MaasAPI defines resource configuration for maas-api pods.
+	// +kubebuilder:validation:Optional
+	MaasAPI *TenantMaasAPIConfig `json:"maasApi,omitempty"`
+
 	// PayloadProcessing defines scaling configuration for payload-processing (IPP) pods.
 	// +kubebuilder:validation:Optional
 	PayloadProcessing *TenantPayloadProcessingConfig `json:"payloadProcessing,omitempty"`
@@ -132,6 +136,15 @@ type TenantAPIKeysConfig struct {
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:validation:Minimum=1
 	MaxExpirationDays *int32 `json:"maxExpirationDays,omitempty"`
+}
+
+// TenantMaasAPIConfig defines resource configuration for maas-api pods.
+type TenantMaasAPIConfig struct {
+	// Resources overrides the resource requests and limits for the maas-api container.
+	// When set, replaces the entire resource block (full replacement, not merge).
+	// Resource claims are not supported.
+	// +kubebuilder:validation:Optional
+	Resources *TenantResourceRequirements `json:"resources,omitempty"`
 }
 
 // TenantPayloadProcessingConfig defines scaling and resource configuration for payload-processing pods.

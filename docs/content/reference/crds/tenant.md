@@ -35,7 +35,34 @@ See [AITenant CRD](ai-tenant.md) for creating additional tenants.
 |-------|------|----------|-------------|
 | apiKeys | TenantAPIKeysConfig | No | Configuration for API key management |
 | telemetry | TenantTelemetryConfig | No | Telemetry and metrics collection configuration |
+| maasApi | MaasAPIConfig | No | Resource configuration for the maas-api Deployment |
 | payloadProcessing | PayloadProcessingConfig | No | Replica count, autoscaling, and resource configuration for the payload-processing Deployment |
+
+---
+
+## MaasAPIConfig
+
+`spec.maasApi` controls resource overrides for the tenant's maas-api Deployment.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| resources | [ResourceRequirements](https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#resources) | No | requests: 128Mi/100m, limits: 256Mi/500m | Overrides the resource requests and limits for the maas-api container. When set, replaces the entire resource block (full replacement, not merge). Resource claims are not supported. |
+
+### Resource Overrides
+
+Use `resources` to override the default container resource requests and limits for the maas-api container. When set, the entire resource block is replaced (not merged with defaults). When not set, the base manifest defaults are used. Only `requests` and `limits` are accepted; resource claims are not supported.
+
+```yaml
+spec:
+  maasApi:
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "200m"
+      limits:
+        memory: "1Gi"
+        cpu: "1"
+```
 
 ---
 
