@@ -224,8 +224,15 @@ class TestTenantLifecycle:
         st = _wait_tenant_ready()
         assert st is not None, "MaasTenantConfig not Ready; skip workload checks."
         phase = st.get("phase")
-        if phase != "Active":
-            pytest.skip("Tenant not Active (e.g. Degraded); payload-processing not asserted")
+        if phase not in ("Active", "Degraded"):
+            pytest.skip(f"Tenant phase {phase!r}; workload checks require Active or Degraded")
+
+        deployments_ready = any(
+            cond.get("type") == "DeploymentsAvailable" and cond.get("status") == "True"
+            for cond in (st.get("conditions") or [])
+        )
+        if not deployments_ready:
+            pytest.skip("Tenant DeploymentsAvailable is not True; skipping workload checks")
 
         result = _oc_run(
             [

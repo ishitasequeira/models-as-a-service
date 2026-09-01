@@ -174,7 +174,7 @@ Optional metadata annotations that control per-tenant horizontal scaling.
 
 | Annotation | Default | Valid Range | Description |
 |------------|---------|-------------|-------------|
-| `maas.opendatahub.io/maas-api-replicas` | 1 | 1–100 | **Deprecated:** use `spec.maasApi.replicas` instead. Still supported during the migration window but will be removed in a future release. |
+| `maas.opendatahub.io/maas-api-replicas` | 1 | 1–100 | Overrides the maas-api Deployment replica count. When `spec.maasApi.replicas` is also set, the spec value takes precedence. |
 | `maas.opendatahub.io/payload-processing-replicas` | 1 | 1–100 | **Deprecated:** use `spec.payloadProcessing.replicas` instead. Still supported during the migration window but will be removed in a future release. |
 
 When set, the controller patches the corresponding Deployment's `spec.replicas` during reconciliation. Invalid values (non-numeric, zero, negative, or exceeding 100) produce a `Degraded` status condition with a remediation message; the default replica count is preserved.
