@@ -1466,6 +1466,55 @@ func TestBuildPlatformParams_MaasAPIConfig(t *testing.T) {
 		assert.Equal(t, resource.MustParse("1Gi"), got.MaaSAPIResources.Limits[corev1.ResourceMemory])
 		assert.Equal(t, resource.MustParse("256Mi"), got.MaaSAPIResources.Requests[corev1.ResourceMemory])
 	})
+
+	t.Run("spec replicas override annotation", func(t *testing.T) {
+		replicas := int32(4)
+		tenant := &maasv1alpha1.MaasTenantConfig{
+			Spec: maasv1alpha1.MaasTenantConfigSpec{
+				MaasAPI: &maasv1alpha1.TenantMaasAPIConfig{
+					Replicas: &replicas,
+				},
+			},
+		}
+		tenant.SetNamespace("models-as-a-service")
+		tenant.SetName("default-tenant")
+		tenant.SetAnnotations(map[string]string{
+			AnnotationMaaSAPIReplicas: "3",
+		})
+
+		got, err := BuildPlatformParams(tenant, platformContext, "opendatahub", "opendatahub", "https://kubernetes.default.svc", "opendatahub", logr.Discard())
+		require.NoError(t, err)
+		require.NotNil(t, got.MaaSAPIReplicas)
+		assert.Equal(t, int32(4), *got.MaaSAPIReplicas)
+	})
+
+	t.Run("annotation replicas used when spec omits replicas", func(t *testing.T) {
+		tenant := &maasv1alpha1.MaasTenantConfig{
+			Spec: maasv1alpha1.MaasTenantConfigSpec{
+				MaasAPI: &maasv1alpha1.TenantMaasAPIConfig{},
+			},
+		}
+		tenant.SetNamespace("models-as-a-service")
+		tenant.SetName("default-tenant")
+		tenant.SetAnnotations(map[string]string{
+			AnnotationMaaSAPIReplicas: "3",
+		})
+
+		got, err := BuildPlatformParams(tenant, platformContext, "opendatahub", "opendatahub", "https://kubernetes.default.svc", "opendatahub", logr.Discard())
+		require.NoError(t, err)
+		require.NotNil(t, got.MaaSAPIReplicas)
+		assert.Equal(t, int32(3), *got.MaaSAPIReplicas)
+	})
+
+	t.Run("nil replicas when spec and annotation absent", func(t *testing.T) {
+		tenant := &maasv1alpha1.MaasTenantConfig{}
+		tenant.SetNamespace("models-as-a-service")
+		tenant.SetName("default-tenant")
+
+		got, err := BuildPlatformParams(tenant, platformContext, "opendatahub", "opendatahub", "https://kubernetes.default.svc", "opendatahub", logr.Discard())
+		require.NoError(t, err)
+		assert.Nil(t, got.MaaSAPIReplicas)
+	})
 }
 
 func TestPatchMaaSAPIDeployment_Resources(t *testing.T) {

@@ -35,17 +35,18 @@ See [AITenant CRD](ai-tenant.md) for creating additional tenants.
 |-------|------|----------|-------------|
 | apiKeys | TenantAPIKeysConfig | No | Configuration for API key management |
 | telemetry | TenantTelemetryConfig | No | Telemetry and metrics collection configuration |
-| maasApi | MaasAPIConfig | No | Resource configuration for the maas-api Deployment |
+| maasApi | MaasAPIConfig | No | Replica count and resource configuration for the maas-api Deployment |
 | payloadProcessing | PayloadProcessingConfig | No | Replica count, autoscaling, and resource configuration for the payload-processing Deployment |
 
 ---
 
 ## MaasAPIConfig
 
-`spec.maasApi` controls resource overrides for the tenant's maas-api Deployment.
+`spec.maasApi` controls replica count and resource overrides for the tenant's maas-api Deployment.
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
+| replicas | int32 | No | 1 | Sets the Deployment `spec.replicas`. Spec-based replicas take precedence over the `maas.opendatahub.io/maas-api-replicas` annotation. When neither is set, the base manifest default applies. Valid range: 1–100. |
 | resources | [ResourceRequirements](https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#resources) | No | requests: 128Mi/100m, limits: 256Mi/500m | Overrides the resource requests and limits for the maas-api container. When set, replaces the entire resource block (full replacement, not merge). Resource claims are not supported. |
 
 ### Resource Overrides
@@ -55,6 +56,7 @@ Use `resources` to override the default container resource requests and limits f
 ```yaml
 spec:
   maasApi:
+    replicas: 2
     resources:
       requests:
         memory: "256Mi"
@@ -172,7 +174,7 @@ Optional metadata annotations that control per-tenant horizontal scaling.
 
 | Annotation | Default | Valid Range | Description |
 |------------|---------|-------------|-------------|
-| `maas.opendatahub.io/maas-api-replicas` | 1 | 1–100 | Overrides the maas-api Deployment replica count for this tenant |
+| `maas.opendatahub.io/maas-api-replicas` | 1 | 1–100 | **Deprecated:** use `spec.maasApi.replicas` instead. Still supported during the migration window but will be removed in a future release. |
 | `maas.opendatahub.io/payload-processing-replicas` | 1 | 1–100 | **Deprecated:** use `spec.payloadProcessing.replicas` instead. Still supported during the migration window but will be removed in a future release. |
 
 When set, the controller patches the corresponding Deployment's `spec.replicas` during reconciliation. Invalid values (non-numeric, zero, negative, or exceeding 100) produce a `Degraded` status condition with a remediation message; the default replica count is preserved.

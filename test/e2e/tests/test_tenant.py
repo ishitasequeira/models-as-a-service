@@ -113,22 +113,39 @@ def _wait_tenant_ready(timeout=180, interval=5):
     return None
 
 
+_MAAS_API_OVERRIDE_REPLICAS = 2
 _MAAS_API_OVERRIDE_REQUESTS = {"memory": "320Mi", "cpu": "150m"}
 _MAAS_API_OVERRIDE_LIMITS = {"memory": "768Mi", "cpu": "750m"}
 
 
-def _maas_api_container_resources(namespace: str) -> dict | None:
+def _maas_api_deployment(namespace: str) -> dict | None:
     try:
-        deployment = _oc_json(["get", "deployment", "maas-api", "-n", namespace, "-o", "json"])
+        return _oc_json(["get", "deployment", "maas-api", "-n", namespace, "-o", "json"])
     except subprocess.CalledProcessError as exc:
         if _oc_not_found(exc):
             return None
         raise
+
+
+def _maas_api_container_resources(namespace: str) -> dict | None:
+    deployment = _maas_api_deployment(namespace)
+    if deployment is None:
+        return None
     containers = deployment.get("spec", {}).get("template", {}).get("spec", {}).get("containers") or []
     for container in containers:
         if container.get("name") == "maas-api":
             return container.get("resources") or {}
     return {}
+
+
+def _maas_api_replica_count(namespace: str) -> int | None:
+    deployment = _maas_api_deployment(namespace)
+    if deployment is None:
+        return None
+    replicas = deployment.get("spec", {}).get("replicas")
+    if replicas is None:
+        return None
+    return int(replicas)
 
 
 def _resources_match(resources: dict, expected_requests: dict, expected_limits: dict) -> bool:
@@ -152,6 +169,22 @@ def _wait_maas_api_resources(
         resources = _maas_api_container_resources(namespace)
         if resources is not None and _resources_match(resources, expected_requests, expected_limits):
             return resources
+        time.sleep(interval)
+    return None
+
+
+def _wait_maas_api_replicas(
+    namespace: str,
+    expected_replicas: int,
+    *,
+    timeout: int = 180,
+    interval: int = 5,
+) -> int | None:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        replicas = _maas_api_replica_count(namespace)
+        if replicas == expected_replicas:
+            return replicas
         time.sleep(interval)
     return None
 
@@ -183,8 +216,8 @@ class TestTenantLifecycle:
     def test_payload_processing_deployed_with_active_tenant(self):
         """Active MaasTenantConfig should reconcile tenant platform workloads.
 
-        Verifies payload-processing exists and that spec.maasApi.resources overrides
-        are applied to the default maas-api Deployment (then restored).
+        Verifies payload-processing exists and that spec.maasApi replicas/resources
+        overrides are applied to the default maas-api Deployment (then restored).
         """
         st = _wait_tenant_ready()
         assert st is not None, "MaasTenantConfig not Ready; skip workload checks."
@@ -231,7 +264,7 @@ class TestTenantLifecycle:
             if _oc_output_not_found(maas_api_result):
                 pytest.skip(
                     f"maas-api deployment not found in namespace {MAAS_API_DEPLOYMENT_NAMESPACE!r}; "
-                    "skipping resource override check."
+                    "skipping maasApi override check."
                 )
             combined = (maas_api_result.stderr or "") + (maas_api_result.stdout or "")
             pytest.fail(
@@ -244,10 +277,11 @@ class TestTenantLifecycle:
         patch = {
             "spec": {
                 "maasApi": {
+                    "replicas": _MAAS_API_OVERRIDE_REPLICAS,
                     "resources": {
                         "requests": _MAAS_API_OVERRIDE_REQUESTS,
                         "limits": _MAAS_API_OVERRIDE_LIMITS,
-                    }
+                    },
                 }
             }
         }
@@ -268,19 +302,29 @@ class TestTenantLifecycle:
             if "maasApi" in combined or "unknown field" in combined.lower():
                 pytest.skip(
                     "MaasTenantConfig spec.maasApi not supported by installed CRD/controller; "
-                    f"skipping resource override check: {combined.strip()}"
+                    f"skipping maasApi override check: {combined.strip()}"
                 )
             pytest.fail(
                 f"`oc patch maastenantconfig/{TENANT_NAME}` failed: {combined.strip()}"
             )
 
         try:
-            matched = _wait_maas_api_resources(
+            matched_replicas = _wait_maas_api_replicas(
+                MAAS_API_DEPLOYMENT_NAMESPACE,
+                _MAAS_API_OVERRIDE_REPLICAS,
+            )
+            assert matched_replicas is not None, (
+                "maas-api Deployment replicas did not match MaasTenantConfig override within timeout; "
+                f"expected replicas={_MAAS_API_OVERRIDE_REPLICAS}, "
+                f"last observed={_maas_api_replica_count(MAAS_API_DEPLOYMENT_NAMESPACE)!r}"
+            )
+
+            matched_resources = _wait_maas_api_resources(
                 MAAS_API_DEPLOYMENT_NAMESPACE,
                 _MAAS_API_OVERRIDE_REQUESTS,
                 _MAAS_API_OVERRIDE_LIMITS,
             )
-            assert matched is not None, (
+            assert matched_resources is not None, (
                 "maas-api Deployment resources did not match MaasTenantConfig override within timeout; "
                 f"expected requests={_MAAS_API_OVERRIDE_REQUESTS!r} limits={_MAAS_API_OVERRIDE_LIMITS!r}, "
                 f"last observed={_maas_api_container_resources(MAAS_API_DEPLOYMENT_NAMESPACE)!r}"

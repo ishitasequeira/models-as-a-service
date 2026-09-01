@@ -107,8 +107,17 @@ spec:
                     type: string
                 type: object
               maasApi:
-                description: MaasAPI defines resource configuration for maas-api pods.
+                description: MaasAPI defines scaling and resource configuration for
+                  maas-api pods.
                 properties:
+                  replicas:
+                    description: |-
+                      Replicas overrides the maas-api Deployment replica count.
+                      Spec-based replicas take precedence over the maas.opendatahub.io/maas-api-replicas annotation.
+                    format: int32
+                    maximum: 100
+                    minimum: 1
+                    type: integer
                   resources:
                     description: |-
                       Resources overrides the resource requests and limits for the maas-api container.

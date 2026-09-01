@@ -69,7 +69,7 @@ type TenantSpec struct {
 	// +kubebuilder:validation:Optional
 	Telemetry *TenantTelemetryConfig `json:"telemetry,omitempty"`
 
-	// MaasAPI defines resource configuration for maas-api pods.
+	// MaasAPI defines scaling and resource configuration for maas-api pods.
 	// +kubebuilder:validation:Optional
 	MaasAPI *TenantMaasAPIConfig `json:"maasApi,omitempty"`
 
@@ -138,8 +138,15 @@ type TenantAPIKeysConfig struct {
 	MaxExpirationDays *int32 `json:"maxExpirationDays,omitempty"`
 }
 
-// TenantMaasAPIConfig defines resource configuration for maas-api pods.
+// TenantMaasAPIConfig defines scaling and resource configuration for maas-api pods.
 type TenantMaasAPIConfig struct {
+	// Replicas overrides the maas-api Deployment replica count.
+	// Spec-based replicas take precedence over the maas.opendatahub.io/maas-api-replicas annotation.
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=100
+	Replicas *int32 `json:"replicas,omitempty"`
+
 	// Resources overrides the resource requests and limits for the maas-api container.
 	// When set, replaces the entire resource block (full replacement, not merge).
 	// Resource claims are not supported.

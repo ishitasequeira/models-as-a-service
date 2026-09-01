@@ -95,7 +95,11 @@ func BuildPlatformParams(tenant client.Object, platformContext PlatformContext, 
 
 	params.MaaSAPIReplicas, params.PayloadProcessingReplicas, params.Warnings = resolveReplicaAnnotations(tenant, log)
 
-	params.MaaSAPIResources = resolveMaasAPIResources(tenant, log)
+	maasAPIReplicas, maasAPIResources := resolveMaasAPIConfig(tenant, log)
+	params.MaaSAPIResources = maasAPIResources
+	if maasAPIReplicas != nil {
+		params.MaaSAPIReplicas = maasAPIReplicas
+	}
 
 	var ppReplicas *int32
 	var resourceWarnings []string
@@ -281,17 +285,24 @@ func validatePayloadProcessingResources(cfg *maasv1alpha1.TenantPayloadProcessin
 	return nil, resources
 }
 
-func resolveMaasAPIResources(tenant client.Object, log logr.Logger) *corev1.ResourceRequirements {
+func resolveMaasAPIConfig(tenant client.Object, log logr.Logger) (replicas *int32, resources *corev1.ResourceRequirements) {
 	cfg := maasAPIConfigFor(tenant)
-	if cfg == nil || cfg.Resources == nil {
-		return nil
+	if cfg == nil {
+		return nil, nil
 	}
 
-	resources := tenantResourcesToCorev1(cfg.Resources)
-	if resources != nil {
-		log.Info("maas-api resource overrides configured")
+	if cfg.Replicas != nil {
+		replicas = cfg.Replicas
+		log.Info("Resolved maas-api replicas from spec", "replicas", *replicas)
 	}
-	return resources
+	if cfg.Resources != nil {
+		resources = tenantResourcesToCorev1(cfg.Resources)
+		if resources != nil {
+			log.Info("maas-api resource overrides configured")
+		}
+	}
+
+	return replicas, resources
 }
 
 func maasAPIConfigFor(tenant client.Object) *maasv1alpha1.TenantMaasAPIConfig {

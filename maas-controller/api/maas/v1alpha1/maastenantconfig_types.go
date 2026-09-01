@@ -55,7 +55,7 @@ type MaasTenantConfigSpec struct {
 	// +kubebuilder:validation:Optional
 	Telemetry *TenantTelemetryConfig `json:"telemetry,omitempty"`
 
-	// MaasAPI defines resource configuration for maas-api pods.
+	// MaasAPI defines scaling and resource configuration for maas-api pods.
 	// +kubebuilder:validation:Optional
 	MaasAPI *TenantMaasAPIConfig `json:"maasApi,omitempty"`
 
