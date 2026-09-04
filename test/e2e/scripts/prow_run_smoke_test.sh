@@ -28,12 +28,11 @@
 #   SKIP_VALIDATION - Skip deployment validation (default: false)
 #   MAAS_API_IMAGE - Custom MaaS API image (optional)
 #   MAAS_CONTROLLER_IMAGE - Custom MaaS controller image (optional)
-#   AI_GATEWAY_OPERATOR_IMAGE - Custom ai-gateway-operator image (optional, requires DEPLOY_MODE=operator)
+#   AI_GATEWAY_OPERATOR_IMAGE - Custom ai-gateway-operator image (optional)
 #   AI_GATEWAY_CONTROLLER_IMAGE - AIGC manager image; unset defaults to
 #                                quay.io/opendatahub/odh-ai-gateway-controller:latest (main after AIGC #91).
 #                                Set to empty to skip companion install.
 #   AIGC_GIT_URL / AIGC_GIT_REF - Optional overrides for deploy-aigc-companion.sh (defaults live in that script)
-#   DEPLOY_MODE           - kustomize (default) or operator
 #   POLICY_ENGINE - Rate-limiting policy engine (default: rhcl)
 #   RHCL_STARTING_CSV - Optional RHCL operator startingCSV pin
 #   RHCL_NAMESPACE - RHCL/Kuadrant workload namespace (default: kuadrant-system)
@@ -87,7 +86,6 @@ else
 fi
 export OPERATOR_CATALOG=${OPERATOR_CATALOG:-}
 export OPERATOR_IMAGE=${OPERATOR_IMAGE:-}
-DEPLOY_MODE=${DEPLOY_MODE:-kustomize}
 export POLICY_ENGINE="${POLICY_ENGINE:-rhcl}"
 export RHCL_NAMESPACE="${RHCL_NAMESPACE:-kuadrant-system}"
 export RHCL_STARTING_CSV="${RHCL_STARTING_CSV:-}"
