@@ -265,7 +265,7 @@ func (s *Selector) Select(groups []string, username string, requestedSubscriptio
 	if s.accessChecker != nil {
 		authorizedSet = s.accessChecker.AuthorizedModels(groups, username)
 		if authorizedSet == nil {
-			authorizedSet = map[authpolicy.ModelKey]bool{}
+			return nil, errors.New("failed to determine authorized models")
 		}
 	}
 
@@ -346,7 +346,7 @@ func (s *Selector) SelectHighestPriority(groups []string, username string) (*Sel
 	if s.accessChecker != nil {
 		authorizedSet := s.accessChecker.AuthorizedModels(groups, username)
 		if authorizedSet == nil {
-			authorizedSet = map[authpolicy.ModelKey]bool{}
+			return nil, errors.New("failed to determine authorized models")
 		}
 		resp.ModelRefs = filterAuthorizedModels(resp.ModelRefs, authorizedSet)
 	}
