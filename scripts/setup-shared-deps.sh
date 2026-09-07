@@ -44,6 +44,7 @@ HELM_NAMESPACE="${HELM_NAMESPACE:-rhoai-deps}"
 
 OPERATOR_TYPE="${OPERATOR_TYPE:-odh}"
 DEPLOY_MODE="${DEPLOY_MODE:-operator}"
+INGRESS_MODE="${INGRESS_MODE:-route}"
 POLICY_ENGINE="${POLICY_ENGINE:-}"
 MAAS_CONTROLLER_IMAGE="${MAAS_CONTROLLER_IMAGE:-}"
 MAAS_API_IMAGE="${MAAS_API_IMAGE:-}"
@@ -98,6 +99,23 @@ build_helm_sets() {
       --set components.aigateway.modelsAsAService.gatewayClass.create=true
       --set components.aigateway.modelsAsAService.gateway.create=true
       --set dependencies.rhcl.enabled=true
+    )
+  fi
+
+  if [[ "$INGRESS_MODE" == "clusterip" ]]; then
+    local cluster_domain="${CLUSTER_DOMAIN:-}"
+    if [[ -z "$cluster_domain" ]]; then
+      cluster_domain=$(kubectl get ingresses.config.openshift.io cluster -o jsonpath='{.spec.domain}' 2>/dev/null || true)
+    fi
+    if [[ -z "$cluster_domain" ]]; then
+      log_error "Could not determine the OpenShift ingress domain for clusterip mode"
+      return 1
+    fi
+    HELM_SETS+=(
+      --set components.aigateway.modelsAsAService.gatewayClass.create=false
+      --set components.aigateway.modelsAsAService.gateway.spec.gatewayClassName=openshift-default
+      --set components.aigateway.modelsAsAService.gateway.openshiftRoute.enabled=true
+      --set "components.aigateway.modelsAsAService.gateway.openshiftRoute.host=maas.${cluster_domain}"
     )
   fi
 
