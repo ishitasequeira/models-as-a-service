@@ -95,8 +95,8 @@ build_helm_sets() {
     HELM_SETS+=(
       --set components.aigateway.dsc.managementState=Removed
       --set components.aigateway.dsc.modelsAsAService.managementState=Removed
-      --set components.aigateway.modelsAsAService.gatewayClass.create=false
-      --set components.aigateway.modelsAsAService.gateway.create=false
+      --set components.aigateway.modelsAsAService.gatewayClass.create=true
+      --set components.aigateway.modelsAsAService.gateway.create=true
       --set dependencies.rhcl.enabled=true
     )
   fi
