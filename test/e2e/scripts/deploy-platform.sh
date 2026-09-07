@@ -47,6 +47,7 @@ deploy_maas_platform() {
     export MODEL_NAMESPACE
     local deploy_cmd=(
         "$PROJECT_ROOT/scripts/deploy.sh"
+        --deployment-mode "${DEPLOY_MODE:-kustomize}"
         --policy-engine "${POLICY_ENGINE}"
     )
     [[ -n "${OPERATOR_CATALOG:-}" ]] && deploy_cmd+=(--operator-catalog "${OPERATOR_CATALOG}")
