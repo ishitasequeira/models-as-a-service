@@ -43,6 +43,7 @@ HELM_RELEASE_NAME="${HELM_RELEASE_NAME:-rhoai-deps}"
 HELM_NAMESPACE="${HELM_NAMESPACE:-rhoai-deps}"
 
 OPERATOR_TYPE="${OPERATOR_TYPE:-odh}"
+DEPLOY_MODE="${DEPLOY_MODE:-operator}"
 POLICY_ENGINE="${POLICY_ENGINE:-}"
 MAAS_CONTROLLER_IMAGE="${MAAS_CONTROLLER_IMAGE:-}"
 MAAS_API_IMAGE="${MAAS_API_IMAGE:-}"
@@ -90,6 +91,16 @@ build_helm_sets() {
     --set-json 'components.kserve.gateway.spec.listeners=[{"name":"https","port":443,"protocol":"HTTPS","allowedRoutes":{"namespaces":{"from":"All"}}}]'
   )
 
+  if [[ "$DEPLOY_MODE" == "kustomize" ]]; then
+    HELM_SETS+=(
+      --set components.aigateway.dsc.managementState=Removed
+      --set components.aigateway.dsc.modelsAsAService.managementState=Removed
+      --set components.aigateway.modelsAsAService.gatewayClass.create=false
+      --set components.aigateway.modelsAsAService.gateway.create=false
+      --set dependencies.rhcl.enabled=true
+    )
+  fi
+
   if [[ -n "$OPERATOR_CHANNEL" ]]; then
     HELM_SETS+=(--set "operator.${OPERATOR_TYPE}.olm.channel=${OPERATOR_CHANNEL}")
   fi
@@ -103,7 +114,7 @@ build_helm_sets() {
   fi
 
   local env_idx=0
-  if [[ -n "$MAAS_CONTROLLER_IMAGE" ]]; then
+  if [[ "$DEPLOY_MODE" == "operator" && -n "$MAAS_CONTROLLER_IMAGE" ]]; then
     HELM_SETS+=(
       --set "operator.${OPERATOR_TYPE}.olm.config.env[${env_idx}].name=RELATED_IMAGE_ODH_MAAS_CONTROLLER_IMAGE"
       --set "operator.${OPERATOR_TYPE}.olm.config.env[${env_idx}].value=${MAAS_CONTROLLER_IMAGE}"
@@ -111,7 +122,7 @@ build_helm_sets() {
     env_idx=$((env_idx + 1))
   fi
 
-  if [[ -n "$MAAS_API_IMAGE" ]]; then
+  if [[ "$DEPLOY_MODE" == "operator" && -n "$MAAS_API_IMAGE" ]]; then
     HELM_SETS+=(
       --set "operator.${OPERATOR_TYPE}.olm.config.env[${env_idx}].name=RELATED_IMAGE_ODH_MAAS_API_IMAGE"
       --set "operator.${OPERATOR_TYPE}.olm.config.env[${env_idx}].value=${MAAS_API_IMAGE}"
@@ -119,7 +130,7 @@ build_helm_sets() {
     env_idx=$((env_idx + 1))
   fi
 
-  if [[ -n "$AI_GATEWAY_OPERATOR_IMAGE" ]]; then
+  if [[ "$DEPLOY_MODE" == "operator" && -n "$AI_GATEWAY_OPERATOR_IMAGE" ]]; then
     HELM_SETS+=(
       --set "operator.${OPERATOR_TYPE}.olm.config.env[${env_idx}].name=RELATED_IMAGE_ODH_AI_GATEWAY_OPERATOR_IMAGE"
       --set "operator.${OPERATOR_TYPE}.olm.config.env[${env_idx}].value=${AI_GATEWAY_OPERATOR_IMAGE}"
@@ -127,7 +138,7 @@ build_helm_sets() {
     env_idx=$((env_idx + 1))
   fi
 
-  if [[ -n "$PAYLOAD_PROCESSING_IMAGE" ]]; then
+  if [[ "$DEPLOY_MODE" == "operator" && -n "$PAYLOAD_PROCESSING_IMAGE" ]]; then
     HELM_SETS+=(
       --set "operator.${OPERATOR_TYPE}.olm.config.env[${env_idx}].name=RELATED_IMAGE_ODH_AI_GATEWAY_PAYLOAD_PROCESSING_IMAGE"
       --set "operator.${OPERATOR_TYPE}.olm.config.env[${env_idx}].value=${PAYLOAD_PROCESSING_IMAGE}"
@@ -290,12 +301,26 @@ post_helm_steps() {
 }
 
 main() {
+  if [[ ! "$DEPLOY_MODE" =~ ^(operator|kustomize)$ ]]; then
+    log_error "Invalid deployment mode: $DEPLOY_MODE (expected operator or kustomize)"
+    return 1
+  fi
+  if [[ "$DEPLOY_MODE" == "kustomize" && -n "$AI_GATEWAY_OPERATOR_IMAGE" ]]; then
+    log_error "AI_GATEWAY_OPERATOR_IMAGE is only supported in operator mode"
+    return 1
+  fi
+
   log_info "==================================================="
   log_info "  Setup Shared Dependencies (Helm)"
   log_info "==================================================="
   log_info "  Operator type: $OPERATOR_TYPE"
+  log_info "  Deployment mode: $DEPLOY_MODE"
   log_info "  Policy engine: ${POLICY_ENGINE:-auto}"
   log_info "  Chart source: ${ODH_GITOPS_CHART_PATH:-${ODH_GITOPS_REPO} @ ${ODH_GITOPS_BRANCH}}"
+  log_info "  MaaS controller image: ${MAAS_CONTROLLER_IMAGE:-chart default}"
+  log_info "  MaaS API image: ${MAAS_API_IMAGE:-chart default}"
+  log_info "  Payload processing image: ${PAYLOAD_PROCESSING_IMAGE:-chart default}"
+  log_info "  AI Gateway operator image: ${AI_GATEWAY_OPERATOR_IMAGE:-catalog default}"
 
   ensure_helm
   resolve_chart_path
@@ -316,10 +341,12 @@ main() {
   wait_for_operator_ready
 
   log_info ""
-  log_info "Applying latest MaaS CRDs from local repo..."
-  local project_root
-  project_root="$(cd "$SCRIPT_DIR/.." && pwd)"
-  install_maas_controller_crds_and_wait "${project_root}/deployment/base/maas-controller/crd"
+  if [[ "$DEPLOY_MODE" == "kustomize" ]]; then
+    log_info "Applying local MaaS CRDs for kustomize mode..."
+    local project_root
+    project_root="$(cd "$SCRIPT_DIR/.." && pwd)"
+    install_maas_controller_crds_and_wait "${project_root}/deployment/base/maas-controller/crd"
+  fi
 
   log_info ""
   log_info "Phase 2: Applying CRD-dependent resources (DSC, DSCI, Kuadrant CR)..."

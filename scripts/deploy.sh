@@ -134,6 +134,7 @@ esac
 #──────────────────────────────────────────────────────────────
 
 OPERATOR_TYPE="${OPERATOR_TYPE:-odh}"
+DEPLOY_MODE="${DEPLOY_MODE:-operator}"
 POLICY_ENGINE="${POLICY_ENGINE:-}"  # Auto-determined unless set via env or --policy-engine
 RHCL_STARTING_CSV="${RHCL_STARTING_CSV:-}"
 RHCL_NAMESPACE="${RHCL_NAMESPACE:-kuadrant-system}"
@@ -168,6 +169,9 @@ USAGE:
   ./scripts/deploy.sh [OPTIONS]
 
 OPTIONS:
+  --deployment-mode <operator|kustomize>
+      MaaS ownership mode (default: operator)
+
   --operator-type <odh|rhoai>
       Which operator to install (default: odh)
       Policy engine is auto-selected based on operator type:
@@ -321,6 +325,11 @@ require_flag_value() {
 parse_arguments() {
   while [[ $# -gt 0 ]]; do
     case $1 in
+      --deployment-mode)
+        require_flag_value "$1" "${2:-}"
+        DEPLOY_MODE="$2"
+        shift 2
+        ;;
       --operator-type)
         require_flag_value "$1" "${2:-}"
         OPERATOR_TYPE="$2"
@@ -462,6 +471,15 @@ check_required_tools() {
 validate_configuration() {
   log_info "Validating configuration..."
 
+  if [[ ! "$DEPLOY_MODE" =~ ^(operator|kustomize)$ ]]; then
+    log_error "Invalid deployment mode: $DEPLOY_MODE (expected operator or kustomize)"
+    exit 1
+  fi
+  if [[ "$DEPLOY_MODE" == "kustomize" && -n "$AI_GATEWAY_OPERATOR_IMAGE" ]]; then
+    log_error "AI_GATEWAY_OPERATOR_IMAGE/--ai-gateway-operator-image is only supported in operator mode"
+    exit 1
+  fi
+
   # Validate operator type
   if [[ ! "$OPERATOR_TYPE" =~ ^(rhoai|odh)$ ]]; then
     log_error "Invalid operator type: $OPERATOR_TYPE"
@@ -502,7 +520,7 @@ validate_configuration() {
   log_debug "Using namespace: $NAMESPACE"
 
   # Export so subprocesses (subscripts called via bash, not sourced functions) inherit the values.
-  export NAMESPACE OPERATOR_TYPE
+  export NAMESPACE OPERATOR_TYPE DEPLOY_MODE
 
   log_info "Configuration validated successfully"
 }
@@ -517,16 +535,16 @@ main() {
   log_info "==================================================="
 
   parse_arguments "$@"
-  check_required_tools
   validate_configuration
 
   log_info "Deployment configuration:"
+  log_info "  Mode: $DEPLOY_MODE"
   log_info "  Operator: $OPERATOR_TYPE"
   log_info "  Policy Engine: $POLICY_ENGINE"
   log_info "  Namespace: $NAMESPACE"
   log_info "  TLS Backend: $ENABLE_TLS_BACKEND"
   log_info "  External OIDC: $EXTERNAL_OIDC"
-  if [[ "$EXTERNAL_OIDC" == "true" ]]; then
+  if [[ "$EXTERNAL_OIDC" == "true" && "$DEPLOY_MODE" == "operator" ]]; then
     log_warn "  --external-oidc is ignored in operator mode. Configure external OIDC via"
     log_warn "  the ModelsAsService CR: spec.externalOIDC.issuerUrl / clientId instead."
   fi
@@ -546,7 +564,9 @@ main() {
     exit 0
   fi
 
-  deploy_via_operator
+  check_required_tools
+
+  deploy_shared_dependencies
 
   # Install maas-controller.
   # The Tenant reconciler in maas-controller is the sole deployer of maas-api.
@@ -572,16 +592,16 @@ main() {
   local maas_controller_exists=false
   if kubectl get deployment maas-controller -n "$NAMESPACE" &>/dev/null; then
     maas_controller_exists=true
-  elif [[ "$FORCE_OVERWRITE" != "true" ]]; then
+  elif [[ "$DEPLOY_MODE" == "operator" ]]; then
     # The ODH operator's AIGateway/ModelsAsService module reconciler owns deploying
     # maas-controller. Silently falling back to a direct kustomize install here would
     # mask integration gaps (e.g. RBAC errors, manifest drift, version skew). So: wait
     # briefly for the operator to reconcile, then fail loudly with diagnostics if it doesn't.
     log_info "  Waiting for the ODH operator to create maas-controller (operator-managed)..."
-    if wait_for_resource "deployment" "maas-controller" "$NAMESPACE" "$ROLLOUT_TIMEOUT"; then
+    if wait_for_resource "deployment" "maas-controller" "$NAMESPACE" "${CONTROLLER_WAIT_TIMEOUT:-600}"; then
       maas_controller_exists=true
     else
-      log_error "The ODH operator did not create maas-controller within ${ROLLOUT_TIMEOUT}s."
+      log_error "The ODH operator did not create maas-controller within ${CONTROLLER_WAIT_TIMEOUT:-600}s."
       log_error "This means the operator's AIGateway/ModelsAsService module failed to reconcile it — a real integration gap, not something deploy.sh should paper over in operator mode."
       log_error "Failing DataScienceCluster module conditions:"
       local dsc_name_diag
@@ -591,12 +611,13 @@ main() {
           -o jsonpath='{range .status.conditions[?(@.status=="False")]}  {.type}: {.reason} - {.message}{"\n"}{end}' 2>/dev/null \
           | while IFS= read -r line; do log_error "$line"; done
       fi
-      log_error "Tip: set FORCE_OVERWRITE=true to bypass this check and install maas-controller directly (only for local debugging; defeats the purpose of operator-mode validation)."
       return 1
     fi
   fi
 
-  if [[ "$maas_controller_exists" == "true" && "$FORCE_OVERWRITE" != "true" ]]; then
+  if [[ "$DEPLOY_MODE" == "operator" ]]; then
+    log_info "  maas-controller is operator-managed; local manifests will not be applied"
+  elif [[ "$maas_controller_exists" == "true" && "$FORCE_OVERWRITE" != "true" ]]; then
     log_info "  maas-controller already exists in $NAMESPACE (e.g. operator-managed), skipping manifest apply"
   else
     # Direct-install path used when maas-controller is absent, or when
@@ -732,7 +753,7 @@ EOF
   fi
 
   # Apply infra RBAC for secret migration when namespace separation is active
-  if [ "$infra_namespace" != "$NAMESPACE" ] && [ -n "$infra_namespace" ]; then
+  if [[ "$DEPLOY_MODE" == "kustomize" ]] && [ "$infra_namespace" != "$NAMESPACE" ] && [ -n "$infra_namespace" ]; then
     apply_infra_secret_migration_rbac "$infra_namespace" "$NAMESPACE"
   fi
 
@@ -762,6 +783,14 @@ EOF
 
   # External OIDC: Patch the default AITenant (source of truth for tenant OIDC)
   # so the MaaSAuthPolicy controller can add oidc-identities authentication
+  if [[ "$EXTERNAL_OIDC" == "true" && "$DEPLOY_MODE" == "kustomize" ]]; then
+    configure_tenant_external_oidc
+  fi
+
+  if [[ "$ENABLE_TLS_BACKEND" == "true" ]]; then
+    configure_tls_backend
+  fi
+
   log_info ""
   log_info "MaaS API and MaaS Controller deployment completed successfully!"
   local deployed_api_image deployed_ctrl_image
@@ -769,6 +798,14 @@ EOF
   deployed_ctrl_image=$(kubectl get deployment/maas-controller -n "$NAMESPACE" -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || echo "unknown")
   log_info "  maas-api image:        $deployed_api_image (namespace: $infra_namespace)"
   log_info "  maas-controller image: $deployed_ctrl_image (namespace: $NAMESPACE)"
+  if [[ -n "$MAAS_API_IMAGE" && "$deployed_api_image" != "$MAAS_API_IMAGE" ]]; then
+    log_error "maas-api image mismatch: expected $MAAS_API_IMAGE, deployed $deployed_api_image"
+    return 1
+  fi
+  if [[ -n "$MAAS_CONTROLLER_IMAGE" && "$deployed_ctrl_image" != "$MAAS_CONTROLLER_IMAGE" ]]; then
+    log_error "maas-controller image mismatch: expected $MAAS_CONTROLLER_IMAGE, deployed $deployed_ctrl_image"
+    return 1
+  fi
 
   log_info "==================================================="
   log_info "  Models-as-a-Service Deployment completed successfully!"
@@ -779,16 +816,15 @@ EOF
 # OPERATOR-BASED DEPLOYMENT
 #──────────────────────────────────────────────────────────────
 
-deploy_via_operator() {
-  log_info "Starting operator-based deployment..."
+deploy_shared_dependencies() {
+  log_info "Installing shared dependencies for $DEPLOY_MODE mode..."
 
   # Install shared platform dependencies via Helm chart
   # (cert-manager, LWS, RHCL/Kuadrant, ODH/RHOAI operator, DSCI, DSC, Gateway)
   "${SCRIPT_DIR}/setup-shared-deps.sh"
 
-  # Wait for ai-gateway-operator (deployed by the ODH operator's AIGateway module reconciler)
-  # to roll out with the requested image before proceeding.
-  if [[ -n "$AI_GATEWAY_OPERATOR_IMAGE" ]]; then
+  # In operator mode, verify the ODH -> AI Gateway handoff before waiting for MaaS.
+  if [[ "$DEPLOY_MODE" == "operator" ]]; then
     log_info "Waiting for ai-gateway-operator to be deployed..."
     if wait_for_resource "deployment" "ai-gateway-operator" "$NAMESPACE" "$ROLLOUT_TIMEOUT"; then
       kubectl rollout status deployment/ai-gateway-operator -n "$NAMESPACE" --timeout="${ROLLOUT_TIMEOUT}s" || {
@@ -809,57 +845,7 @@ deploy_via_operator() {
   if [[ "$ENABLE_KEYCLOAK" == "true" ]]; then
     deploy_keycloak
   fi
-
-  # Wait for maas-controller (deployed by ai-gateway-operator via DSC reconciliation).
-  # The deployment may not exist yet — wait for it to be created, then wait for rollout.
-  local controller_wait=${CONTROLLER_WAIT_TIMEOUT:-600}
-  log_info "Waiting for maas-controller deployment to be created (timeout: ${controller_wait}s)..."
-  if ! wait_for_resource "deployment" "maas-controller" "$NAMESPACE" "$controller_wait"; then
-    log_error "maas-controller deployment was not created within ${controller_wait}s."
-    log_error "Check DSC reconciliation status and ai-gateway-operator logs."
-    local dsc_name_diag
-    dsc_name_diag=$(kubectl get datasciencecluster -A -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
-    if [[ -n "$dsc_name_diag" ]]; then
-      log_error "Failing DataScienceCluster module conditions:"
-      kubectl get datasciencecluster "$dsc_name_diag" \
-        -o jsonpath='{range .status.conditions[?(@.status=="False")]}  {.type}: {.reason} - {.message}{"\n"}{end}' 2>/dev/null \
-        | while IFS= read -r line; do log_error "$line"; done
-    fi
-    exit 1
-  fi
-  # Apply latest RBAC from local repo after operator has deployed maas-controller.
-  # The operator bundles an older copy of the ClusterRole (e.g. missing HPA permissions).
-  # Applying here overwrites it. No pod restart needed — RBAC takes effect immediately
-  # and the running controller picks up permissions on its next reconcile retry.
-  log_info "Applying latest MaaS RBAC (cluster-scoped) from local repo..."
-  local project_root
-  project_root="$(cd "$SCRIPT_DIR/.." && pwd)"
-  local rbac_dir="${project_root}/deployment/base/maas-controller/rbac"
-  kubectl apply -f "${rbac_dir}/clusterrole.yaml" \
-                -f "${rbac_dir}/clusterrole_maas_configs.yaml" \
-                -f "${rbac_dir}/clusterrole_binding.yaml" \
-                -f "${rbac_dir}/clusterrolebinding_maas_configs.yaml"
-  local ocp_rbac_dir="${rbac_dir}/ocp"
-  if [[ -d "$ocp_rbac_dir" ]]; then
-    kubectl apply -f "${ocp_rbac_dir}/clusterrole_ocp.yaml" \
-                  -f "${ocp_rbac_dir}/clusterrolebinding_ocp.yaml" 2>/dev/null || true
-  fi
-  log_info "Waiting for maas-controller rollout..."
-  if ! kubectl rollout status deployment/maas-controller -n "$NAMESPACE" --timeout="${POD_TIMEOUT:-300}s"; then
-    log_error "maas-controller not ready (timeout: ${POD_TIMEOUT:-300}s)"
-    exit 1
-  fi
-  log_info "  maas-controller ready."
-
-  # Wait for maas-api (deployed by maas-controller via AITenant reconciler).
-  wait_for_operator_maas_api
-
-  # Configure TLS backend (if enabled)
-  if [[ "$ENABLE_TLS_BACKEND" == "true" ]]; then
-    configure_tls_backend
-  fi
-
-  log_info "Operator deployment completed"
+  log_info "Shared dependencies installed"
 }
 
 #──────────────────────────────────────────────────────────────
