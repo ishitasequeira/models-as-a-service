@@ -112,7 +112,8 @@ build_helm_sets() {
       return 1
     fi
     HELM_SETS+=(
-      --set components.aigateway.modelsAsAService.gatewayClass.create=false
+      --set components.aigateway.modelsAsAService.gatewayClass.create=true
+      --set components.aigateway.modelsAsAService.gatewayClass.name=openshift-default
       --set components.aigateway.modelsAsAService.gateway.spec.gatewayClassName=openshift-default
       --set components.aigateway.modelsAsAService.gateway.openshiftRoute.enabled=true
       --set "components.aigateway.modelsAsAService.gateway.openshiftRoute.host=maas.${cluster_domain}"
