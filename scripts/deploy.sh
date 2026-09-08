@@ -759,11 +759,13 @@ EOF
 
   local maas_api_timeout="${CUSTOM_RESOURCE_TIMEOUT:-600}"
   local elapsed=0
+  local maas_api_ready=false
   while [[ $elapsed -lt $maas_api_timeout ]]; do
     if kubectl get deployment maas-api -n "$infra_namespace" &>/dev/null; then
       log_info "  maas-api deployment found in $infra_namespace, waiting for rollout..."
       if kubectl rollout status deployment/maas-api -n "$infra_namespace" --timeout="$((maas_api_timeout - elapsed))s" 2>/dev/null; then
         log_info "  maas-api is ready"
+        maas_api_ready=true
         break
       fi
     fi
@@ -774,10 +776,15 @@ EOF
     fi
   done
 
-  if ! kubectl get deployment maas-api -n "$infra_namespace" &>/dev/null; then
-    log_error "maas-api deployment not created by Tenant reconciler after ${maas_api_timeout}s"
+  if [[ "$maas_api_ready" != "true" ]]; then
+    log_error "maas-api deployment did not become ready after ${maas_api_timeout}s"
     log_error "Expected in namespace: $infra_namespace"
-    log_error "Check maas-controller logs: kubectl logs -l app.kubernetes.io/name=maas-controller -n $NAMESPACE"
+    kubectl get pods -n "$infra_namespace" -l app.kubernetes.io/name=maas-api -o wide 2>/dev/null || true
+    kubectl describe pods -n "$infra_namespace" -l app.kubernetes.io/name=maas-api 2>/dev/null || true
+    kubectl logs -n "$infra_namespace" -l app.kubernetes.io/name=maas-api \
+      --all-containers --prefix --tail=200 2>/dev/null || true
+    kubectl logs -n "$infra_namespace" -l app.kubernetes.io/name=maas-api \
+      --all-containers --prefix --previous --tail=200 2>/dev/null || true
     return 1
   fi
 
