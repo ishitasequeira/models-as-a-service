@@ -136,6 +136,59 @@ def api_keys_base_url(_worker_api_keys_context) -> str:
 
 
 @pytest.fixture(scope="module")
+def admin_headers(_worker_api_keys_context):
+    """Use an admin identity in the same tenant as parallel API-key tests."""
+    context = _worker_api_keys_context
+    if context is None:
+        token = os.environ.get("ADMIN_OC_TOKEN", "")
+        return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"} if token else None
+
+    from worker_tenant_fixtures import xdist_worker_suffix
+
+    suffix = xdist_worker_suffix()
+    service_account = f"e2e-worker-admin-{suffix}"
+    role_binding = f"{service_account}-binding"
+    _apply_cr(
+        {
+            "apiVersion": "v1",
+            "kind": "ServiceAccount",
+            "metadata": {
+                "name": service_account,
+                "namespace": context.tenant_namespace,
+            },
+        }
+    )
+    _apply_cr(
+        {
+            "apiVersion": "rbac.authorization.k8s.io/v1",
+            "kind": "RoleBinding",
+            "metadata": {
+                "name": role_binding,
+                "namespace": context.tenant_namespace,
+            },
+            "roleRef": {
+                "apiGroup": "rbac.authorization.k8s.io",
+                "kind": "Role",
+                "name": f"aitenant-{context.tenant_name}-tenant-admin",
+            },
+            "subjects": [
+                {
+                    "kind": "ServiceAccount",
+                    "name": service_account,
+                    "namespace": context.tenant_namespace,
+                }
+            ],
+        }
+    )
+    token = _create_sa_token(service_account, namespace=context.tenant_namespace, duration="1h")
+    try:
+        yield {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    finally:
+        _delete_cr("rolebinding", role_binding, namespace=context.tenant_namespace)
+        _delete_sa(service_account, namespace=context.tenant_namespace)
+
+
+@pytest.fixture(scope="module")
 def model_v1(_worker_api_keys_context) -> str:
     if _worker_api_keys_context is None:
         path = os.environ.get("E2E_MODEL_PATH", f"/{MODEL_NAMESPACE}/{MODEL_REF}")
