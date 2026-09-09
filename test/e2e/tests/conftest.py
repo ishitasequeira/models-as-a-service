@@ -329,6 +329,30 @@ def api_key(api_keys_base_url: str, headers: dict) -> str:
     print("[api_key] Created API key for inference tests")
     return key
 
+
+@pytest.fixture(scope="session")
+def worker_api_key(worker_tenant_context, headers: dict) -> str:
+    """Mint an inference key from the explicitly isolated worker MaaS API."""
+    from multitenancy_helpers import response_summary
+
+    key_name = f"e2e-worker-inference-key-{_xdist_worker_suffix()}"
+    r = requests.post(
+        f"{worker_tenant_context.api_base_url}/v1/api-keys",
+        headers=headers,
+        json={
+            "name": key_name,
+            "subscription": worker_tenant_context.subscription_name,
+        },
+        timeout=30,
+        verify=TLS_VERIFY,
+    )
+    if r.status_code not in (200, 201):
+        raise RuntimeError(f"Failed to create worker API key: {response_summary(r)}")
+    key = r.json().get("key")
+    if not key:
+        raise RuntimeError("Worker API key creation response missing 'key' field")
+    return key
+
 @pytest.fixture(scope="session")
 def api_key_headers(api_key: str):
     """Headers with API key for model inference requests."""
