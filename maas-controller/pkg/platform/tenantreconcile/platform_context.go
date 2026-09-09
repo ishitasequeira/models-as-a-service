@@ -30,6 +30,11 @@ type PlatformContext struct {
 	Source                   string
 }
 
+// IsPraxis reports whether the tenant uses the praxis payload-processing dataplane.
+func (pc PlatformContext) IsPraxis() bool {
+	return pc.PayloadProcessingBackend == maasv1alpha1.PayloadProcessingBackendPraxis
+}
+
 // ResolvePlatformContext resolves gateway and OIDC values for a tenant config object.
 //
 // AITenant-managed configs use their owning AITenant as the source of platform
