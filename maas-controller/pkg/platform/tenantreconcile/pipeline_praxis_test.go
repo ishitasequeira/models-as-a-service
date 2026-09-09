@@ -73,11 +73,11 @@ func readyMaaSAPIDeployment(namespace, tenantID string) *appsv1.Deployment {
 			},
 		},
 		Status: appsv1.DeploymentStatus{
-			ObservedGeneration:  1,
-			UpdatedReplicas:     1,
-			AvailableReplicas:   1,
-			ReadyReplicas:       1,
-			Replicas:            1,
+			ObservedGeneration: 1,
+			UpdatedReplicas:    1,
+			AvailableReplicas:  1,
+			ReadyReplicas:      1,
+			Replicas:           1,
 		},
 	}
 }
