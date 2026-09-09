@@ -8,6 +8,9 @@ import requests
 from test_helper import MAAS_API_DEPLOYMENT_NAMESPACE
 
 
+_WORKER_ISOLATED_XDIST_GROUPS = frozenset({"api_keys", "models"})
+
+
 def _xdist_worker_suffix() -> str:
     """Stable suffix for per-worker session fixtures under pytest-xdist."""
     worker = os.environ.get("PYTEST_XDIST_WORKER", "master")
@@ -64,6 +67,28 @@ def pytest_collection_modifyitems(config, items):
     for item in items:
         if item.get_closest_marker("serial"):
             item.add_marker(pytest.mark.xdist_group("serial"))
+
+        xdist_markers = list(item.iter_markers("xdist_group"))
+        if not xdist_markers:
+            raise pytest.UsageError(
+                f"{item.nodeid}: E2E tests require an explicit xdist_group marker"
+            )
+
+        grouped_state = {
+            marker.args[0]
+            for marker in xdist_markers
+            if marker.args and marker.args[0] in _WORKER_ISOLATED_XDIST_GROUPS
+        }
+        if (
+            grouped_state
+            and not item.get_closest_marker("serial")
+            and not item.get_closest_marker("worker_tenant")
+        ):
+            groups = ", ".join(sorted(grouped_state))
+            raise pytest.UsageError(
+                f"{item.nodeid}: mutable xdist group {groups} requires "
+                "@pytest.mark.worker_tenant or @pytest.mark.serial"
+            )
 
 
 # TLS verification flag - set E2E_SKIP_TLS_VERIFY=true to disable cert verification
