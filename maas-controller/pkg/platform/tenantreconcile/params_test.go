@@ -604,7 +604,7 @@ func TestPostRender_SkipIPPForPraxisTenant(t *testing.T) {
 			},
 		},
 	}
-	params := PlatformParams{
+	params := PlatformParams{ //nolint:gosec // APIKeyMaxExpirationDays is a duration setting, not a secret
 		AppNamespace:                 "ai-tenant-praxis",
 		ControllerNamespace:          "controller-ns",
 		GatewayNamespace:             "openshift-ingress",

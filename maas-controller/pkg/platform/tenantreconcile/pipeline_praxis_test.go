@@ -2,8 +2,8 @@ package tenantreconcile
 
 import (
 	"context"
-	goruntime "runtime"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"testing"
 
@@ -38,7 +38,7 @@ func praxisTestScheme(t *testing.T) *runtime.Scheme {
 	scheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(maasv1alpha1.AddToScheme(scheme))
-	utilruntime.Must(gwapiv1.AddToScheme(scheme))
+	utilruntime.Must(gwapiv1.Install(scheme))
 	return scheme
 }
 
