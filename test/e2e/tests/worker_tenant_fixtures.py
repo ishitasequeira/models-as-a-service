@@ -75,6 +75,7 @@ _WORKER_TENANT_ENV_KEYS = (
     "GATEWAY_HOST",
     "MAAS_API_BASE_URL",
     "E2E_GATEWAY_AUTH_POLICY_NAME",
+    "E2E_MODEL_NAMESPACE",
 )
 
 
@@ -263,6 +264,7 @@ def activate_worker_tenant(case: Optional[WorkerTenantContext]) -> Iterator[None
     os.environ["GATEWAY_HOST"] = case.route_host
     os.environ["MAAS_API_BASE_URL"] = case.api_base_url
     os.environ["E2E_GATEWAY_AUTH_POLICY_NAME"] = case.gateway_authpolicy_name
+    os.environ["E2E_MODEL_NAMESPACE"] = case.model_namespace
     try:
         yield
     finally:
@@ -274,5 +276,11 @@ def activate_worker_tenant(case: Optional[WorkerTenantContext]) -> Iterator[None
 
 
 def teardown_worker_tenant(case: WorkerTenantContext) -> None:
-    _oc_run(["delete", "namespace", case.model_namespace, "--ignore-not-found", "--timeout=60s"])
+    # Namespace finalization can outlive the pytest worker when KServe-owned
+    # resources are still terminating. Submit deletion without waiting so a
+    # successful test run is not converted into a teardown timeout.
+    _oc_run(
+        ["delete", "namespace", case.model_namespace, "--ignore-not-found", "--wait=false"],
+        timeout=30,
+    )
     cleanup_discovery_case(case.tenant_case())

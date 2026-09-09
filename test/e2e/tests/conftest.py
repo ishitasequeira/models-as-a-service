@@ -44,7 +44,10 @@ def worker_tenant_context():
 @pytest.fixture(autouse=True)
 def _activate_marked_worker_tenant(request):
     """Provision isolation only when the test explicitly opts in by marker."""
-    if request.node.get_closest_marker("worker_tenant"):
+    if (
+        request.node.get_closest_marker("worker_tenant")
+        and not request.node.get_closest_marker("serial")
+    ):
         request.getfixturevalue("worker_tenant_context")
 
 
