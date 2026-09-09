@@ -89,8 +89,6 @@ def _worker_api_keys_context(request):
             "MODEL_NAMESPACE",
             "MODEL_REF",
             "SIMULATOR_SUBSCRIPTION",
-            "AUTH_POLICY_NAME",
-            "TRLP_NAME",
         )
     }
     original_auth_helper = globals()["_create_test_auth_policy"]
@@ -102,8 +100,6 @@ def _worker_api_keys_context(request):
             "MODEL_NAMESPACE": context.model_namespace,
             "MODEL_REF": context.model_ref,
             "SIMULATOR_SUBSCRIPTION": context.subscription_name,
-            "AUTH_POLICY_NAME": f"maas-auth-{context.model_ref}",
-            "TRLP_NAME": f"maas-trlp-{context.model_ref}",
         }
     )
 
