@@ -75,11 +75,11 @@ pytestmark = [pytest.mark.xdist_group("api_keys"), pytest.mark.worker_tenant]
 @pytest.fixture(scope="module", autouse=True)
 def _worker_api_keys_context(request):
     """Bind parallel API-key tests to worker state; leave the serial pass alone."""
-    if request.config.getoption("-m").strip() == "serial":
+    from worker_tenant_fixtures import activate_worker_tenant, serial_only_selection
+
+    if serial_only_selection(request):
         yield None
         return
-
-    from worker_tenant_fixtures import activate_worker_tenant
 
     context = request.getfixturevalue("worker_tenant_context")
     original_values = {

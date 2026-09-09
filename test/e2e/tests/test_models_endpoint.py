@@ -77,14 +77,13 @@ pytestmark = [pytest.mark.xdist_group("models"), pytest.mark.worker_tenant]
 def _worker_models_context(request):
     """Route parallel model tests through the explicit worker context.
 
-    The serial pass intentionally retains the default deployment because those
-    tests are selected independently with ``-m serial``.
+    The serial pass intentionally retains the default deployment.
     """
-    if request.config.getoption("-m").strip() == "serial":
+    from worker_tenant_fixtures import activate_worker_tenant, serial_only_selection
+
+    if serial_only_selection(request):
         yield
         return
-
-    from worker_tenant_fixtures import activate_worker_tenant
 
     context = request.getfixturevalue("worker_tenant_context")
     original_values = {

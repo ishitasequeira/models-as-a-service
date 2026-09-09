@@ -92,6 +92,28 @@ def xdist_worker_suffix() -> str:
     return worker.replace("gw", "w")
 
 
+def serial_only_selection(request) -> bool:
+    """Return whether all selected tests in this module are marked serial.
+
+    Module-scoped fixtures cannot inspect a single test item's marker. Inspect
+    the collected selection instead, and reject mixed serial/parallel runs so
+    a serial test can never silently execute against worker-owned state.
+    """
+    selected = [
+        item for item in request.session.items
+        if str(item.path) == str(request.node.path)
+    ]
+    if not selected:
+        return False
+    serial = [item.get_closest_marker("serial") is not None for item in selected]
+    if any(serial) and not all(serial):
+        raise RuntimeError(
+            f"mixed serial and parallel selection for {request.node.nodeid}; "
+            "run the serial and parallel E2E passes separately"
+        )
+    return all(serial)
+
+
 def build_worker_tenant_case(worker_suffix: str) -> WorkerTenantContext:
     case = new_named_tenant_case(f"e2e-worker-{worker_suffix}")
     return WorkerTenantContext(
@@ -282,8 +304,10 @@ def teardown_worker_tenant(case: WorkerTenantContext) -> None:
     # Namespace finalization can outlive the pytest worker when KServe-owned
     # resources are still terminating. Submit deletion without waiting so a
     # successful test run is not converted into a teardown timeout.
-    _oc_run(
-        ["delete", "namespace", case.model_namespace, "--ignore-not-found", "--wait=false"],
-        timeout=30,
-    )
-    cleanup_discovery_case(case.tenant_case())
+    try:
+        _oc_run(
+            ["delete", "namespace", case.model_namespace, "--ignore-not-found", "--wait=false"],
+            timeout=30,
+        )
+    finally:
+        cleanup_discovery_case(case.tenant_case())
