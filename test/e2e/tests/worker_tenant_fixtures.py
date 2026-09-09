@@ -9,22 +9,23 @@ from __future__ import annotations
 
 import os
 from contextlib import contextmanager
+from dataclasses import dataclass, replace
 from typing import Iterator, Optional
 
 from test_helper import (
-    MODEL_NAMESPACE,
-    MODEL_REF,
-    PREMIUM_MODEL_REF,
     PREMIUM_SIMULATOR_SUBSCRIPTION,
     SIMULATOR_ACCESS_POLICY,
     SIMULATOR_SUBSCRIPTION,
-    TLS_VERIFY,
     _apply_cr,
+    _create_llmis,
+    _create_maas_model_ref,
     _wait_for_maas_auth_policy_phase,
     _wait_for_maas_subscription_phase,
 )
 from multitenancy_helpers import (
     INFRA_NAMESPACE,
+    _oc_run,
+    apply_gateway_access_label,
     bootstrap_aitenant_tenant,
     cleanup_discovery_case,
     new_named_tenant_case,
@@ -32,8 +33,41 @@ from multitenancy_helpers import (
     require_aitenant_crd,
     wait_for_deployment_available,
     wait_for_gateway_authpolicy_ready,
+    wait_for_llmisvc_backend_ready,
     wait_for_route_admitted,
 )
+
+
+@dataclass(frozen=True)
+class WorkerTenantContext:
+    worker_id: str
+    suffix: str
+    tenant_name: str
+    tenant_namespace: str
+    model_namespace: str
+    gateway_name: str
+    route_host: str = ""
+    api_base_url: str = ""
+    api_deployment_name: str = ""
+    gateway_authpolicy_name: str = ""
+    model_ref: str = ""
+    premium_model_ref: str = ""
+    distinct_model_ref: str = ""
+    distinct_model_2_ref: str = ""
+    unconfigured_model_ref: str = ""
+    policy_name: str = SIMULATOR_ACCESS_POLICY
+    subscription_name: str = SIMULATOR_SUBSCRIPTION
+    premium_subscription_name: str = PREMIUM_SIMULATOR_SUBSCRIPTION
+
+    def tenant_case(self) -> dict[str, str]:
+        return {
+            "suffix": self.suffix,
+            "tenant_ns": self.tenant_namespace,
+            "tenant_label_name": self.tenant_name,
+            "gateway_name": self.gateway_name,
+            "policy_name": self.policy_name,
+            "subscription_name": self.subscription_name,
+        }
 
 
 _WORKER_TENANT_ENV_KEYS = (
@@ -56,8 +90,21 @@ def xdist_worker_suffix() -> str:
     return worker.replace("gw", "w")
 
 
-def build_worker_tenant_case(worker_suffix: str) -> dict[str, str]:
-    return new_named_tenant_case(f"e2e-worker-{worker_suffix}")
+def build_worker_tenant_case(worker_suffix: str) -> WorkerTenantContext:
+    case = new_named_tenant_case(f"e2e-worker-{worker_suffix}")
+    return WorkerTenantContext(
+        worker_id=worker_suffix,
+        suffix=case["suffix"],
+        tenant_name=case["tenant_label_name"],
+        tenant_namespace=case["tenant_ns"],
+        model_namespace=f"e2e-models-{case['tenant_label_name']}",
+        gateway_name=case["gateway_name"],
+        model_ref=f"simulator-{worker_suffix}-{case['suffix']}",
+        premium_model_ref=f"premium-{worker_suffix}-{case['suffix']}",
+        distinct_model_ref=f"distinct-{worker_suffix}-{case['suffix']}",
+        distinct_model_2_ref=f"distinct-2-{worker_suffix}-{case['suffix']}",
+        unconfigured_model_ref=f"unconfigured-{worker_suffix}-{case['suffix']}",
+    )
 
 
 def _route_host(case: dict[str, str]) -> str:
@@ -68,19 +115,19 @@ def _route_host(case: dict[str, str]) -> str:
     return host
 
 
-def _apply_baseline_stack(namespace: str) -> None:
+def _apply_baseline_stack(context: WorkerTenantContext) -> None:
     """Mirror prow/CI baseline auth+subscriptions inside the worker tenant namespace."""
     _apply_cr(
         {
             "apiVersion": "maas.opendatahub.io/v1alpha1",
             "kind": "MaaSSubscription",
-            "metadata": {"name": SIMULATOR_SUBSCRIPTION, "namespace": namespace},
+            "metadata": {"name": context.subscription_name, "namespace": context.tenant_namespace},
             "spec": {
                 "owner": {"groups": [{"name": "system:authenticated"}], "users": []},
                 "modelRefs": [
                     {
-                        "name": MODEL_REF,
-                        "namespace": MODEL_NAMESPACE,
+                        "name": context.model_ref,
+                        "namespace": context.model_namespace,
                         "tokenRateLimits": [{"limit": 100, "window": "1m"}],
                     }
                 ],
@@ -92,9 +139,9 @@ def _apply_baseline_stack(namespace: str) -> None:
         {
             "apiVersion": "maas.opendatahub.io/v1alpha1",
             "kind": "MaaSAuthPolicy",
-            "metadata": {"name": SIMULATOR_ACCESS_POLICY, "namespace": namespace},
+            "metadata": {"name": context.policy_name, "namespace": context.tenant_namespace},
             "spec": {
-                "modelRefs": [{"name": MODEL_REF, "namespace": MODEL_NAMESPACE}],
+                "modelRefs": [{"name": context.model_ref, "namespace": context.model_namespace}],
                 "subjects": {"groups": [{"name": "system:authenticated"}], "users": []},
             },
         }
@@ -103,13 +150,13 @@ def _apply_baseline_stack(namespace: str) -> None:
         {
             "apiVersion": "maas.opendatahub.io/v1alpha1",
             "kind": "MaaSSubscription",
-            "metadata": {"name": PREMIUM_SIMULATOR_SUBSCRIPTION, "namespace": namespace},
+            "metadata": {"name": context.premium_subscription_name, "namespace": context.tenant_namespace},
             "spec": {
                 "owner": {"groups": [{"name": "premium-user"}], "users": []},
                 "modelRefs": [
                     {
-                        "name": PREMIUM_MODEL_REF,
-                        "namespace": MODEL_NAMESPACE,
+                        "name": context.premium_model_ref,
+                        "namespace": context.model_namespace,
                         "tokenRateLimits": [{"limit": 1000, "window": "1m"}],
                     }
                 ],
@@ -121,51 +168,49 @@ def _apply_baseline_stack(namespace: str) -> None:
         {
             "apiVersion": "maas.opendatahub.io/v1alpha1",
             "kind": "MaaSAuthPolicy",
-            "metadata": {"name": "premium-simulator-access", "namespace": namespace},
+            "metadata": {"name": "premium-simulator-access", "namespace": context.tenant_namespace},
             "spec": {
-                "modelRefs": [{"name": PREMIUM_MODEL_REF, "namespace": MODEL_NAMESPACE}],
+                "modelRefs": [{"name": context.premium_model_ref, "namespace": context.model_namespace}],
                 "subjects": {"groups": [{"name": "premium-user"}], "users": []},
             },
         }
     )
 
     _wait_for_maas_auth_policy_phase(
-        SIMULATOR_ACCESS_POLICY,
-        namespace=namespace,
+        context.policy_name,
+        namespace=context.tenant_namespace,
         timeout=int(os.environ.get("E2E_AUTHPOLICY_PHASE_TIMEOUT", "120")),
         require_auth_policies=False,
         require_enforced=False,
     )
     _wait_for_maas_subscription_phase(
-        SIMULATOR_SUBSCRIPTION,
-        namespace=namespace,
+        context.subscription_name,
+        namespace=context.tenant_namespace,
         timeout=180,
     )
     _wait_for_maas_auth_policy_phase(
         "premium-simulator-access",
-        namespace=namespace,
+        namespace=context.tenant_namespace,
         timeout=int(os.environ.get("E2E_AUTHPOLICY_PHASE_TIMEOUT", "120")),
         require_auth_policies=False,
         require_enforced=False,
     )
     _wait_for_maas_subscription_phase(
-        PREMIUM_SIMULATOR_SUBSCRIPTION,
-        namespace=namespace,
+        context.premium_subscription_name,
+        namespace=context.tenant_namespace,
         timeout=180,
     )
 
 
-def bootstrap_worker_tenant(case: dict[str, str]) -> dict[str, str]:
+def bootstrap_worker_tenant(context: WorkerTenantContext) -> WorkerTenantContext:
     """Create AITenant + baseline CRs; return enriched case dict for tests."""
     require_aitenant_crd()
+    case = context.tenant_case()
     bootstrap_aitenant_tenant(case)
 
     host = _route_host(case)
     scheme = "http" if os.environ.get("INSECURE_HTTP", "").lower() == "true" else "https"
-    case["gateway_host"] = host
-    case["base_url"] = f"{scheme}://{host}/maas-api"
-    case["namespace"] = case["tenant_ns"]
-    case["gateway_authpolicy_name"] = per_tenant_gateway_policy_names(
+    gateway_authpolicy_name = per_tenant_gateway_policy_names(
         case["tenant_label_name"],
         case["gateway_name"],
     )["gateway_authpolicy"]
@@ -173,27 +218,51 @@ def bootstrap_worker_tenant(case: dict[str, str]) -> dict[str, str]:
     deployment_name = f"maas-api-{case['tenant_label_name']}"
     wait_for_deployment_available(deployment_name, namespace=INFRA_NAMESPACE, timeout=180)
 
-    _apply_baseline_stack(case["tenant_ns"])
+    apply_gateway_access_label(context.model_namespace, context.gateway_name)
+    for model_ref, model_alias in (
+        (context.model_ref, f"e2e/{context.model_ref}"),
+        (context.premium_model_ref, f"e2e/{context.premium_model_ref}"),
+        (context.distinct_model_ref, f"e2e/{context.distinct_model_ref}"),
+        (context.distinct_model_2_ref, f"e2e/{context.distinct_model_2_ref}"),
+        (context.unconfigured_model_ref, f"e2e/{context.unconfigured_model_ref}"),
+    ):
+        _create_llmis(model_ref, context.model_namespace, context.gateway_name, model_name=model_alias)
+        wait_for_llmisvc_backend_ready(model_ref, context.model_namespace, context.gateway_name)
+        _create_maas_model_ref(
+            model_ref,
+            context.model_namespace,
+            model_ref,
+            tenant_ref=context.tenant_name,
+        )
+
+    context = replace(
+        context,
+        route_host=host,
+        api_base_url=f"{scheme}://{host}/maas-api",
+        api_deployment_name=deployment_name,
+        gateway_authpolicy_name=gateway_authpolicy_name,
+    )
+    _apply_baseline_stack(context)
 
     wait_for_gateway_authpolicy_ready(
         case["gateway_name"],
         timeout=int(os.environ.get("E2E_GATEWAY_ENFORCED_TIMEOUT", "240")),
     )
-    return case
+    return context
 
 
 @contextmanager
-def activate_worker_tenant(case: Optional[dict[str, str]]) -> Iterator[None]:
+def activate_worker_tenant(case: Optional[WorkerTenantContext]) -> Iterator[None]:
     """Point test_helper URL/namespace env vars at a worker tenant for the test scope."""
     if not case:
         yield
         return
 
     saved = {key: os.environ.get(key) for key in _WORKER_TENANT_ENV_KEYS}
-    os.environ["MAAS_SUBSCRIPTION_NAMESPACE"] = case["tenant_ns"]
-    os.environ["GATEWAY_HOST"] = case["gateway_host"]
-    os.environ["MAAS_API_BASE_URL"] = case["base_url"]
-    os.environ["E2E_GATEWAY_AUTH_POLICY_NAME"] = case["gateway_authpolicy_name"]
+    os.environ["MAAS_SUBSCRIPTION_NAMESPACE"] = case.tenant_namespace
+    os.environ["GATEWAY_HOST"] = case.route_host
+    os.environ["MAAS_API_BASE_URL"] = case.api_base_url
+    os.environ["E2E_GATEWAY_AUTH_POLICY_NAME"] = case.gateway_authpolicy_name
     try:
         yield
     finally:
@@ -204,5 +273,6 @@ def activate_worker_tenant(case: Optional[dict[str, str]]) -> Iterator[None]:
                 os.environ[key] = value
 
 
-def teardown_worker_tenant(case: dict[str, str]) -> None:
-    cleanup_discovery_case(case)
+def teardown_worker_tenant(case: WorkerTenantContext) -> None:
+    _oc_run(["delete", "namespace", case.model_namespace, "--ignore-not-found", "--timeout=60s"])
+    cleanup_discovery_case(case.tenant_case())
