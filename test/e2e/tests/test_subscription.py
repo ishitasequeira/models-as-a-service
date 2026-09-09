@@ -100,7 +100,80 @@ from test_helper import (
 
 log = logging.getLogger(__name__)
 
-pytestmark = pytest.mark.xdist_group("api_keys")
+pytestmark = [pytest.mark.xdist_group("api_keys"), pytest.mark.worker_tenant]
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _worker_subscription_context(request):
+    """Point non-serial subscription tests at worker-owned tenant resources."""
+    if request.config.getoption("-m").strip() == "serial":
+        yield
+        return
+
+    from worker_tenant_fixtures import activate_worker_tenant
+
+    context = request.getfixturevalue("worker_tenant_context")
+    names = (
+        "MODEL_NAME", "MODEL_NAMESPACE", "MODEL_PATH", "MODEL_REF",
+        "PREMIUM_MODEL_PATH", "PREMIUM_MODEL_REF", "SIMULATOR_ACCESS_POLICY",
+        "SIMULATOR_SUBSCRIPTION", "TRLP_TEST_MODEL_REF", "TRLP_TEST_MODEL_PATH",
+        "TRLP_TEST_MODEL_ID", "DISTINCT_MODEL_REF", "UNCONFIGURED_MODEL_PATH",
+        "UNCONFIGURED_MODEL_REF", "AUTH_POLICY_NAME", "TRLP_NAME",
+    )
+    original_values = {name: globals()[name] for name in names}
+    original_auth_helper = globals()["_create_test_auth_policy"]
+    original_subscription_helper = globals()["_create_test_subscription"]
+
+    model_name = f"e2e/{context.model_ref}"
+    trlp_model_name = f"e2e/{context.distinct_model_2_ref}"
+    globals().update(
+        {
+            "MODEL_NAME": model_name,
+            "MODEL_NAMESPACE": context.model_namespace,
+            "MODEL_PATH": f"/{context.model_namespace}/{context.model_ref}",
+            "MODEL_REF": context.model_ref,
+            "PREMIUM_MODEL_PATH": (
+                f"/{context.model_namespace}/{context.premium_model_ref}"
+            ),
+            "PREMIUM_MODEL_REF": context.premium_model_ref,
+            "SIMULATOR_ACCESS_POLICY": context.policy_name,
+            "SIMULATOR_SUBSCRIPTION": context.subscription_name,
+            "TRLP_TEST_MODEL_REF": context.distinct_model_2_ref,
+            "TRLP_TEST_MODEL_PATH": (
+                f"/{context.model_namespace}/{context.distinct_model_2_ref}"
+            ),
+            "TRLP_TEST_MODEL_ID": trlp_model_name,
+            "DISTINCT_MODEL_REF": context.distinct_model_ref,
+            "UNCONFIGURED_MODEL_PATH": (
+                f"/{context.model_namespace}/{context.unconfigured_model_ref}"
+            ),
+            "UNCONFIGURED_MODEL_REF": context.unconfigured_model_ref,
+            "AUTH_POLICY_NAME": f"maas-auth-{context.model_ref}",
+            "TRLP_NAME": f"maas-trlp-{context.model_ref}",
+        }
+    )
+
+    def create_auth_policy(*args, **kwargs):
+        kwargs.setdefault("namespace", context.tenant_namespace)
+        kwargs.setdefault("model_namespace", context.model_namespace)
+        return original_auth_helper(*args, **kwargs)
+
+    def create_subscription(*args, **kwargs):
+        kwargs.setdefault("namespace", context.tenant_namespace)
+        kwargs.setdefault("model_namespace", context.model_namespace)
+        return original_subscription_helper(*args, **kwargs)
+
+    globals()["_create_test_auth_policy"] = create_auth_policy
+    globals()["_create_test_subscription"] = create_subscription
+    _default_api_key_cache.clear()
+    try:
+        with activate_worker_tenant(context):
+            yield
+    finally:
+        _default_api_key_cache.clear()
+        globals().update(original_values)
+        globals()["_create_test_auth_policy"] = original_auth_helper
+        globals()["_create_test_subscription"] = original_subscription_helper
 
 
 # Generated resource names (for TestManagedAnnotation)

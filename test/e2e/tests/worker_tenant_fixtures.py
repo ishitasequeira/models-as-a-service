@@ -55,6 +55,7 @@ class WorkerTenantContext:
     distinct_model_ref: str = ""
     distinct_model_2_ref: str = ""
     unconfigured_model_ref: str = ""
+    embedding_model_ref: str = ""
     policy_name: str = SIMULATOR_ACCESS_POLICY
     subscription_name: str = SIMULATOR_SUBSCRIPTION
     premium_subscription_name: str = PREMIUM_SIMULATOR_SUBSCRIPTION
@@ -105,6 +106,7 @@ def build_worker_tenant_case(worker_suffix: str) -> WorkerTenantContext:
         distinct_model_ref=f"distinct-{worker_suffix}-{case['suffix']}",
         distinct_model_2_ref=f"distinct-2-{worker_suffix}-{case['suffix']}",
         unconfigured_model_ref=f"unconfigured-{worker_suffix}-{case['suffix']}",
+        embedding_model_ref=f"embedding-{worker_suffix}-{case['suffix']}",
     )
 
 
@@ -226,6 +228,7 @@ def bootstrap_worker_tenant(context: WorkerTenantContext) -> WorkerTenantContext
         (context.distinct_model_ref, f"e2e/{context.distinct_model_ref}"),
         (context.distinct_model_2_ref, f"e2e/{context.distinct_model_2_ref}"),
         (context.unconfigured_model_ref, f"e2e/{context.unconfigured_model_ref}"),
+        (context.embedding_model_ref, f"e2e/{context.embedding_model_ref}"),
     ):
         _create_llmis(model_ref, context.model_namespace, context.gateway_name, model_name=model_alias)
         wait_for_llmisvc_backend_ready(model_ref, context.model_namespace, context.gateway_name)
