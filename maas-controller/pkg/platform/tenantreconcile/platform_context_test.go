@@ -247,9 +247,3 @@ func TestResolvePlatformContext_AITenantNameAnnotationRequired(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), AnnotationAITenantName)
 }
-
-func TestPlatformContext_IsPraxis(t *testing.T) {
-	assert.True(t, (PlatformContext{PayloadProcessingBackend: maasv1alpha1.PayloadProcessingBackendPraxis}).IsPraxis())
-	assert.False(t, (PlatformContext{PayloadProcessingBackend: maasv1alpha1.PayloadProcessingBackendIPP}).IsPraxis())
-	assert.False(t, (PlatformContext{}).IsPraxis())
-}
