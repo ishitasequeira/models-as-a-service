@@ -19,6 +19,7 @@ from test_helper import (
     _apply_cr,
     _create_llmis,
     _create_maas_model_ref,
+    _wait_for_model_ready,
     _wait_for_maas_auth_policy_phase,
     _wait_for_maas_subscription_phase,
 )
@@ -259,6 +260,11 @@ def bootstrap_worker_tenant(context: WorkerTenantContext) -> WorkerTenantContext
             context.model_namespace,
             model_ref,
             tenant_ref=context.tenant_name,
+        )
+        _wait_for_model_ready(
+            model_ref,
+            namespace=context.model_namespace,
+            timeout=int(os.environ.get("E2E_MODELREF_READY_TIMEOUT", "180")),
         )
 
     context = replace(

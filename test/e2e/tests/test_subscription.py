@@ -115,7 +115,7 @@ def _worker_subscription_context(request):
 
     context = request.getfixturevalue("worker_tenant_context")
     names = (
-        "MODEL_NAME", "MODEL_NAMESPACE", "MODEL_PATH", "MODEL_REF", "PREMIUM_MODEL_NAME",
+        "MODEL_NAME", "MODEL_NAMESPACE", "MODEL_PATH", "MODEL_REF",
         "PREMIUM_MODEL_PATH", "PREMIUM_MODEL_REF", "SIMULATOR_ACCESS_POLICY",
         "SIMULATOR_SUBSCRIPTION", "TRLP_TEST_MODEL_REF", "TRLP_TEST_MODEL_PATH",
         "TRLP_TEST_MODEL_ID", "DISTINCT_MODEL_REF", "UNCONFIGURED_MODEL_PATH",
@@ -142,7 +142,6 @@ def _worker_subscription_context(request):
             "MODEL_NAMESPACE": context.model_namespace,
             "MODEL_PATH": f"/{context.model_namespace}/{context.model_ref}",
             "MODEL_REF": context.model_ref,
-            "PREMIUM_MODEL_NAME": f"e2e/{context.premium_model_ref}",
             "PREMIUM_MODEL_PATH": (
                 f"/{context.model_namespace}/{context.premium_model_ref}"
             ),
