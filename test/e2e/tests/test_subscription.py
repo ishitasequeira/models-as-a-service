@@ -51,6 +51,7 @@ import uuid
 
 import pytest
 import requests
+import test_helper
 
 from test_helper import (
     MODEL_NAME,
@@ -114,7 +115,7 @@ def _worker_subscription_context(request):
 
     context = request.getfixturevalue("worker_tenant_context")
     names = (
-        "MODEL_NAME", "MODEL_NAMESPACE", "MODEL_PATH", "MODEL_REF",
+        "MODEL_NAME", "MODEL_NAMESPACE", "MODEL_PATH", "MODEL_REF", "PREMIUM_MODEL_NAME",
         "PREMIUM_MODEL_PATH", "PREMIUM_MODEL_REF", "SIMULATOR_ACCESS_POLICY",
         "SIMULATOR_SUBSCRIPTION", "TRLP_TEST_MODEL_REF", "TRLP_TEST_MODEL_PATH",
         "TRLP_TEST_MODEL_ID", "DISTINCT_MODEL_REF", "UNCONFIGURED_MODEL_PATH",
@@ -123,6 +124,15 @@ def _worker_subscription_context(request):
     original_values = {name: globals()[name] for name in names}
     original_auth_helper = globals()["_create_test_auth_policy"]
     original_subscription_helper = globals()["_create_test_subscription"]
+    original_gateway_wait = globals()["_wait_for_gateway_auth_enforced"]
+    helper_names = (
+        "MODEL_NAME", "MODEL_NAMESPACE", "MODEL_PATH", "MODEL_REF", "PREMIUM_MODEL_NAME",
+        "PREMIUM_MODEL_PATH", "PREMIUM_MODEL_REF", "SIMULATOR_ACCESS_POLICY",
+        "SIMULATOR_SUBSCRIPTION", "TRLP_TEST_MODEL_REF", "TRLP_TEST_MODEL_PATH",
+        "TRLP_TEST_MODEL_ID", "DISTINCT_MODEL_REF", "UNCONFIGURED_MODEL_PATH",
+        "UNCONFIGURED_MODEL_REF", "GATEWAY_AUTH_POLICY_NAME",
+    )
+    original_helper_values = {name: getattr(test_helper, name) for name in helper_names}
 
     model_name = f"e2e/{context.model_ref}"
     trlp_model_name = f"e2e/{context.distinct_model_2_ref}"
@@ -132,6 +142,7 @@ def _worker_subscription_context(request):
             "MODEL_NAMESPACE": context.model_namespace,
             "MODEL_PATH": f"/{context.model_namespace}/{context.model_ref}",
             "MODEL_REF": context.model_ref,
+            "PREMIUM_MODEL_NAME": f"e2e/{context.premium_model_ref}",
             "PREMIUM_MODEL_PATH": (
                 f"/{context.model_namespace}/{context.premium_model_ref}"
             ),
@@ -152,6 +163,26 @@ def _worker_subscription_context(request):
             "TRLP_NAME": f"maas-trlp-{context.model_ref}",
         }
     )
+    helper_updates = {
+        "MODEL_NAME": model_name,
+        "MODEL_NAMESPACE": context.model_namespace,
+        "MODEL_PATH": f"/{context.model_namespace}/{context.model_ref}",
+        "MODEL_REF": context.model_ref,
+        "PREMIUM_MODEL_NAME": f"e2e/{context.premium_model_ref}",
+        "PREMIUM_MODEL_PATH": f"/{context.model_namespace}/{context.premium_model_ref}",
+        "PREMIUM_MODEL_REF": context.premium_model_ref,
+        "SIMULATOR_ACCESS_POLICY": context.policy_name,
+        "SIMULATOR_SUBSCRIPTION": context.subscription_name,
+        "TRLP_TEST_MODEL_REF": context.distinct_model_2_ref,
+        "TRLP_TEST_MODEL_PATH": f"/{context.model_namespace}/{context.distinct_model_2_ref}",
+        "TRLP_TEST_MODEL_ID": trlp_model_name,
+        "DISTINCT_MODEL_REF": context.distinct_model_ref,
+        "UNCONFIGURED_MODEL_PATH": f"/{context.model_namespace}/{context.unconfigured_model_ref}",
+        "UNCONFIGURED_MODEL_REF": context.unconfigured_model_ref,
+        "GATEWAY_AUTH_POLICY_NAME": context.gateway_authpolicy_name,
+    }
+    for name, value in helper_updates.items():
+        setattr(test_helper, name, value)
 
     def create_auth_policy(*args, **kwargs):
         kwargs.setdefault("namespace", context.tenant_namespace)
@@ -163,8 +194,13 @@ def _worker_subscription_context(request):
         kwargs.setdefault("model_namespace", context.model_namespace)
         return original_subscription_helper(*args, **kwargs)
 
+    def wait_for_gateway_auth(*args, **kwargs):
+        kwargs.setdefault("name", context.gateway_authpolicy_name)
+        return original_gateway_wait(*args, **kwargs)
+
     globals()["_create_test_auth_policy"] = create_auth_policy
     globals()["_create_test_subscription"] = create_subscription
+    globals()["_wait_for_gateway_auth_enforced"] = wait_for_gateway_auth
     _default_api_key_cache.clear()
     try:
         with activate_worker_tenant(context):
@@ -174,6 +210,9 @@ def _worker_subscription_context(request):
         globals().update(original_values)
         globals()["_create_test_auth_policy"] = original_auth_helper
         globals()["_create_test_subscription"] = original_subscription_helper
+        globals()["_wait_for_gateway_auth_enforced"] = original_gateway_wait
+        for name, value in original_helper_values.items():
+            setattr(test_helper, name, value)
 
 
 # Generated resource names (for TestManagedAnnotation)

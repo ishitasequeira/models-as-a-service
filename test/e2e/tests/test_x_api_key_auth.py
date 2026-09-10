@@ -207,10 +207,14 @@ class TestXAPIKeyAuthentication:
             f"Expected 200 with x-api-key header, got {r.status_code}: {r.text[:500]}"
         )
 
-    def test_authorization_bearer_still_works(self, x_api_key_setup):
+    def test_authorization_bearer_still_works(self, x_api_key_setup, worker_tenant_context):
         """Authorization: Bearer still works when x-api-key identity source is active."""
         api_key = x_api_key_setup
-        r = _inference(api_key)
+        r = _inference(
+            api_key,
+            path=f"/{worker_tenant_context.model_namespace}/{worker_tenant_context.model_ref}",
+            model_name=f"e2e/{worker_tenant_context.model_ref}",
+        )
         assert r.status_code == 200, (
             f"Expected 200 with Authorization: Bearer, got {r.status_code}: {r.text[:500]}"
         )
@@ -229,10 +233,15 @@ class TestXAPIKeyAuthentication:
             f"Expected 401/403 for x-api-key without valid prefix, got {r.status_code}: {r.text[:500]}"
         )
 
-    def test_both_headers_no_conflict(self, x_api_key_setup):
+    def test_both_headers_no_conflict(self, x_api_key_setup, worker_tenant_context):
         """Sending both Authorization: Bearer and x-api-key does not cause conflicts."""
         api_key = x_api_key_setup
-        r = _inference(api_key, extra_headers={"x-api-key": api_key})
+        r = _inference(
+            api_key,
+            path=f"/{worker_tenant_context.model_namespace}/{worker_tenant_context.model_ref}",
+            model_name=f"e2e/{worker_tenant_context.model_ref}",
+            extra_headers={"x-api-key": api_key},
+        )
         assert r.status_code == 200, (
             f"Expected 200 with both auth headers, got {r.status_code}: {r.text[:500]}"
         )

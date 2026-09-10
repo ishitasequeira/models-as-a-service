@@ -321,7 +321,7 @@ def admin_headers(admin_token: str):
         return None
     return {"Authorization": f"Bearer {admin_token}", "Content-Type": "application/json"}
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def api_key(api_keys_base_url: str, headers: dict) -> str:
     """
     Create an API key for model inference tests.
@@ -378,7 +378,7 @@ def worker_api_key(worker_tenant_context, headers: dict) -> str:
         raise RuntimeError("Worker API key creation response missing 'key' field")
     return key
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def api_key_headers(api_key: str):
     """Headers with API key for model inference requests."""
     return {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
