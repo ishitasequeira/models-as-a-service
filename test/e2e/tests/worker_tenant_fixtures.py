@@ -245,6 +245,14 @@ def bootstrap_worker_tenant(context: WorkerTenantContext) -> WorkerTenantContext
     wait_for_deployment_available(deployment_name, namespace=INFRA_NAMESPACE, timeout=180)
 
     apply_gateway_access_label(context.model_namespace, context.gateway_name)
+    model_refs = (
+        context.model_ref,
+        context.premium_model_ref,
+        context.distinct_model_ref,
+        context.distinct_model_2_ref,
+        context.unconfigured_model_ref,
+        context.embedding_model_ref,
+    )
     for model_ref, model_alias in (
         (context.model_ref, f"e2e/{context.model_ref}"),
         (context.premium_model_ref, f"e2e/{context.premium_model_ref}"),
@@ -261,11 +269,6 @@ def bootstrap_worker_tenant(context: WorkerTenantContext) -> WorkerTenantContext
             model_ref,
             tenant_ref=context.tenant_name,
         )
-        _wait_for_model_ready(
-            model_ref,
-            namespace=context.model_namespace,
-            timeout=int(os.environ.get("E2E_MODELREF_READY_TIMEOUT", "180")),
-        )
 
     context = replace(
         context,
@@ -280,6 +283,12 @@ def bootstrap_worker_tenant(context: WorkerTenantContext) -> WorkerTenantContext
         case["gateway_name"],
         timeout=int(os.environ.get("E2E_GATEWAY_ENFORCED_TIMEOUT", "240")),
     )
+    for model_ref in model_refs:
+        _wait_for_model_ready(
+            model_ref,
+            namespace=context.model_namespace,
+            timeout=int(os.environ.get("E2E_MODELREF_READY_TIMEOUT", "180")),
+        )
     return context
 
 
