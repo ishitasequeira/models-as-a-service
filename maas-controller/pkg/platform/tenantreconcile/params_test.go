@@ -583,8 +583,8 @@ func TestBuildPlatformParams_SkipIPPForPraxis(t *testing.T) {
 			Namespace: "openshift-ingress",
 			Name:      "praxis-gateway",
 		},
-		PayloadProcessingBackend: maasv1alpha1.PayloadProcessingBackendPraxis,
-		Source:                   "aitenant",
+		SkipIPP: true,
+		Source:  "aitenant",
 	}
 
 	got, err := BuildPlatformParams(tenant, platformContext, "ai-tenant-praxis", "controller-ns", "https://kubernetes.default.svc", "opendatahub", logr.Discard())

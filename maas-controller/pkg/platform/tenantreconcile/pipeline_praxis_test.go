@@ -141,9 +141,9 @@ func TestRunPlatform_PraxisSkipsIPPApply(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: gwName, Namespace: gwNS},
 	}
 	platformContext := PlatformContext{
-		GatewayRef:               maasv1alpha1.TenantGatewayRef{Namespace: gwNS, Name: gwName},
-		PayloadProcessingBackend: maasv1alpha1.PayloadProcessingBackendPraxis,
-		Source:                   "aitenant",
+		GatewayRef: maasv1alpha1.TenantGatewayRef{Namespace: gwNS, Name: gwName},
+		SkipIPP:    true,
+		Source:     "aitenant",
 	}
 
 	var applied []appliedResource
@@ -197,9 +197,8 @@ func TestRunPlatform_LegacyTenantAppliesIPPResources(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: gwName, Namespace: gwNS},
 	}
 	platformContext := PlatformContext{
-		GatewayRef:               maasv1alpha1.TenantGatewayRef{Namespace: gwNS, Name: gwName},
-		PayloadProcessingBackend: maasv1alpha1.PayloadProcessingBackendIPP,
-		Source:                   "aitenant",
+		GatewayRef: maasv1alpha1.TenantGatewayRef{Namespace: gwNS, Name: gwName},
+		Source:     "aitenant",
 	}
 
 	var applied []appliedResource
@@ -257,9 +256,8 @@ func TestRunPlatform_LegacyTenantReadyWithIPPEnvoyFilter(t *testing.T) {
 	priority := PayloadProcessingEnvoyFilterPriority
 	ef := payloadProcessingEnvoyFilter(gwNS, PayloadProcessingEnvoyFilterName(tenantName), gwName, &priority)
 	platformContext := PlatformContext{
-		GatewayRef:               maasv1alpha1.TenantGatewayRef{Namespace: gwNS, Name: gwName},
-		PayloadProcessingBackend: maasv1alpha1.PayloadProcessingBackendIPP,
-		Source:                   "aitenant",
+		GatewayRef: maasv1alpha1.TenantGatewayRef{Namespace: gwNS, Name: gwName},
+		Source:     "aitenant",
 	}
 
 	cl := runPlatformTestClient(t, scheme, []client.Object{
