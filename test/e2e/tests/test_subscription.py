@@ -898,23 +898,6 @@ class TestMultipleAuthPoliciesPerModel:
 class TestCascadeDeletion:
     """Tests that deleting CRs triggers proper cleanup and rebuilds."""
 
-    @pytest.fixture(scope="class", autouse=True)
-    def _worker_unconfigured_model(self, request):
-        """Provision the optional default-deny model only for this class."""
-        from worker_tenant_fixtures import ensure_worker_models, serial_only_selection
-
-        if serial_only_selection(request):
-            yield
-            return
-
-        context = request.getfixturevalue("worker_tenant_context")
-        ensure_worker_models(
-            context,
-            (context.unconfigured_model_ref,),
-            wait_for_backend=False,
-        )
-        yield
-
     @pytest.mark.serial
     def test_delete_subscription_rebuilds_trlp(self):
         """Add a 2nd subscription, delete it -> TRLP rebuilt with only the original."""
@@ -1084,6 +1067,7 @@ class TestCascadeDeletion:
             # subscription cache has caught up, preventing flaky failures in subsequent tests.
             _wait_for_token_rate_limit_policy(MODEL_REF, model_namespace=MODEL_NAMESPACE, timeout=90)
 
+    @pytest.mark.serial
     def test_unconfigured_model_denied_by_gateway_auth(self):
         """New model with no MaaSAuthPolicy/MaaSSubscription -> gateway default auth denies (403)."""
         # Precondition: unconfigured model fixture is deployed

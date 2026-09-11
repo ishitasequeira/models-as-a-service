@@ -35,7 +35,6 @@ from multitenancy_helpers import (
     wait_for_deployment_available,
     wait_for_gateway_authpolicy_ready,
     wait_for_llmisvc_backend_ready,
-    wait_for_llmisvc_route_ready,
     wait_for_route_admitted,
 )
 
@@ -284,14 +283,8 @@ def bootstrap_worker_tenant(context: WorkerTenantContext) -> WorkerTenantContext
 def ensure_worker_models(
     context: WorkerTenantContext,
     model_refs: tuple[str, ...],
-    *,
-    wait_for_backend: bool = True,
 ) -> None:
-    """Provision optional worker models immediately before a module needs them.
-
-    ``wait_for_backend=False`` is for gateway/auth tests that need the route to
-    exist but do not send inference traffic through the serving deployment.
-    """
+    """Provision optional worker models immediately before a module needs them."""
     aliases = {
         context.distinct_model_ref: f"e2e/{context.distinct_model_ref}",
         context.distinct_model_2_ref: f"e2e/{context.distinct_model_2_ref}",
@@ -308,20 +301,12 @@ def ensure_worker_models(
             context.gateway_name,
             model_name=aliases[model_ref],
         )
-        if wait_for_backend:
-            wait_for_llmisvc_backend_ready(
-                model_ref,
-                context.model_namespace,
-                context.gateway_name,
-                timeout=timeout,
-            )
-        else:
-            wait_for_llmisvc_route_ready(
-                model_ref,
-                context.model_namespace,
-                context.gateway_name,
-                timeout=timeout,
-            )
+        wait_for_llmisvc_backend_ready(
+            model_ref,
+            context.model_namespace,
+            context.gateway_name,
+            timeout=timeout,
+        )
         _create_maas_model_ref(
             model_ref,
             context.model_namespace,
