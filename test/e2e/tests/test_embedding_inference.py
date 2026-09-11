@@ -53,13 +53,18 @@ pytestmark = [pytest.mark.xdist_group("api_keys"), pytest.mark.worker_tenant]
 @pytest.fixture(scope="module", autouse=True)
 def _worker_embedding_context(request):
     """Route parallel embedding tests through the worker-owned model and API."""
-    from worker_tenant_fixtures import activate_worker_tenant, serial_only_selection
+    from worker_tenant_fixtures import (
+        activate_worker_tenant,
+        serial_only_selection,
+        wait_for_worker_model_backends,
+    )
 
     if serial_only_selection(request):
         yield
         return
 
     context = request.getfixturevalue("worker_tenant_context")
+    wait_for_worker_model_backends(context, (context.embedding_model_ref,))
     original_values = {
         name: globals()[name]
         for name in (

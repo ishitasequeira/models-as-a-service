@@ -245,6 +245,7 @@ def bootstrap_worker_tenant(context: WorkerTenantContext) -> WorkerTenantContext
     wait_for_deployment_available(deployment_name, namespace=INFRA_NAMESPACE, timeout=180)
 
     apply_gateway_access_label(context.model_namespace, context.gateway_name)
+    baseline_model_refs = {context.model_ref, context.premium_model_ref}
     for model_ref, model_alias in (
         (context.model_ref, f"e2e/{context.model_ref}"),
         (context.premium_model_ref, f"e2e/{context.premium_model_ref}"),
@@ -254,7 +255,12 @@ def bootstrap_worker_tenant(context: WorkerTenantContext) -> WorkerTenantContext
         (context.embedding_model_ref, f"e2e/{context.embedding_model_ref}"),
     ):
         _create_llmis(model_ref, context.model_namespace, context.gateway_name, model_name=model_alias)
-        wait_for_llmisvc_backend_ready(model_ref, context.model_namespace, context.gateway_name)
+        # Only baseline models are needed to bootstrap the worker's shared
+        # API-key context. Optional models are waited on by the test modules
+        # that use them; one transient route-admission failure must not make
+        # unrelated modules fail during session setup.
+        if model_ref in baseline_model_refs:
+            wait_for_llmisvc_backend_ready(model_ref, context.model_namespace, context.gateway_name)
         _create_maas_model_ref(
             model_ref,
             context.model_namespace,
@@ -282,6 +288,21 @@ def bootstrap_worker_tenant(context: WorkerTenantContext) -> WorkerTenantContext
             timeout=int(os.environ.get("E2E_MODELREF_READY_TIMEOUT", "180")),
         )
     return context
+
+
+def wait_for_worker_model_backends(
+    context: WorkerTenantContext,
+    model_refs: tuple[str, ...],
+) -> None:
+    """Wait for optional worker models immediately before their tests use them."""
+    timeout = int(os.environ.get("E2E_MODEL_BACKEND_READY_TIMEOUT", "180"))
+    for model_ref in model_refs:
+        wait_for_llmisvc_backend_ready(
+            model_ref,
+            context.model_namespace,
+            context.gateway_name,
+            timeout=timeout,
+        )
 
 
 @contextmanager

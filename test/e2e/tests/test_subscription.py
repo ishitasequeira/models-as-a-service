@@ -107,13 +107,25 @@ pytestmark = [pytest.mark.xdist_group("api_keys"), pytest.mark.worker_tenant]
 @pytest.fixture(scope="module", autouse=True)
 def _worker_subscription_context(request):
     """Point non-serial subscription tests at worker-owned tenant resources."""
-    from worker_tenant_fixtures import activate_worker_tenant, serial_only_selection
+    from worker_tenant_fixtures import (
+        activate_worker_tenant,
+        serial_only_selection,
+        wait_for_worker_model_backends,
+    )
 
     if serial_only_selection(request):
         yield
         return
 
     context = request.getfixturevalue("worker_tenant_context")
+    wait_for_worker_model_backends(
+        context,
+        (
+            context.distinct_model_ref,
+            context.distinct_model_2_ref,
+            context.unconfigured_model_ref,
+        ),
+    )
     names = (
         "MODEL_NAME", "MODEL_NAMESPACE", "MODEL_PATH", "MODEL_REF",
         "PREMIUM_MODEL_PATH", "PREMIUM_MODEL_REF", "SIMULATOR_ACCESS_POLICY",

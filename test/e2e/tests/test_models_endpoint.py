@@ -79,13 +79,25 @@ def _worker_models_context(request):
 
     The serial pass intentionally retains the default deployment.
     """
-    from worker_tenant_fixtures import activate_worker_tenant, serial_only_selection
+    from worker_tenant_fixtures import (
+        activate_worker_tenant,
+        serial_only_selection,
+        wait_for_worker_model_backends,
+    )
 
     if serial_only_selection(request):
         yield
         return
 
     context = request.getfixturevalue("worker_tenant_context")
+    wait_for_worker_model_backends(
+        context,
+        (
+            context.distinct_model_ref,
+            context.distinct_model_2_ref,
+            context.unconfigured_model_ref,
+        ),
+    )
     original_values = {
         name: globals()[name]
         for name in (
