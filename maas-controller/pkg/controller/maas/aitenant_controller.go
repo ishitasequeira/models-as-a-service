@@ -283,7 +283,11 @@ func (r *AITenantReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&maasv1alpha1.AITenant{}, builder.WithPredicates(
-			predicate.Or(predicate.GenerationChangedPredicate{}, predicate.Funcs{UpdateFunc: deletionTimestampSet}),
+			predicate.Or(
+				predicate.GenerationChangedPredicate{},
+				predicate.Funcs{UpdateFunc: deletionTimestampSet},
+				predicate.Funcs{UpdateFunc: payloadProcessingTypeAnnotationChanged},
+			),
 		)).
 		Watches(
 			&maasv1alpha1.MaasTenantConfig{},
