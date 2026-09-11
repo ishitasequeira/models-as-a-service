@@ -711,6 +711,26 @@ def wait_for_llmisvc_backend_ready(
         timeout=timeout,
     )
 
+    wait_for_llmisvc_route_ready(
+        name,
+        namespace,
+        gateway_name,
+        gateway_namespace,
+        timeout=timeout,
+    )
+    wait_for_deployment_available(f"{name}-kserve", namespace=namespace, timeout=timeout)
+    return llmisvc
+
+
+def wait_for_llmisvc_route_ready(
+    name: str,
+    namespace: str,
+    gateway_name: str,
+    gateway_namespace: str = GATEWAY_NAMESPACE,
+    *,
+    timeout: int = 180,
+) -> dict:
+    """Wait until an LLMInferenceService's HTTPRoute is accepted and resolved."""
     route_name = f"{name}-kserve-route"
 
     def _route_ready(obj: dict) -> bool:
@@ -725,9 +745,7 @@ def wait_for_llmisvc_backend_ready(
                 return True
         return False
 
-    wait_for_json("httproute", route_name, namespace, predicate=_route_ready, timeout=timeout)
-    wait_for_deployment_available(f"{name}-kserve", namespace=namespace, timeout=timeout)
-    return llmisvc
+    return wait_for_json("httproute", route_name, namespace, predicate=_route_ready, timeout=timeout)
 
 
 def apply_gateway_route_fixture(gateway_name: str, *, fixture_label: str) -> None:

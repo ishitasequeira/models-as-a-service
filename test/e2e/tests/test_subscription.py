@@ -107,25 +107,13 @@ pytestmark = [pytest.mark.xdist_group("api_keys"), pytest.mark.worker_tenant]
 @pytest.fixture(scope="module", autouse=True)
 def _worker_subscription_context(request):
     """Point non-serial subscription tests at worker-owned tenant resources."""
-    from worker_tenant_fixtures import (
-        activate_worker_tenant,
-        serial_only_selection,
-        wait_for_worker_model_backends,
-    )
+    from worker_tenant_fixtures import activate_worker_tenant, serial_only_selection
 
     if serial_only_selection(request):
         yield
         return
 
     context = request.getfixturevalue("worker_tenant_context")
-    wait_for_worker_model_backends(
-        context,
-        (
-            context.distinct_model_ref,
-            context.distinct_model_2_ref,
-            context.unconfigured_model_ref,
-        ),
-    )
     names = (
         "MODEL_NAME", "MODEL_NAMESPACE", "MODEL_PATH", "MODEL_REF",
         "PREMIUM_MODEL_PATH", "PREMIUM_MODEL_REF", "SIMULATOR_ACCESS_POLICY",
@@ -909,6 +897,23 @@ class TestMultipleAuthPoliciesPerModel:
 
 class TestCascadeDeletion:
     """Tests that deleting CRs triggers proper cleanup and rebuilds."""
+
+    @pytest.fixture(scope="class", autouse=True)
+    def _worker_unconfigured_model(self, request):
+        """Provision the optional default-deny model only for this class."""
+        from worker_tenant_fixtures import ensure_worker_models, serial_only_selection
+
+        if serial_only_selection(request):
+            yield
+            return
+
+        context = request.getfixturevalue("worker_tenant_context")
+        ensure_worker_models(
+            context,
+            (context.unconfigured_model_ref,),
+            wait_for_backend=False,
+        )
+        yield
 
     @pytest.mark.serial
     def test_delete_subscription_rebuilds_trlp(self):
@@ -1884,6 +1889,22 @@ class TestStatusReporting:
     - Per-item status (modelRefStatuses, tokenRateLimitStatuses, authPolicies)
     - Ready/Reason fields on per-item statuses
     """
+
+    @pytest.fixture(scope="class", autouse=True)
+    def _worker_status_models(self, request):
+        """Provision the optional models used by status-reporting tests."""
+        from worker_tenant_fixtures import ensure_worker_models, serial_only_selection
+
+        if serial_only_selection(request):
+            yield
+            return
+
+        context = request.getfixturevalue("worker_tenant_context")
+        ensure_worker_models(
+            context,
+            (context.distinct_model_ref, context.distinct_model_2_ref),
+        )
+        yield
 
     def test_subscription_active_status_with_valid_model(self):
         """

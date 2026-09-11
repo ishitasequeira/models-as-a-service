@@ -35,6 +35,7 @@ from multitenancy_helpers import (
     wait_for_deployment_available,
     wait_for_gateway_authpolicy_ready,
     wait_for_llmisvc_backend_ready,
+    wait_for_llmisvc_route_ready,
     wait_for_route_admitted,
 )
 
@@ -245,22 +246,12 @@ def bootstrap_worker_tenant(context: WorkerTenantContext) -> WorkerTenantContext
     wait_for_deployment_available(deployment_name, namespace=INFRA_NAMESPACE, timeout=180)
 
     apply_gateway_access_label(context.model_namespace, context.gateway_name)
-    baseline_model_refs = {context.model_ref, context.premium_model_ref}
     for model_ref, model_alias in (
         (context.model_ref, f"e2e/{context.model_ref}"),
         (context.premium_model_ref, f"e2e/{context.premium_model_ref}"),
-        (context.distinct_model_ref, f"e2e/{context.distinct_model_ref}"),
-        (context.distinct_model_2_ref, f"e2e/{context.distinct_model_2_ref}"),
-        (context.unconfigured_model_ref, f"e2e/{context.unconfigured_model_ref}"),
-        (context.embedding_model_ref, f"e2e/{context.embedding_model_ref}"),
     ):
         _create_llmis(model_ref, context.model_namespace, context.gateway_name, model_name=model_alias)
-        # Only baseline models are needed to bootstrap the worker's shared
-        # API-key context. Optional models are waited on by the test modules
-        # that use them; one transient route-admission failure must not make
-        # unrelated modules fail during session setup.
-        if model_ref in baseline_model_refs:
-            wait_for_llmisvc_backend_ready(model_ref, context.model_namespace, context.gateway_name)
+        wait_for_llmisvc_backend_ready(model_ref, context.model_namespace, context.gateway_name)
         _create_maas_model_ref(
             model_ref,
             context.model_namespace,
@@ -290,18 +281,52 @@ def bootstrap_worker_tenant(context: WorkerTenantContext) -> WorkerTenantContext
     return context
 
 
-def wait_for_worker_model_backends(
+def ensure_worker_models(
     context: WorkerTenantContext,
     model_refs: tuple[str, ...],
+    *,
+    wait_for_backend: bool = True,
 ) -> None:
-    """Wait for optional worker models immediately before their tests use them."""
+    """Provision optional worker models immediately before a module needs them.
+
+    ``wait_for_backend=False`` is for gateway/auth tests that need the route to
+    exist but do not send inference traffic through the serving deployment.
+    """
+    aliases = {
+        context.distinct_model_ref: f"e2e/{context.distinct_model_ref}",
+        context.distinct_model_2_ref: f"e2e/{context.distinct_model_2_ref}",
+        context.unconfigured_model_ref: f"e2e/{context.unconfigured_model_ref}",
+        context.embedding_model_ref: f"e2e/{context.embedding_model_ref}",
+    }
     timeout = int(os.environ.get("E2E_MODEL_BACKEND_READY_TIMEOUT", "180"))
     for model_ref in model_refs:
-        wait_for_llmisvc_backend_ready(
+        if model_ref not in aliases:
+            raise ValueError(f"unsupported optional worker model {model_ref!r}")
+        _create_llmis(
             model_ref,
             context.model_namespace,
             context.gateway_name,
-            timeout=timeout,
+            model_name=aliases[model_ref],
+        )
+        if wait_for_backend:
+            wait_for_llmisvc_backend_ready(
+                model_ref,
+                context.model_namespace,
+                context.gateway_name,
+                timeout=timeout,
+            )
+        else:
+            wait_for_llmisvc_route_ready(
+                model_ref,
+                context.model_namespace,
+                context.gateway_name,
+                timeout=timeout,
+            )
+        _create_maas_model_ref(
+            model_ref,
+            context.model_namespace,
+            model_ref,
+            tenant_ref=context.tenant_name,
         )
 
 

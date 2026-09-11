@@ -55,8 +55,8 @@ def _worker_embedding_context(request):
     """Route parallel embedding tests through the worker-owned model and API."""
     from worker_tenant_fixtures import (
         activate_worker_tenant,
+        ensure_worker_models,
         serial_only_selection,
-        wait_for_worker_model_backends,
     )
 
     if serial_only_selection(request):
@@ -64,7 +64,7 @@ def _worker_embedding_context(request):
         return
 
     context = request.getfixturevalue("worker_tenant_context")
-    wait_for_worker_model_backends(context, (context.embedding_model_ref,))
+    ensure_worker_models(context, (context.embedding_model_ref,))
     original_values = {
         name: globals()[name]
         for name in (

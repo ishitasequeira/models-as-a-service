@@ -81,8 +81,8 @@ def _worker_models_context(request):
     """
     from worker_tenant_fixtures import (
         activate_worker_tenant,
+        ensure_worker_models,
         serial_only_selection,
-        wait_for_worker_model_backends,
     )
 
     if serial_only_selection(request):
@@ -90,12 +90,11 @@ def _worker_models_context(request):
         return
 
     context = request.getfixturevalue("worker_tenant_context")
-    wait_for_worker_model_backends(
+    ensure_worker_models(
         context,
         (
             context.distinct_model_ref,
             context.distinct_model_2_ref,
-            context.unconfigured_model_ref,
         ),
     )
     original_values = {
