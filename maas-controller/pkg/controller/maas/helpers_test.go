@@ -141,8 +141,8 @@ func TestPayloadProcessingTypeAnnotationChanged(t *testing.T) {
 		{
 			name: "ignore unrelated annotation changes",
 			oldObj: aitenant(map[string]string{
-				annotationKey:                  tenantreconcile.PayloadProcessingTypePraxis,
-				"example.com/unrelated":        "old",
+				annotationKey:           tenantreconcile.PayloadProcessingTypePraxis,
+				"example.com/unrelated": "old",
 			}),
 			newObj: aitenant(map[string]string{
 				annotationKey:           tenantreconcile.PayloadProcessingTypePraxis,
