@@ -342,11 +342,17 @@ func clearIPPMigrationCleanupComplete(ctx context.Context, c client.Client, tena
 func patchTenantAnnotations(ctx context.Context, c client.Client, tenant client.Object, mutate func(map[string]string)) error {
 	key := client.ObjectKeyFromObject(tenant)
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		latest := tenant.DeepCopyObject().(client.Object)
+		latest, ok := tenant.DeepCopyObject().(client.Object)
+		if !ok {
+			return fmt.Errorf("expected client.Object copy, got %T", tenant.DeepCopyObject())
+		}
 		if err := c.Get(ctx, key, latest); err != nil {
 			return err
 		}
-		base := latest.DeepCopyObject().(client.Object)
+		base, ok := latest.DeepCopyObject().(client.Object)
+		if !ok {
+			return fmt.Errorf("expected client.Object copy, got %T", latest.DeepCopyObject())
+		}
 		annotations := latest.GetAnnotations()
 		if annotations == nil {
 			annotations = make(map[string]string)
