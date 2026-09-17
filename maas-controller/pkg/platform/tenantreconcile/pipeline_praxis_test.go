@@ -85,6 +85,12 @@ func readyMaaSAPIDeployment(namespace, tenantID string) *appsv1.Deployment {
 	}
 }
 
+func praxisTestAITenant(tenantName string) *maasv1alpha1.AITenant {
+	return &maasv1alpha1.AITenant{
+		ObjectMeta: metav1.ObjectMeta{Name: tenantName, Namespace: DefaultAITenantNamespace},
+	}
+}
+
 func praxisTenantConfig(namespace, tenantName string) *maasv1alpha1.MaasTenantConfig {
 	return &maasv1alpha1.MaasTenantConfig{
 		ObjectMeta: metav1.ObjectMeta{
@@ -151,7 +157,7 @@ func TestRunPlatform_PraxisSkipsIPPApply(t *testing.T) {
 
 	var applied []appliedResource
 	cl := runPlatformTestClient(t, scheme, []client.Object{
-		mcfg, gateway, tenant, readyMaaSAPIDeployment(appNs, tenantName),
+		mcfg, gateway, tenant, praxisTestAITenant(tenantName), readyMaaSAPIDeployment(appNs, tenantName),
 	}, &applied)
 
 	result, err := RunPlatform(
@@ -211,7 +217,7 @@ func TestRunPlatform_PraxisCleansUpExistingIPPResources(t *testing.T) {
 
 	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
 		mcfg, gateway, tenant, readyMaaSAPIDeployment(appNs, tenantName), ippDeployment, ippEnvoyFilter,
-		&maasv1alpha1.AITenant{ObjectMeta: metav1.ObjectMeta{Name: tenantName, Namespace: DefaultAITenantNamespace}},
+		praxisTestAITenant(tenantName),
 	).Build()
 
 	result, err := RunPlatform(
@@ -281,7 +287,7 @@ func TestRunPlatform_PraxisMigrationCleanupSkipsPraxisOwnedResources(t *testing.
 	}
 
 	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
-		mcfg, gateway, tenant, readyMaaSAPIDeployment(appNs, tenantName), praxisDeployment,
+		mcfg, gateway, tenant, praxisTestAITenant(tenantName), readyMaaSAPIDeployment(appNs, tenantName), praxisDeployment,
 	).Build()
 
 	_, err := RunPlatform(
