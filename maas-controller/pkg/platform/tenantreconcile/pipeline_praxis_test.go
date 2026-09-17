@@ -211,6 +211,7 @@ func TestRunPlatform_PraxisCleansUpExistingIPPResources(t *testing.T) {
 
 	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
 		mcfg, gateway, tenant, readyMaaSAPIDeployment(appNs, tenantName), ippDeployment, ippEnvoyFilter,
+		&maasv1alpha1.AITenant{ObjectMeta: metav1.ObjectMeta{Name: tenantName, Namespace: DefaultAITenantNamespace}},
 	).Build()
 
 	result, err := RunPlatform(
@@ -251,6 +252,10 @@ func TestRunPlatform_PraxisCleansUpExistingIPPResources(t *testing.T) {
 	gotTenant := &maasv1alpha1.MaasTenantConfig{}
 	require.NoError(t, cl.Get(context.Background(), types.NamespacedName{Namespace: appNs, Name: maasv1alpha1.MaasTenantConfigInstanceName}, gotTenant))
 	assert.Equal(t, "true", gotTenant.Annotations[AnnotationIPPMigrationCleanupComplete])
+
+	gotAITenant := &maasv1alpha1.AITenant{}
+	require.NoError(t, cl.Get(context.Background(), types.NamespacedName{Namespace: DefaultAITenantNamespace, Name: tenantName}, gotAITenant))
+	assert.Equal(t, "true", gotAITenant.Annotations[AnnotationIPPMigrationCleanupComplete])
 }
 
 func TestRunPlatform_PraxisMigrationCleanupSkipsPraxisOwnedResources(t *testing.T) {

@@ -331,17 +331,60 @@ func isIPPMigrationCleanupComplete(tenant client.Object) bool {
 }
 
 func markIPPMigrationCleanupComplete(ctx context.Context, c client.Client, tenant client.Object) error {
-	return patchTenantAnnotations(ctx, c, tenant, func(annotations map[string]string) {
+	if err := patchTenantAnnotations(ctx, c, tenant, func(annotations map[string]string) {
 		annotations[AnnotationIPPMigrationCleanupComplete] = "true"
-	})
+	}); err != nil {
+		return err
+	}
+	return syncIPPMigrationCleanupMarkerToAITenant(ctx, c, tenant, true)
 }
 
 func clearIPPMigrationCleanupComplete(ctx context.Context, c client.Client, tenant client.Object) error {
 	if !isIPPMigrationCleanupComplete(tenant) {
 		return nil
 	}
-	return patchTenantAnnotations(ctx, c, tenant, func(annotations map[string]string) {
+	if err := patchTenantAnnotations(ctx, c, tenant, func(annotations map[string]string) {
 		delete(annotations, AnnotationIPPMigrationCleanupComplete)
+	}); err != nil {
+		return err
+	}
+	return syncIPPMigrationCleanupMarkerToAITenant(ctx, c, tenant, false)
+}
+
+func syncIPPMigrationCleanupMarkerToAITenant(ctx context.Context, c client.Client, tenant client.Object, complete bool) error {
+	if !isAITenantManagedTenantConfig(tenant) {
+		return nil
+	}
+	aitenantName := annotationValue(tenant, AnnotationAITenantName)
+	if aitenantName == "" {
+		labels := tenant.GetLabels()
+		if labels != nil {
+			aitenantName = labels[LabelTenantName]
+		}
+	}
+	aitenantNamespace := annotationValue(tenant, AnnotationAITenantNamespace)
+	if aitenantName == "" || aitenantNamespace == "" {
+		return fmt.Errorf("tenant config %s/%s is missing AITenant reference for IPP migration marker sync",
+			tenant.GetNamespace(), tenant.GetName())
+	}
+	key := types.NamespacedName{Namespace: aitenantNamespace, Name: aitenantName}
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		aitenant := &maasv1alpha1.AITenant{}
+		if err := c.Get(ctx, key, aitenant); err != nil {
+			return fmt.Errorf("get AITenant %s for IPP migration marker sync: %w", key, err)
+		}
+		base := aitenant.DeepCopy()
+		annotations := aitenant.GetAnnotations()
+		if annotations == nil {
+			annotations = make(map[string]string)
+		}
+		if complete {
+			annotations[AnnotationIPPMigrationCleanupComplete] = "true"
+		} else {
+			delete(annotations, AnnotationIPPMigrationCleanupComplete)
+		}
+		aitenant.SetAnnotations(annotations)
+		return c.Patch(ctx, aitenant, client.MergeFrom(base))
 	})
 }
 
