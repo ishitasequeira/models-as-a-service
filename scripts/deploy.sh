@@ -1093,9 +1093,11 @@ configure_tls_backend() {
 
   # Wait for Authorino deployment to be created by Kuadrant operator
   # This is necessary because Kuadrant may not be fully ready yet (timing issue)
-  wait_for_resource "deployment" "authorino" "$authorino_namespace" "$RESOURCE_TIMEOUT" || {
-    log_warn "Authorino deployment not found after ${RESOURCE_TIMEOUT}s, TLS configuration may fail"
-  }
+  if ! wait_for_resource "deployment" "authorino" "$authorino_namespace" "$RESOURCE_TIMEOUT"; then
+    log_error "Authorino deployment was not created after ${RESOURCE_TIMEOUT}s"
+    log_error "The policy engine is not ready; refusing to continue with unenforced AuthPolicies"
+    return 1
+  fi
 
   # Call TLS configuration script
   local tls_script="${SCRIPT_DIR}/setup-authorino-tls.sh"
