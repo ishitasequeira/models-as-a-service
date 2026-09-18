@@ -38,6 +38,9 @@ ensure_helm() {
 
 ODH_GITOPS_REPO="${ODH_GITOPS_REPO:-https://github.com/opendatahub-io/odh-gitops.git}"
 ODH_GITOPS_BRANCH="${ODH_GITOPS_BRANCH:-main}"
+# Pin the default deployment to the reviewed odh-gitops main commit. Set this
+# explicitly (or leave it empty) when testing a different repository/branch.
+ODH_GITOPS_COMMIT="${ODH_GITOPS_COMMIT:-fadfb31e89ae898b04a9a75bfa8bb91588d7e625}"
 ODH_GITOPS_CHART_PATH="${ODH_GITOPS_CHART_PATH:-}"
 HELM_RELEASE_NAME="${HELM_RELEASE_NAME:-rhoai-deps}"
 HELM_NAMESPACE="${HELM_NAMESPACE:-rhoai-deps}"
@@ -72,8 +75,14 @@ resolve_chart_path() {
 
   _CLONE_TMP_DIR="$(mktemp -d)"
 
-  log_info "Cloning odh-gitops chart (branch: $ODH_GITOPS_BRANCH)..."
+  log_info "Cloning odh-gitops chart (branch: $ODH_GITOPS_BRANCH, commit: $ODH_GITOPS_COMMIT)..."
   git clone --depth 1 --branch "$ODH_GITOPS_BRANCH" "$ODH_GITOPS_REPO" "$_CLONE_TMP_DIR/odh-gitops" 2>&1 | tail -1
+  if [[ -n "$ODH_GITOPS_COMMIT" ]]; then
+    # The shallow branch clone may not contain a pinned commit after main has
+    # advanced, so fetch that object explicitly before checking it out.
+    git -C "$_CLONE_TMP_DIR/odh-gitops" fetch --depth 1 origin "$ODH_GITOPS_COMMIT"
+    git -C "$_CLONE_TMP_DIR/odh-gitops" checkout --quiet --detach "$ODH_GITOPS_COMMIT"
+  fi
   CHART_PATH="$_CLONE_TMP_DIR/odh-gitops/charts/rhai-on-openshift-chart"
 
   if [[ ! -f "$CHART_PATH/Chart.yaml" ]]; then
@@ -335,7 +344,7 @@ main() {
   log_info "  Operator type: $OPERATOR_TYPE"
   log_info "  Deployment mode: $DEPLOY_MODE"
   log_info "  Policy engine: ${POLICY_ENGINE:-auto}"
-  log_info "  Chart source: ${ODH_GITOPS_CHART_PATH:-${ODH_GITOPS_REPO} @ ${ODH_GITOPS_BRANCH}}"
+  log_info "  Chart source: ${ODH_GITOPS_CHART_PATH:-${ODH_GITOPS_REPO} @ ${ODH_GITOPS_BRANCH} (${ODH_GITOPS_COMMIT:-latest})}"
   log_info "  MaaS controller image: ${MAAS_CONTROLLER_IMAGE:-chart default}"
   log_info "  MaaS API image: ${MAAS_API_IMAGE:-chart default}"
   log_info "  Payload processing image: ${PAYLOAD_PROCESSING_IMAGE:-chart default}"
