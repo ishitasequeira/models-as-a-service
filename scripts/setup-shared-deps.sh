@@ -392,7 +392,21 @@ main() {
 
   log_info ""
   log_info "Phase 2: Applying CRD-dependent resources (DSC, DSCI, Kuadrant CR)..."
+  # RHCL/Kuadrant CRs are rendered conditionally with Helm's lookup() because
+  # their CRDs are installed by the operator subscription. The first Helm
+  # pass intentionally installs only operators; after the CRD waits above,
+  # force the second pass to render those CRs explicitly.
+  HELM_SETS+=(--set skipCrdCheck=true)
   run_helm_install
+
+  if [[ "${POLICY_ENGINE:-rhcl}" =~ ^(rhcl|kuadrant)$ ]]; then
+    log_info "Waiting for Kuadrant policy engine to become ready..."
+    if ! wait_for_custom_check "Kuadrant ready in ${RHCL_NAMESPACE}" "$CUSTOM_RESOURCE_TIMEOUT" 5 -- \
+      bash -c "kubectl get kuadrant kuadrant -n '${RHCL_NAMESPACE}' -o jsonpath='{.status.conditions[?(@.type==\"Ready\")].status}' 2>/dev/null | grep -q True"; then
+      log_error "Kuadrant did not become ready; Authorino and policy enforcement cannot be used"
+      return 1
+    fi
+  fi
 
   post_helm_steps
 
