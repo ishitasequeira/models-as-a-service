@@ -36,8 +36,8 @@ ensure_helm() {
   log_info "helm installed: $(helm version --short 2>/dev/null)"
 }
 
-ODH_GITOPS_REPO="${ODH_GITOPS_REPO:-https://github.com/ishitasequeira/odh-gitops.git}"
-ODH_GITOPS_BRANCH="${ODH_GITOPS_BRANCH:-feat/maas-profile}"
+ODH_GITOPS_REPO="${ODH_GITOPS_REPO:-https://github.com/opendatahub-io/odh-gitops.git}"
+ODH_GITOPS_BRANCH="${ODH_GITOPS_BRANCH:-main}"
 ODH_GITOPS_CHART_PATH="${ODH_GITOPS_CHART_PATH:-}"
 HELM_RELEASE_NAME="${HELM_RELEASE_NAME:-rhoai-deps}"
 HELM_NAMESPACE="${HELM_NAMESPACE:-rhoai-deps}"
