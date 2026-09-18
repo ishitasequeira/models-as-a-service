@@ -47,6 +47,8 @@ HELM_NAMESPACE="${HELM_NAMESPACE:-rhoai-deps}"
 
 OPERATOR_TYPE="${OPERATOR_TYPE:-odh}"
 DEPLOY_MODE="${DEPLOY_MODE:-operator}"
+# Current names are loadbalancer and ocproute. Keep the legacy route and
+# clusterip aliases for callers that have not migrated yet.
 INGRESS_MODE="${INGRESS_MODE:-route}"
 POLICY_ENGINE="${POLICY_ENGINE:-}"
 MAAS_CONTROLLER_IMAGE="${MAAS_CONTROLLER_IMAGE:-}"
@@ -111,23 +113,34 @@ build_helm_sets() {
     )
   fi
 
-  if [[ "$INGRESS_MODE" == "clusterip" ]]; then
-    local cluster_domain="${CLUSTER_DOMAIN:-}"
-    if [[ -z "$cluster_domain" ]]; then
-      cluster_domain=$(kubectl get ingresses.config.openshift.io cluster -o jsonpath='{.spec.domain}' 2>/dev/null || true)
-    fi
-    if [[ -z "$cluster_domain" ]]; then
-      log_error "Could not determine the OpenShift ingress domain for clusterip mode"
+  case "$INGRESS_MODE" in
+    # "clusterip" was the old name for this mode. Keep accepting it while
+    # using the current "ocproute" name from the e2e deployment scripts.
+    ocproute|clusterip)
+      local cluster_domain="${CLUSTER_DOMAIN:-}"
+      if [[ -z "$cluster_domain" ]]; then
+        cluster_domain=$(kubectl get ingresses.config.openshift.io cluster -o jsonpath='{.spec.domain}' 2>/dev/null || true)
+      fi
+      if [[ -z "$cluster_domain" ]]; then
+        log_error "Could not determine the OpenShift ingress domain for ${INGRESS_MODE} mode"
+        return 1
+      fi
+      HELM_SETS+=(
+        --set components.aigateway.modelsAsAService.gatewayClass.create=true
+        --set components.aigateway.modelsAsAService.gatewayClass.name=openshift-default
+        --set components.aigateway.modelsAsAService.gateway.spec.gatewayClassName=openshift-default
+        --set components.aigateway.modelsAsAService.gateway.openshiftRoute.enabled=true
+        --set "components.aigateway.modelsAsAService.gateway.openshiftRoute.host=maas.${cluster_domain}"
+      )
+      ;;
+    route|loadbalancer)
+      # The chart defaults to the external Gateway/load-balancer topology.
+      ;;
+    *)
+      log_error "Invalid ingress mode: $INGRESS_MODE (expected loadbalancer or ocproute; legacy aliases route and clusterip are also accepted)"
       return 1
-    fi
-    HELM_SETS+=(
-      --set components.aigateway.modelsAsAService.gatewayClass.create=true
-      --set components.aigateway.modelsAsAService.gatewayClass.name=openshift-default
-      --set components.aigateway.modelsAsAService.gateway.spec.gatewayClassName=openshift-default
-      --set components.aigateway.modelsAsAService.gateway.openshiftRoute.enabled=true
-      --set "components.aigateway.modelsAsAService.gateway.openshiftRoute.host=maas.${cluster_domain}"
-    )
-  fi
+      ;;
+  esac
 
   if [[ -n "$OPERATOR_CHANNEL" ]]; then
     HELM_SETS+=(--set "operator.${OPERATOR_TYPE}.olm.channel=${OPERATOR_CHANNEL}")
@@ -343,6 +356,7 @@ main() {
   log_info "==================================================="
   log_info "  Operator type: $OPERATOR_TYPE"
   log_info "  Deployment mode: $DEPLOY_MODE"
+  log_info "  Ingress mode: $INGRESS_MODE"
   log_info "  Policy engine: ${POLICY_ENGINE:-auto}"
   log_info "  Chart source: ${ODH_GITOPS_CHART_PATH:-${ODH_GITOPS_REPO} @ ${ODH_GITOPS_BRANCH} (${ODH_GITOPS_COMMIT:-latest})}"
   log_info "  MaaS controller image: ${MAAS_CONTROLLER_IMAGE:-chart default}"
