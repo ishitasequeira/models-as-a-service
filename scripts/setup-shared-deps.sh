@@ -403,8 +403,30 @@ main() {
     log_info "Waiting for Kuadrant policy engine to become ready..."
     if ! wait_for_custom_check "Kuadrant ready in ${RHCL_NAMESPACE}" "$CUSTOM_RESOURCE_TIMEOUT" 5 -- \
       bash -c "kubectl get kuadrant kuadrant -n '${RHCL_NAMESPACE}' -o jsonpath='{.status.conditions[?(@.type==\"Ready\")].status}' 2>/dev/null | grep -q True"; then
-      log_error "Kuadrant did not become ready; Authorino and policy enforcement cannot be used"
-      return 1
+      local operator_logs
+      operator_logs=$(kubectl logs deployment/kuadrant-operator-controller-manager \
+        -n "$RHCL_NAMESPACE" --all-containers --tail=200 2>/dev/null || true)
+
+      if grep -Fq 'cannot find RESTMapping for APIVersion kuadrant.io/v1beta1 Kind Kuadrant' \
+        <<<"$operator_logs"; then
+        log_warn "Restarting Kuadrant operator after transient REST mapping failure..."
+        kubectl delete pod -n "$RHCL_NAMESPACE" \
+          -l 'app=kuadrant,control-plane=controller-manager' --wait=true
+        kubectl rollout status deployment/kuadrant-operator-controller-manager \
+          -n "$RHCL_NAMESPACE" --timeout="${ROLLOUT_TIMEOUT}s"
+
+        if ! wait_for_custom_check "Kuadrant ready in ${RHCL_NAMESPACE} after restart" \
+          "$CUSTOM_CHECK_TIMEOUT" 5 -- \
+          bash -c "kubectl get kuadrant kuadrant -n '${RHCL_NAMESPACE}' -o jsonpath='{.status.conditions[?(@.type==\"Ready\")].status}' 2>/dev/null | grep -q True"; then
+          log_error "Kuadrant did not become ready after operator restart"
+          return 1
+        fi
+
+        log_info "Kuadrant recovered after operator restart"
+      else
+        log_error "Kuadrant did not become ready; Authorino and policy enforcement cannot be used"
+        return 1
+      fi
     fi
   fi
 
