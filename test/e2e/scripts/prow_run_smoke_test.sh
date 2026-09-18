@@ -181,6 +181,7 @@ setup_vars_for_tests() {
         -o jsonpath='{.spec.gatewayClassName}' 2>/dev/null || echo "")
     gateway_listener_host=$(oc get gateway maas-default-gateway -n openshift-ingress \
         -o jsonpath='{.spec.listeners[?(@.protocol=="HTTPS")].hostname}' 2>/dev/null | awk '{print $1}')
+    HOST=""
     if [[ -n "${MAAS_GATEWAY_HOST:-}" ]]; then
         HOST="${MAAS_GATEWAY_HOST#*://}"
     elif [[ -n "$gateway_listener_host" ]]; then
