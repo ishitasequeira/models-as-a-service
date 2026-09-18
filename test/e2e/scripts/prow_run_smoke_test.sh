@@ -175,7 +175,23 @@ setup_vars_for_tests() {
 
     export CLUSTER_DOMAIN="$(oc get ingresses.config.openshift.io cluster -o jsonpath='{.spec.domain}')"
     [[ -z "$CLUSTER_DOMAIN" ]] && { echo "❌ ERROR: Failed to detect cluster domain"; exit 1; }
-    export HOST="maas.${CLUSTER_DOMAIN}"
+    # Route mode uses the MaaS GatewayClass and exposes an external load
+    # balancer address; clusterip mode uses the OpenShift ingress host.
+    gateway_class=$(oc get gateway maas-default-gateway -n openshift-ingress \
+        -o jsonpath='{.spec.gatewayClassName}' 2>/dev/null || echo "")
+    gateway_listener_host=$(oc get gateway maas-default-gateway -n openshift-ingress \
+        -o jsonpath='{.spec.listeners[?(@.protocol=="HTTPS")].hostname}' 2>/dev/null | awk '{print $1}')
+    if [[ -n "${MAAS_GATEWAY_HOST:-}" ]]; then
+        HOST="${MAAS_GATEWAY_HOST#*://}"
+    elif [[ -n "$gateway_listener_host" ]]; then
+        HOST="$gateway_listener_host"
+    elif [[ "$gateway_class" != "openshift-default" ]]; then
+        gateway_address=$(oc get gateway maas-default-gateway -n openshift-ingress \
+            -o jsonpath='{.status.addresses[0].value}' 2>/dev/null || echo "")
+        HOST="${gateway_address#*://}"
+    fi
+    [[ -z "$HOST" ]] && HOST="maas.${CLUSTER_DOMAIN}"
+    export HOST
     export EXTERNAL_OIDC
 
     if [[ "${EXTERNAL_OIDC}" == "true" ]]; then
