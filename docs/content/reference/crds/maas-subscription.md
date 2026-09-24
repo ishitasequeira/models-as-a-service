@@ -27,7 +27,8 @@ When a `MaaSSubscription` is deleted, its finalizer waits for a subscription-sco
 |-------|------|----------|-------------|
 | name | string | Yes | Name of the MaaSModelRef |
 | namespace | string | Yes | Namespace where the MaaSModelRef lives |
-| tokenRateLimits | []TokenRateLimit | Yes | Token-based rate limits for this model (at least one required) |
+| tokenRateLimits | []TokenRateLimit | Unless `unlimited` | Token-based rate limits for this model (at least one entry when set) |
+| unlimited | bool | No | Access to this model without a token budget. Usage is still metered. Mutually exclusive with `tokenRateLimits` |
 | billingRate | BillingRate | No | Cost per token |
 
 ## TokenRateLimit
