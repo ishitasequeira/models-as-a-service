@@ -447,6 +447,7 @@ class TestModelsEndpoint:
             _wait_for_cr_absent("maassubscription", subscription_name, namespace=maas_ns)
             _wait_for_cr_absent("maasauthpolicy", auth_policy_name, namespace=maas_ns)
 
+    @pytest.mark.serial
     def test_explicit_subscription_header(self):
         """
         Test: K8s token with multiple subscriptions can list models by providing
@@ -576,6 +577,7 @@ class TestModelsEndpoint:
         finally:
             _delete_sa(sa_name, namespace=sa_ns)
 
+    @pytest.mark.serial
     def test_models_filtered_by_subscription(self):
         """
         Test 8: Models are correctly filtered by subscription.

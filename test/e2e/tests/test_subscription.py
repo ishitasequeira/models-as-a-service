@@ -505,6 +505,7 @@ class TestSubscriptionEnforcement:
         r = _poll_status(api_key, 200, timeout=90)
         log.info(f"Subscribed API key -> {r.status_code}")
 
+    @pytest.mark.serial
     def test_auth_pass_no_subscription_gets_403(self):
         """API key with auth pass but no matching subscription should get 403.
 
@@ -696,7 +697,6 @@ class TestSubscriptionEnforcement:
         # (even if each request uses exactly 1 token: 5 requests > 3 token limit)
         token_limit = 3
         window = "1m"
-        max_tokens = 1
 
         try:
             # 1. Create auth policy allowing system:authenticated
@@ -778,7 +778,7 @@ class TestSubscriptionEnforcement:
             # Verify it returns valid model metadata (sanity check)
             try:
                 models_data = r_models.json()
-            except (json.JSONDecodeError, ValueError) as e:
+            except (json.JSONDecodeError, ValueError):
                 # Non-JSON response is acceptable for some vLLM versions
                 log.info(f"✓ /v1/models endpoint accessible (200), non-JSON response: {r_models.text[:200]}")
             else:
@@ -1088,6 +1088,7 @@ class TestAllUnlimitedModel:
 class TestMultipleAuthPoliciesPerModel:
     """Multiple auth policies for one model aggregate with OR logic."""
 
+    @pytest.mark.serial
     def test_two_auth_policies_or_logic(self):
         """Two auth policies for the premium model with OR logic: user matching either gets access."""
         ns = _ns()
