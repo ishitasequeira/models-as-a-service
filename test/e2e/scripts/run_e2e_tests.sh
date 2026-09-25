@@ -88,6 +88,7 @@ xml_serial="${xml%.xml}-serial.xml"
 # ── Test file list ───────────────────────────────────────────────────────
 e2e_test_files=(
     "$TEST_DIR/tests/test_api_keys.py"
+    "$TEST_DIR/tests/test_x_api_key_auth.py"
     "$TEST_DIR/tests/test_namespace_scoping.py"
     "$TEST_DIR/tests/test_negative_security.py"
     "$TEST_DIR/tests/test_subscription.py"
@@ -113,6 +114,7 @@ e2e_test_files=(
     "$TEST_DIR/tests/test_tenant_auto_resolve.py"
     "$TEST_DIR/tests/test_external_oidc.py"
     "$TEST_DIR/tests/test_embedding_inference.py"
+    "$TEST_DIR/tests/test_gateway_filter_chain.py"
 )
 
 # If extra args include a path (file or directory), skip the default smoke list

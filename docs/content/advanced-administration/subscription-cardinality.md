@@ -14,6 +14,8 @@ The total number of counters Limitador tracks is roughly:
 counters ≈ subscriptions × models × unique_users × rate_limit_windows
 ```
 
+Model references with `unlimited: true` add no counters. All unlimited subscriptions on a model share one limit without rates, so Limitador only records their usage metrics.
+
 For Prometheus, the cardinality of `authorized_hits`, `authorized_calls`, and `limited_calls` grows with the number of distinct `user` and `subscription` label values.
 
 ## Users vs Groups
@@ -101,7 +103,7 @@ High cardinality in `authorized_hits`, `authorized_calls`, and `limited_calls` m
 
 - **Prometheus memory and storage** — each unique label combination creates a new time series.
 - **Query performance** — queries like `sum by (user) (rate(authorized_hits[5m]))` become slow when thousands of user values exist.
-- **Dashboard responsiveness** — Grafana panels using high-cardinality metrics may time out.
+- **Dashboard responsiveness** — Perses panels using high-cardinality metrics may time out.
 
 Gateway latency metrics (`istio_request_duration_milliseconds_bucket`) are labeled by **subscription only** (not by user) specifically to keep cardinality bounded. See [Metrics & Dashboards](../observability/metrics-and-dashboards.md#per-subscription-latency-tracking).
 
