@@ -40,6 +40,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import subprocess
 import time
 import uuid
 import logging
@@ -369,6 +370,82 @@ class TestOIDCTokenFlow:
         assert response.status_code == 401, (
             f"Expected 401 for genuinely expired OIDC token, got {response.status_code}: {response.text}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Tests — OIDC Token Claims
+# ---------------------------------------------------------------------------
+
+class TestOIDCTokenClaims:
+    """Verify OIDC token structure and claims from Keycloak."""
+
+    def test_token_contains_groups_claim(self):
+        """alice_lead's token should contain the 'groups' claim with her groups."""
+        token = _request_oidc_token()
+        payload = _decode_jwt_payload(token)
+
+        assert "groups" in payload, (
+            f"Expected 'groups' claim in token, got claims: {list(payload.keys())}"
+        )
+        groups = payload["groups"]
+        assert isinstance(groups, list), f"Expected groups to be a list, got: {type(groups)}"
+
+        assert "Engineering" in groups or "/Engineering" in groups, (
+            f"Expected alice_lead to be in 'Engineering' group, got: {groups}"
+        )
+
+    def test_token_contains_preferred_username(self):
+        """Token should contain the preferred_username claim."""
+        token = _request_oidc_token()
+        payload = _decode_jwt_payload(token)
+
+        username = payload.get("preferred_username")
+        assert username == _required_env("OIDC_USERNAME"), (
+            f"Expected preferred_username={_required_env('OIDC_USERNAME')}, got: {username}"
+        )
+
+    def test_different_users_have_different_groups(self):
+        """alice_lead and bob_sre should have different group memberships."""
+        alice_token = _request_oidc_token(username="alice_lead", password="letmein")
+        bob_token = _request_oidc_token(username="bob_sre", password="letmein")
+
+        alice_groups = set(_decode_jwt_payload(alice_token).get("groups", []))
+        bob_groups = set(_decode_jwt_payload(bob_token).get("groups", []))
+
+        log.info(f"alice_lead groups: {alice_groups}")
+        log.info(f"bob_sre groups: {bob_groups}")
+
+        assert alice_groups != bob_groups, (
+            f"Expected different groups for alice and bob, both got: {alice_groups}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Tests — Multi-User API Key Minting
+# ---------------------------------------------------------------------------
+
+class TestOIDCMultiUser:
+    """Verify OIDC user authentication boundaries and independent key minting."""
+
+    def test_bob_sre_can_mint_api_key(self, maas_api_base_url: str):
+        """bob_sre (Site-Reliability group) can also mint an API key."""
+        token = _request_oidc_token(username="bob_sre", password="letmein")
+        data = _create_oidc_api_key(
+            maas_api_base_url, token, name=f"e2e-bob-{uuid.uuid4().hex[:8]}"
+        )
+        log.info(f"bob_sre created API key id={data.get('id')}")
+
+        assert data.get("key"), "bob_sre API key missing 'key' field"
+
+    def test_wrong_password_gets_rejected(self):
+        """Invalid password for a valid user should fail at Keycloak."""
+        with pytest.raises(AssertionError, match="OIDC token request failed"):
+            _request_oidc_token(username="alice_lead", password="wrongpassword")
+
+    def test_nonexistent_user_gets_rejected(self):
+        """Non-existent user should fail at Keycloak."""
+        with pytest.raises(AssertionError, match="OIDC token request failed"):
+            _request_oidc_token(username="nonexistent_user", password="letmein")
 
 
 class TestOIDCModelAccess:
@@ -1053,3 +1130,36 @@ class TestOIDCDirectModelAccess:
         log.info(
             f"OIDC token can list models directly — {len(data.get('data', []))} model(s) returned"
         )
+
+
+@pytest.mark.skipif(
+    os.environ.get("EXTERNAL_OIDC", "").lower() != "true",
+    reason="EXTERNAL_OIDC not enabled",
+)
+class TestOIDCAlertingInfra:
+    """Verify that the Authorino authentication alerting infrastructure exists."""
+
+    def test_authorino_prometheusrule_exists(self):
+        """PrometheusRule authorino-maas-authentication-alerts is present."""
+        # The rule is installed by scripts/observability/install-observability.sh,
+        # so retain this as a conditional deployment/observability regression guard.
+        namespace = os.environ.get("AUTHORINO_NAMESPACE", "kuadrant-system")
+        rule_name = "authorino-maas-authentication-alerts"
+        result = subprocess.run(
+            [
+                "kubectl", "get", "prometheusrule", rule_name,
+                "-n", namespace,
+                "--ignore-not-found",
+                "-o", "jsonpath={.metadata.name}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert result.returncode == 0, (
+            f"kubectl get prometheusrule failed (exit {result.returncode}): {result.stderr}"
+        )
+        assert result.stdout.strip() == rule_name, (
+            f"PrometheusRule '{rule_name}' not found in namespace '{namespace}'."
+        )
+        log.info(f"PrometheusRule {rule_name} present in namespace '{namespace}'")

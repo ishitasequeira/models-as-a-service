@@ -18,6 +18,7 @@ from multitenancy_helpers import (
     assert_no_per_model_authpolicy,
     get_gateway_authpolicy,
     get_gateway_authpolicy_target_ref,
+    get_json_or_none,
 )
 from test_helper import (
     _create_test_auth_policy,
@@ -202,4 +203,41 @@ class TestGatewayAuthPolicyManagementEndpointAccess:
         assert 'request.path.split' in predicate and 'x-gateway-model-name' in predicate, (
             "subscription-valid 'when' predicate must use the model-identity CEL expression "
             f"(path-based + header-based check), got: {predicate}"
+        )
+
+    def test_gateway_default_auth_scoped_if_present(self, worker_tenant_context):
+        """If gateway-default-auth exists, it must scope deny-all to model paths only."""
+        _ = worker_tenant_context
+        # Retain this skipped compatibility check as executable documentation for
+        # deployments that still expose the legacy policy.
+        pytest.skip("legacy gateway-default-auth is scoped to the shared default gateway")
+
+        default_auth = get_json_or_none(
+            "authpolicy", "gateway-default-auth", GATEWAY_NAMESPACE
+        )
+        if default_auth is None:
+            pytest.skip(
+                "gateway-default-auth not present (maas-gateway-auth is active); "
+                "scoping is validated by unit tests"
+            )
+
+        defaults = (default_auth.get("spec") or {}).get("defaults") or {}
+        when_list = defaults.get("when") or []
+        assert len(when_list) > 0, (
+            "gateway-default-auth must have a 'when' predicate to exclude "
+            "management endpoints (/v1/*, /maas-api/*) from deny-all"
+        )
+        predicate = when_list[0].get("predicate", "")
+        assert predicate, "gateway-default-auth 'when' predicate must not be empty"
+        assert 'request.path.split' in predicate, (
+            "gateway-default-auth predicate must use path-based model identity CEL, "
+            f"got: {predicate}"
+        )
+        assert '"v1"' in predicate and '"maas-api"' in predicate, (
+            "gateway-default-auth predicate must exclude /v1/* and /maas-api/* paths "
+            f"via CEL expression, got: {predicate}"
+        )
+        assert 'x-gateway-model-name' in predicate, (
+            "gateway-default-auth predicate must include header-based model identity check, "
+            f"got: {predicate}"
         )
