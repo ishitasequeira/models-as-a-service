@@ -30,6 +30,8 @@ from test_helper import (
     DISTINCT_MODEL_ID,
     DISTINCT_MODEL_REF,
     GATEWAY_NAMESPACE,
+    MODEL_CANONICAL_ID,  # noqa: F401 - accessed through globals() by worker fixture
+    MODEL_NAME,  # noqa: F401 - accessed through globals() by worker fixture
     MODEL_NAMESPACE,
     MODEL_REF,
     PREMIUM_SIMULATOR_SUBSCRIPTION,
@@ -37,6 +39,7 @@ from test_helper import (
     SIMULATOR_SUBSCRIPTION,
     TIMEOUT,
     TLS_VERIFY,
+    UNCONFIGURED_MODEL_PATH,  # noqa: F401 - accessed through globals() by worker fixture
     UNCONFIGURED_MODEL_REF,
     _apply_cr,
     _create_api_key,
