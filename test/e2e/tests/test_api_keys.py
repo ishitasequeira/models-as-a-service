@@ -34,6 +34,7 @@ import logging
 import os
 import subprocess
 import time
+import uuid
 from datetime import datetime
 
 import pytest
@@ -1354,7 +1355,7 @@ class TestEphemeralKeyCleanup:
         assert key_id not in default_ids, \
             "Ephemeral key should be excluded from default search (includeEphemeral defaults to false)"
 
-        print(f"[cleanup] Ephemeral key visibility verified: visible with filter, hidden by default")
+        print("[cleanup] Ephemeral key visibility verified: visible with filter, hidden by default")
 
     def test_trigger_cleanup_preserves_active_keys(
         self,

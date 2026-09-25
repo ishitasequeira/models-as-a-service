@@ -26,7 +26,6 @@ import http.client
 import json
 import logging
 import ssl
-import subprocess
 import time
 import uuid
 from urllib.parse import urlparse

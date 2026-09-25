@@ -17,7 +17,6 @@ Environment variables:
 
 import json
 import logging
-import os
 import subprocess
 import time
 import uuid
@@ -31,8 +30,6 @@ from test_helper import (
     DISTINCT_MODEL_ID,
     DISTINCT_MODEL_REF,
     GATEWAY_NAMESPACE,
-    MODEL_CANONICAL_ID,
-    MODEL_NAME,
     MODEL_NAMESPACE,
     MODEL_REF,
     PREMIUM_SIMULATOR_SUBSCRIPTION,
@@ -40,7 +37,6 @@ from test_helper import (
     SIMULATOR_SUBSCRIPTION,
     TIMEOUT,
     TLS_VERIFY,
-    UNCONFIGURED_MODEL_PATH,
     UNCONFIGURED_MODEL_REF,
     _apply_cr,
     _create_api_key,
@@ -52,15 +48,12 @@ from test_helper import (
     _delete_cr,
     _delete_sa,
     _get_auth_policies_for_model,
-    _get_cluster_token,
     _get_cr,
     _get_subscriptions_for_model,
-    _inference,
     _maas_api_url,
     _ns,
     _sa_to_user,
     _snapshot_cr,
-    _wait_for_gateway_auth_enforced,
     _wait_for_maas_auth_policy_phase,
     _wait_for_maas_subscription_phase,
     _wait_for_model_ready,
@@ -1370,7 +1363,6 @@ class TestModelsEndpoint:
             api_key = _create_api_key(sa_token, name=f"{sa_name}-key", subscription=subscription_name)
 
             # Query /v1/models - should return empty list (model has no auth policy)
-            url = f"{_maas_api_url()}/v1/models"
             r = _get_models_with_gateway_retry(
                 headers={
                     "Authorization": f"Bearer {api_key}",
@@ -1448,11 +1440,11 @@ class TestModelsEndpoint:
 
                 # Validate types
                 assert isinstance(model["id"], str), f"'id' must be string, got {type(model['id'])}"
-                assert isinstance(model["object"], str), f"'object' must be string"
+                assert isinstance(model["object"], str), "'object' must be string"
                 assert model["object"] == "model", f"'object' must be 'model', got {model['object']}"
-                assert isinstance(model["created"], int), f"'created' must be integer"
-                assert isinstance(model["owned_by"], str), f"'owned_by' must be string"
-                assert isinstance(model["ready"], bool), f"'ready' must be boolean"
+                assert isinstance(model["created"], int), "'created' must be integer"
+                assert isinstance(model["owned_by"], str), "'owned_by' must be string"
+                assert isinstance(model["ready"], bool), "'ready' must be boolean"
 
                 # Optional fields validation
                 if "url" in model:
