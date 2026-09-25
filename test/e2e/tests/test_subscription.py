@@ -670,7 +670,8 @@ class TestSubscriptionEnforcement:
     @pytest.mark.serial
     def test_models_endpoint_exempt_from_rate_limiting(self):
         """
-        Test that /v1/models endpoint remains accessible when token quota is exhausted.
+        Test that both model-specific and central /v1/models endpoints remain
+        accessible when token quota is exhausted.
 
         This verifies that users can discover model capabilities even when they've
         used all their inference tokens. The /v1/models endpoint is a discovery/metadata
@@ -682,7 +683,9 @@ class TestSubscriptionEnforcement:
         1. Create subscription with very low token limit (15 tokens)
         2. Exhaust the limit with inference requests (5 requests × 3 tokens = 15)
         3. Verify inference requests get 429 (rate limited)
-        4. Verify /v1/models endpoint still returns 200 (not rate limited)
+        4. Verify the model-specific /v1/models endpoint still returns 200
+        5. Verify the central MaaS API /v1/models endpoint still returns the
+           subscription-scoped model list
         """
         # Use unconfigured model to isolate this test
         model_ref = UNCONFIGURED_MODEL_REF
@@ -786,6 +789,46 @@ class TestSubscriptionEnforcement:
                 assert "data" in models_data or "object" in models_data, \
                     f"Expected valid models response with 'data' or 'object' field, got: {models_data}"
                 log.info(f"✓ /v1/models endpoint accessible (200) despite exhausted quota. Response keys: {list(models_data.keys())}")
+
+            # 7. Verify the central MaaS API /v1/models endpoint is also exempt.
+            # This is a separate gateway route from the model-specific endpoint
+            # above and exercises central subscription filtering/aggregation.
+            log.info("Verifying central /v1/models endpoint is still accessible...")
+            central_url = f"{_maas_api_url()}/v1/models"
+            r_central_models = _request_with_gateway_retry(
+                requests.get,
+                central_url,
+                headers=headers,
+            )
+
+            assert r_central_models.status_code == 200, \
+                f"Expected 200 for central /v1/models endpoint even when quota exhausted, " \
+                f"got {r_central_models.status_code}. Response: {r_central_models.text[:500]}"
+
+            try:
+                central_models_data = r_central_models.json()
+            except (json.JSONDecodeError, ValueError) as e:
+                raise AssertionError(
+                    f"Expected JSON from central /v1/models endpoint, got: {r_central_models.text[:500]}"
+                ) from e
+
+            assert isinstance(central_models_data, dict), \
+                f"Expected central /v1/models response to be an object, got: {central_models_data}"
+            central_models = central_models_data.get("data")
+            assert isinstance(central_models, list), \
+                f"Expected central /v1/models 'data' to be a list, got: {central_models_data}"
+            assert any(
+                subscription_name in {
+                    sub.get("name")
+                    for model in central_models
+                    for sub in model.get("subscriptions", [])
+                }
+            ), \
+                f"Expected central /v1/models to include subscription '{subscription_name}', " \
+                f"got: {central_models_data}"
+            log.info(
+                "✓ Central /v1/models endpoint returned subscription-scoped models despite exhausted quota"
+            )
 
         finally:
             # Clean up
