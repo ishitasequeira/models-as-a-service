@@ -248,6 +248,64 @@ def _request_with_gateway_retry(method, url, retries=GATEWAY_PROPAGATION_RETRIES
     return r
 
 
+def _wait_for_central_models_in_subscription(
+    api_key,
+    subscription_name,
+    *,
+    timeout=90,
+    poll_interval=5,
+):
+    """Poll central /v1/models until the subscription appears in model metadata."""
+    headers = {"Authorization": f"Bearer {api_key}"}
+    deadline = time.time() + timeout
+    last_status = None
+    last_model_ids = []
+
+    while time.time() < deadline:
+        response = _request_with_gateway_retry(
+            requests.get,
+            f"{_maas_api_url()}/v1/models",
+            headers=headers,
+        )
+        last_status = response.status_code
+        if response.status_code != 200:
+            time.sleep(poll_interval)
+            continue
+
+        try:
+            models_data = response.json()
+        except (json.JSONDecodeError, ValueError):
+            time.sleep(poll_interval)
+            continue
+
+        if not isinstance(models_data, dict):
+            time.sleep(poll_interval)
+            continue
+
+        models = models_data.get("data") or []
+        if not isinstance(models, list):
+            time.sleep(poll_interval)
+            continue
+
+        if any(
+            subscription_name in {
+                sub.get("name")
+                for model in models
+                for sub in model.get("subscriptions", [])
+            }
+        ):
+            return models_data
+
+        last_model_ids = [model.get("id") for model in models]
+        time.sleep(poll_interval)
+
+    raise AssertionError(
+        f"Expected central /v1/models to include subscription '{subscription_name}' "
+        f"within {timeout}s, but found none. Last HTTP status: {last_status}, "
+        f"returned model IDs: {last_model_ids}"
+    )
+
+
 def _get_default_api_key() -> str:
     """Get or create an API key for the authenticated user.
     
@@ -794,38 +852,13 @@ class TestSubscriptionEnforcement:
             # This is a separate gateway route from the model-specific endpoint
             # above and exercises central subscription filtering/aggregation.
             log.info("Verifying central /v1/models endpoint is still accessible...")
-            central_url = f"{_maas_api_url()}/v1/models"
-            r_central_models = _request_with_gateway_retry(
-                requests.get,
-                central_url,
-                headers=headers,
+            central_models_data = _wait_for_central_models_in_subscription(
+                api_key,
+                subscription_name,
             )
-
-            assert r_central_models.status_code == 200, \
-                f"Expected 200 for central /v1/models endpoint even when quota exhausted, " \
-                f"got {r_central_models.status_code}. Response: {r_central_models.text[:500]}"
-
-            try:
-                central_models_data = r_central_models.json()
-            except (json.JSONDecodeError, ValueError) as e:
-                raise AssertionError(
-                    f"Expected JSON from central /v1/models endpoint, got: {r_central_models.text[:500]}"
-                ) from e
-
-            assert isinstance(central_models_data, dict), \
-                f"Expected central /v1/models response to be an object, got: {central_models_data}"
             central_models = central_models_data.get("data")
             assert isinstance(central_models, list), \
                 f"Expected central /v1/models 'data' to be a list, got: {central_models_data}"
-            assert any(
-                subscription_name in {
-                    sub.get("name")
-                    for model in central_models
-                    for sub in model.get("subscriptions", [])
-                }
-            ), \
-                f"Expected central /v1/models to include subscription '{subscription_name}', " \
-                f"got: {central_models_data}"
             log.info(
                 "✓ Central /v1/models endpoint returned subscription-scoped models despite exhausted quota"
             )
