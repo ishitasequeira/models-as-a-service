@@ -101,33 +101,18 @@ deploy_models() {
     echo "✅ Simulator models ready"
 
     local governed_models=("facebook-opt-125m-simulated" "premium-simulated-simulated-premium")
-    echo "Waiting for governed MaaSModelRefs to be Ready (timeout: ${MAASMODELREF_TIMEOUT}s)..."
-    local deadline=$((SECONDS + MAASMODELREF_TIMEOUT))
-    local all_ready=false
-
-    while [[ $SECONDS -lt $deadline ]]; do
-        all_ready=true
-        for model in "${governed_models[@]}"; do
-            local phase
-            phase=$(oc get maasmodelref "$model" -n "$MODEL_NAMESPACE" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
-            if [[ "$phase" != "Ready" ]]; then
-                all_ready=false
-                break
-            fi
-        done
-        if $all_ready; then
-            echo "✅ Governed MaaSModelRefs ready"
-            break
+    echo "Waiting for governed MaaSModelRefs to be Ready (timeout: ${MAASMODELREF_TIMEOUT}s per model)..."
+    for model in "${governed_models[@]}"; do
+        if ! oc wait "maasmodelref/$model" -n "$MODEL_NAMESPACE" \
+            --for=jsonpath='{.status.phase}'=Ready --timeout="${MAASMODELREF_TIMEOUT}s"; then
+            echo "❌ ERROR: Timed out waiting for MaaSModelRef $model to reach phase=Ready"
+            oc get maasmodelref "$model" -n "$MODEL_NAMESPACE" -o yaml || true
+            oc get "llminferenceservice/$model" -n "$MODEL_NAMESPACE" -o yaml || true
+            kubectl logs deployment/maas-controller -n "$DEPLOYMENT_NAMESPACE" --tail=100 || true
+            exit 1
         fi
-        sleep 5
     done
-
-    if ! $all_ready; then
-        echo "❌ ERROR: Governed MaaSModelRefs did not reach Ready state within ${MAASMODELREF_TIMEOUT}s"
-        oc get maasmodelrefs -n "$MODEL_NAMESPACE" -o yaml || true
-        kubectl logs deployment/maas-controller -n "$DEPLOYMENT_NAMESPACE" --tail=100 || true
-        exit 1
-    fi
+    echo "✅ Governed MaaSModelRefs ready"
 
     if ! wait_for_auth_policies_enforced; then
         exit 1
