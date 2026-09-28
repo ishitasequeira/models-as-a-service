@@ -54,6 +54,7 @@ from test_helper import (
     _create_test_auth_policy,
     _create_test_subscription,
     _delete_cr,
+    _delete_governance_and_wait,
     _delete_sa,
     _get_cr,
     _gateway_url,
@@ -65,6 +66,7 @@ from test_helper import (
     _scale_controller_up,
     _wait_for_gateway_auth_enforced,
     _wait_for_maas_subscription_phase,
+    _wait_for_subscription_discovery_ready,
     _wait_for_cr_absent,
 )
 
@@ -498,7 +500,7 @@ class TestAPIKeyBulkOperations:
 
             _create_test_auth_policy(f"{sub_name}-auth", MODEL_REF, users=[sa_user])
             _create_test_subscription(sub_name, MODEL_REF, users=[sa_user])
-            _wait_for_maas_subscription_phase(sub_name, namespace=ns)
+            _wait_for_subscription_discovery_ready(sub_name, namespace=ns)
 
             for i in range(3):
                 r = _request_with_gateway_retry(
@@ -607,7 +609,7 @@ class TestAPIKeyBulkOperations:
 
             _create_test_auth_policy(f"{sub_name}-auth", MODEL_REF, users=[sa_user])
             _create_test_subscription(sub_name, MODEL_REF, users=[sa_user])
-            _wait_for_maas_subscription_phase(sub_name, namespace=ns)
+            _wait_for_subscription_discovery_ready(sub_name, namespace=ns)
 
             for i in range(2):
                 r = _request_with_gateway_retry(
@@ -671,7 +673,7 @@ class TestAPIKeyBulkOperations:
 
             _create_test_auth_policy(f"{sub_name}-auth", MODEL_REF, users=[sa_user, sa_user2])
             _create_test_subscription(sub_name, MODEL_REF, users=[sa_user, sa_user2])
-            _wait_for_maas_subscription_phase(sub_name, namespace=ns)
+            _wait_for_subscription_discovery_ready(sub_name, namespace=ns)
 
             for i in range(2):
                 r = _request_with_gateway_retry(
@@ -1825,11 +1827,11 @@ class TestAPIKeySubscriptionFilter:
 
             _create_test_auth_policy(f"{sub_a}-auth", MODEL_REF, users=[sa_user])
             _create_test_subscription(sub_a, MODEL_REF, users=[sa_user])
-            _wait_for_maas_subscription_phase(sub_a, namespace=ns)
+            _wait_for_subscription_discovery_ready(sub_a, namespace=ns)
 
             _create_test_auth_policy(f"{sub_b}-auth", MODEL_REF, users=[sa_user])
             _create_test_subscription(sub_b, MODEL_REF, users=[sa_user])
-            _wait_for_maas_subscription_phase(sub_b, namespace=ns)
+            _wait_for_subscription_discovery_ready(sub_b, namespace=ns)
 
             # Create 2 keys bound to sub_a
             for i in range(2):
@@ -1889,10 +1891,10 @@ class TestAPIKeySubscriptionFilter:
         finally:
             for kid in key_ids_a + key_ids_b:
                 requests.delete(f"{api_keys_base_url}/{kid}", headers=sa_headers, timeout=TIMEOUT, verify=TLS_VERIFY)
-            _delete_cr("maassubscription", sub_b, namespace=ns)
-            _delete_cr("maasauthpolicy", f"{sub_b}-auth", namespace=ns)
-            _delete_cr("maassubscription", sub_a, namespace=ns)
-            _delete_cr("maasauthpolicy", f"{sub_a}-auth", namespace=ns)
+            _delete_governance_and_wait(
+                subscriptions=[(sub_a, ns), (sub_b, ns)],
+                auth_policies=[(f"{sub_a}-auth", ns), (f"{sub_b}-auth", ns)],
+            )
             _delete_sa(sa_name, namespace=MODEL_NAMESPACE)
             # Deleting MaaSAuthPolicies rewrites maas-gateway-auth; wait until
             # Kuadrant reports Enforced again before the next test hits maas-api.

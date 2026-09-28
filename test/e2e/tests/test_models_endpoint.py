@@ -49,6 +49,7 @@ from test_helper import (
     _create_test_auth_policy,
     _create_test_subscription,
     _delete_cr,
+    _delete_governance_and_wait,
     _delete_sa,
     _get_auth_policies_for_model,
     _get_cluster_token,
@@ -62,6 +63,8 @@ from test_helper import (
     _wait_for_gateway_auth_enforced,
     _wait_for_maas_auth_policy_phase,
     _wait_for_maas_subscription_phase,
+    _wait_for_subscription_discovery_ready,
+    _wait_for_subscription_trlp_status,
     _wait_for_model_ready,
     _wait_for_token_rate_limit_policy,
     _wait_for_cr_absent,
@@ -444,7 +447,7 @@ class TestModelsEndpoint:
             _create_test_subscription(subscription_name, DISTINCT_MODEL_REF, users=[sa_user])
 
             # Wait for subscription to reconcile before creating API key
-            _wait_for_maas_subscription_phase(subscription_name, namespace=maas_ns)
+            _wait_for_subscription_discovery_ready(subscription_name, namespace=maas_ns)
 
             # Wait for model to become Ready after governance pairing is created
             log.info("Waiting for model to reconcile and become Ready...")
@@ -535,7 +538,7 @@ class TestModelsEndpoint:
                 "-p", json.dumps({"spec": {"owner": {"users": [sa_user]}}})
             ], check=True)
 
-            _wait_for_maas_subscription_phase(PREMIUM_SIMULATOR_SUBSCRIPTION)
+            _wait_for_subscription_discovery_ready(PREMIUM_SIMULATOR_SUBSCRIPTION)
 
             # Test: GET /v1/models WITH x-maas-subscription header using K8s token
             # Expected: Returns models from simulator-subscription only
@@ -593,7 +596,7 @@ class TestModelsEndpoint:
                     ], check=True)
 
             _delete_sa(sa_name, namespace=sa_ns)
-            _wait_for_maas_subscription_phase(PREMIUM_SIMULATOR_SUBSCRIPTION)
+            _wait_for_subscription_discovery_ready(PREMIUM_SIMULATOR_SUBSCRIPTION)
 
     def test_empty_subscription_header_value(self):
         """
@@ -666,7 +669,7 @@ class TestModelsEndpoint:
             # Create API key
             api_key = _create_api_key(sa_token, name="e2e-filtered-test-key")
 
-            _wait_for_maas_subscription_phase(PREMIUM_SIMULATOR_SUBSCRIPTION)
+            _wait_for_subscription_discovery_ready(PREMIUM_SIMULATOR_SUBSCRIPTION)
 
             # Get models from simulator-subscription
             r_simulator = _get_models_with_gateway_retry(
@@ -808,7 +811,7 @@ class TestModelsEndpoint:
             )
 
             # Wait for subscription to reconcile before creating API key
-            _wait_for_maas_subscription_phase(subscription_name, namespace=maas_ns)
+            _wait_for_subscription_discovery_ready(subscription_name, namespace=maas_ns)
 
             # Create API key bound to our test subscription
             api_key = _create_api_key(sa_token, name="e2e-dedup-test-key", subscription=subscription_name)
@@ -984,11 +987,10 @@ class TestModelsEndpoint:
                 namespace=maas_ns,
                 timeout=120,
             )
-            _wait_for_maas_subscription_phase(
+            _wait_for_subscription_discovery_ready(
                 subscription_name,
                 namespace=maas_ns,
                 timeout=180,
-                require_model_statuses=True,
             )
             _wait_for_model_ready(model_ref_a, namespace=MODEL_NAMESPACE, timeout=180)
             _wait_for_model_ready(model_ref_b, namespace=MODEL_NAMESPACE, timeout=180)
@@ -1166,7 +1168,7 @@ class TestModelsEndpoint:
             )
 
             # Wait for subscription to reconcile before creating API key
-            _wait_for_maas_subscription_phase(subscription_name, namespace=maas_ns)
+            _wait_for_subscription_discovery_ready(subscription_name, namespace=maas_ns)
 
             # Wait for models to become Ready after governance pairing is created
             log.info("Waiting for models to reconcile and become Ready...")
@@ -1273,8 +1275,8 @@ class TestModelsEndpoint:
 
             _wait_for_maas_auth_policy_phase(auth1_name)
             _wait_for_maas_auth_policy_phase(auth2_name)
-            _wait_for_maas_subscription_phase(sub1_name)
-            _wait_for_maas_subscription_phase(sub2_name)
+            _wait_for_subscription_discovery_ready(sub1_name)
+            _wait_for_subscription_discovery_ready(sub2_name)
 
             # Wait for models to become Ready after governance pairing is created
             log.info("Waiting for models to reconcile and become Ready...")
@@ -1320,13 +1322,11 @@ class TestModelsEndpoint:
             log.info(f"✅ User token returned {len(models)} models from all subscriptions")
 
         finally:
-            _delete_cr("maassubscription", sub1_name, namespace=maas_ns)
-            _delete_cr("maassubscription", sub2_name, namespace=maas_ns)
-            _delete_cr("maasauthpolicy", auth1_name, namespace=maas_ns)
-            _delete_cr("maasauthpolicy", auth2_name, namespace=maas_ns)
+            _delete_governance_and_wait(
+                subscriptions=[(sub1_name, maas_ns), (sub2_name, maas_ns)],
+                auth_policies=[(auth1_name, maas_ns), (auth2_name, maas_ns)],
+            )
             _delete_sa(sa_name, namespace=sa_ns)
-            _wait_for_cr_absent("maassubscription", sub1_name, namespace=maas_ns)
-            _wait_for_cr_absent("maasauthpolicy", auth2_name, namespace=maas_ns)
 
     def test_user_token_with_subscription_header_filters(self):
         """
@@ -1354,7 +1354,7 @@ class TestModelsEndpoint:
             _create_test_subscription(subscription_name, MODEL_REF, users=[sa_user])
 
             _wait_for_maas_auth_policy_phase(auth_policy_name, require_enforced=False)
-            _wait_for_maas_subscription_phase(subscription_name)
+            _wait_for_subscription_discovery_ready(subscription_name)
 
             # Query with X-MaaS-Subscription header to filter
             log.info(f"Querying /v1/models with X-MaaS-Subscription: {subscription_name}")
@@ -1418,7 +1418,7 @@ class TestModelsEndpoint:
             _create_test_subscription(subscription_name, UNCONFIGURED_MODEL_REF, users=[sa_user])
 
             # Wait for subscription to reconcile before creating API key
-            _wait_for_maas_subscription_phase(subscription_name, namespace=maas_ns)
+            _wait_for_subscription_discovery_ready(subscription_name, namespace=maas_ns)
 
             # Create API key bound to test subscription
             api_key = _create_api_key(sa_token, name=f"{sa_name}-key", subscription=subscription_name)
@@ -1551,7 +1551,7 @@ class TestModelsEndpoint:
             _create_test_subscription(subscription_name, MODEL_REF, users=[sa_user])
 
             # Wait for subscription to reconcile before creating API key
-            _wait_for_maas_subscription_phase(subscription_name, namespace=ns)
+            _wait_for_subscription_discovery_ready(subscription_name, namespace=ns)
 
             # Create API key bound to subscription_name
             api_key = _create_api_key(oc_token, name=f"{sa_name}-key", subscription=subscription_name)
@@ -1616,7 +1616,7 @@ class TestModelsEndpoint:
             _create_test_subscription(subscription_name, MODEL_REF, users=[sa_user])
 
             # Wait for subscription to reconcile before creating API key
-            _wait_for_maas_subscription_phase(subscription_name, namespace=ns)
+            _wait_for_subscription_discovery_ready(subscription_name, namespace=ns)
 
             # Create API key bound to subscription
             api_key = _create_api_key(oc_token, name=f"{sa_name}-key", subscription=subscription_name)
@@ -1685,7 +1685,7 @@ class TestModelsEndpoint:
             _create_test_subscription(subscription_name, MODEL_REF, users=[other_principal])
 
             _wait_for_maas_auth_policy_phase(auth_policy_name, require_enforced=False)
-            _wait_for_maas_subscription_phase(subscription_name)
+            _wait_for_subscription_discovery_ready(subscription_name)
 
             # User tries to query with their token but specifying the other user's subscription
             # This simulates what would happen if an API key was bound to a subscription
@@ -1743,7 +1743,7 @@ class TestModelsEndpoint:
             _create_test_subscription(subscription_name, MODEL_REF, users=[sa_user])
 
             _wait_for_maas_auth_policy_phase(auth_policy_name, require_enforced=False)
-            _wait_for_maas_subscription_phase(subscription_name)
+            _wait_for_subscription_discovery_ready(subscription_name)
 
             # Test: GET /v1/models WITH non-existent subscription header
             # Expected: 403 with "subscription not found" error
@@ -1813,8 +1813,8 @@ class TestModelsEndpoint:
             _create_test_subscription(other_subscription, MODEL_REF, users=[other_principal])
 
             _wait_for_maas_auth_policy_phase(auth_policy_name, require_enforced=False)
-            _wait_for_maas_subscription_phase(user_subscription)
-            _wait_for_maas_subscription_phase(other_subscription)
+            _wait_for_subscription_discovery_ready(user_subscription)
+            _wait_for_subscription_discovery_ready(other_subscription)
 
             # Test: User tries to use another user's subscription in header
             # Expected: 403 with "access denied" error
@@ -1847,13 +1847,12 @@ class TestModelsEndpoint:
             log.info(f"✅ Access denied to subscription → {r.status_code} (permission_error)")
 
         finally:
-            _delete_cr("maassubscription", user_subscription, namespace=ns)
-            _delete_cr("maassubscription", other_subscription, namespace=ns)
-            _delete_cr("maasauthpolicy", auth_policy_name, namespace=ns)
+            _delete_governance_and_wait(
+                subscriptions=[(user_subscription, ns), (other_subscription, ns)],
+                auth_policies=[(auth_policy_name, ns)],
+            )
             _delete_sa(sa_user, namespace=ns)
             _delete_sa(sa_other, namespace=ns)
-            _wait_for_cr_absent("maassubscription", user_subscription, namespace=ns)
-            _wait_for_cr_absent("maasauthpolicy", auth_policy_name, namespace=ns)
 
     def test_api_key_ignores_subscription_header(self):
         """
@@ -1889,8 +1888,8 @@ class TestModelsEndpoint:
             _create_test_subscription(sub2_name, DISTINCT_MODEL_2_REF, users=[sa_user], priority=5)
 
             # Wait for both subscriptions to reconcile before creating API key
-            _wait_for_maas_subscription_phase(sub1_name, namespace=maas_ns)
-            _wait_for_maas_subscription_phase(sub2_name, namespace=maas_ns)
+            _wait_for_subscription_discovery_ready(sub1_name, namespace=maas_ns)
+            _wait_for_subscription_discovery_ready(sub2_name, namespace=maas_ns)
 
             # Create API key - will be bound to highest priority subscription (sub1)
             log.info(f"Creating API key (will bind to {sub1_name} - highest priority)")
@@ -1928,13 +1927,11 @@ class TestModelsEndpoint:
             log.info(f"✅ API key ignored x-maas-subscription header → returned {len(models)} model(s) from bound subscription")
 
         finally:
-            _delete_cr("maassubscription", sub1_name, namespace=maas_ns)
-            _delete_cr("maassubscription", sub2_name, namespace=maas_ns)
-            _delete_cr("maasauthpolicy", auth1_name, namespace=maas_ns)
-            _delete_cr("maasauthpolicy", auth2_name, namespace=maas_ns)
+            _delete_governance_and_wait(
+                subscriptions=[(sub1_name, maas_ns), (sub2_name, maas_ns)],
+                auth_policies=[(auth1_name, maas_ns), (auth2_name, maas_ns)],
+            )
             _delete_sa(sa_name, namespace=sa_ns)
-            _wait_for_cr_absent("maassubscription", sub1_name, namespace=maas_ns)
-            _wait_for_cr_absent("maasauthpolicy", auth2_name, namespace=maas_ns)
 
     def test_multiple_api_keys_different_subscriptions(self):
         """
@@ -1970,8 +1967,8 @@ class TestModelsEndpoint:
             _create_test_subscription(sub2_name, DISTINCT_MODEL_2_REF, users=[sa_user])
 
             # Wait for both subscriptions to reconcile before creating API keys
-            _wait_for_maas_subscription_phase(sub1_name, namespace=maas_ns)
-            _wait_for_maas_subscription_phase(sub2_name, namespace=maas_ns)
+            _wait_for_subscription_discovery_ready(sub1_name, namespace=maas_ns)
+            _wait_for_subscription_discovery_ready(sub2_name, namespace=maas_ns)
 
             # Create two API keys, each bound to a different subscription
             log.info(f"Creating API key 1 bound to {sub1_name}")
@@ -2028,13 +2025,11 @@ class TestModelsEndpoint:
             log.info(f"✅ Multiple API keys with different bindings → Key1: {len(models1)} models, Key2: {len(models2)} models")
 
         finally:
-            _delete_cr("maassubscription", sub1_name, namespace=maas_ns)
-            _delete_cr("maassubscription", sub2_name, namespace=maas_ns)
-            _delete_cr("maasauthpolicy", auth1_name, namespace=maas_ns)
-            _delete_cr("maasauthpolicy", auth2_name, namespace=maas_ns)
+            _delete_governance_and_wait(
+                subscriptions=[(sub1_name, maas_ns), (sub2_name, maas_ns)],
+                auth_policies=[(auth1_name, maas_ns), (auth2_name, maas_ns)],
+            )
             _delete_sa(sa_name, namespace=sa_ns)
-            _wait_for_cr_absent("maassubscription", sub1_name, namespace=maas_ns)
-            _wait_for_cr_absent("maasauthpolicy", auth2_name, namespace=maas_ns)
 
     def test_service_account_token_multiple_subs_no_header(self):
         """
@@ -2072,8 +2067,8 @@ class TestModelsEndpoint:
 
             _wait_for_maas_auth_policy_phase(auth1_name)
             _wait_for_maas_auth_policy_phase(auth2_name)
-            _wait_for_maas_subscription_phase(sub1_name)
-            _wait_for_maas_subscription_phase(sub2_name)
+            _wait_for_subscription_discovery_ready(sub1_name)
+            _wait_for_subscription_discovery_ready(sub2_name)
 
             # Query with K8s token (no header)
             log.info("Querying /v1/models with K8s token (no header) - should return models from both subscriptions")
@@ -2097,13 +2092,11 @@ class TestModelsEndpoint:
             log.info(f"✅ K8s token with multiple subscriptions (no header) → {len(models)} models from both subscriptions")
 
         finally:
-            _delete_cr("maassubscription", sub1_name, namespace=maas_ns)
-            _delete_cr("maassubscription", sub2_name, namespace=maas_ns)
-            _delete_cr("maasauthpolicy", auth1_name, namespace=maas_ns)
-            _delete_cr("maasauthpolicy", auth2_name, namespace=maas_ns)
+            _delete_governance_and_wait(
+                subscriptions=[(sub1_name, maas_ns), (sub2_name, maas_ns)],
+                auth_policies=[(auth1_name, maas_ns), (auth2_name, maas_ns)],
+            )
             _delete_sa(sa_name, namespace=sa_ns)
-            _wait_for_cr_absent("maassubscription", sub1_name, namespace=maas_ns)
-            _wait_for_cr_absent("maasauthpolicy", auth2_name, namespace=maas_ns)
 
     def test_service_account_token_multiple_subs_with_header(self):
         """
@@ -2139,8 +2132,8 @@ class TestModelsEndpoint:
 
             _wait_for_maas_auth_policy_phase(auth1_name)
             _wait_for_maas_auth_policy_phase(auth2_name)
-            _wait_for_maas_subscription_phase(sub1_name)
-            _wait_for_maas_subscription_phase(sub2_name)
+            _wait_for_subscription_discovery_ready(sub1_name)
+            _wait_for_subscription_discovery_ready(sub2_name)
 
             # Query with K8s token and header specifying sub1
             log.info(f"Querying /v1/models with K8s token and header: {sub1_name}")
@@ -2183,13 +2176,11 @@ class TestModelsEndpoint:
             log.info(f"✅ K8s token with header filtering → Sub1: {len(models1)} models, Sub2: {len(models2)} models")
 
         finally:
-            _delete_cr("maassubscription", sub1_name, namespace=maas_ns)
-            _delete_cr("maassubscription", sub2_name, namespace=maas_ns)
-            _delete_cr("maasauthpolicy", auth1_name, namespace=maas_ns)
-            _delete_cr("maasauthpolicy", auth2_name, namespace=maas_ns)
+            _delete_governance_and_wait(
+                subscriptions=[(sub1_name, maas_ns), (sub2_name, maas_ns)],
+                auth_policies=[(auth1_name, maas_ns), (auth2_name, maas_ns)],
+            )
             _delete_sa(sa_name, namespace=sa_ns)
-            _wait_for_cr_absent("maassubscription", sub1_name, namespace=maas_ns)
-            _wait_for_cr_absent("maasauthpolicy", auth2_name, namespace=maas_ns)
 
     def test_unauthenticated_request_401(self):
         """
@@ -2256,7 +2247,13 @@ class TestModelsEndpoint:
             _wait_for_token_rate_limit_policy(
                 model_ref,
                 model_namespace=MODEL_NAMESPACE,
-                timeout=90,
+                timeout=180,
+            )
+            _wait_for_subscription_trlp_status(
+                subscription_name,
+                model=model_ref,
+                expected_ready=True,
+                timeout=180,
             )
             _wait_for_model_ready(model_ref, namespace=MODEL_NAMESPACE, timeout=90)
 

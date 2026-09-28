@@ -37,13 +37,14 @@ from test_helper import (
     _create_test_auth_policy,
     _create_test_subscription,
     _delete_cr,
+    _delete_governance_and_wait,
     _delete_sa,
     _get_auth_policies_authorizing_identity_for_model,
     _maas_api_url,
     _ns,
     _sa_to_user,
     _wait_for_maas_auth_policy_phase,
-    _wait_for_maas_subscription_phase,
+    _wait_for_subscription_discovery_ready,
 )
 
 log = logging.getLogger(__name__)
@@ -228,7 +229,7 @@ class TestListSubscriptions:
 
             api_key = _create_api_key(sa_token, name=f"{sa_name}-key")
 
-            _wait_for_maas_subscription_phase(subscription_name, namespace=maas_ns)
+            _wait_for_subscription_discovery_ready(subscription_name, namespace=maas_ns)
 
             url = f"{_maas_api_url()}/v1/subscriptions"
             r = requests.get(
@@ -319,7 +320,7 @@ class TestListSubscriptions:
 
             api_key = _create_api_key(sa_token, name=f"{sa_name}-key")
 
-            _wait_for_maas_subscription_phase(subscription_name, namespace=maas_ns)
+            _wait_for_subscription_discovery_ready(subscription_name, namespace=maas_ns)
             _wait_for_maas_auth_policy_phase(auth_policy_name, require_enforced=False, namespace=maas_ns)
 
             url = f"{_maas_api_url()}/v1/subscriptions"
@@ -395,8 +396,8 @@ class TestListSubscriptionsForModel:
 
             api_key = _create_api_key(sa_token, name=f"{sa_name}-key")
 
-            _wait_for_maas_subscription_phase(sub_with_model, namespace=maas_ns)
-            _wait_for_maas_subscription_phase(sub_without_model, namespace=maas_ns)
+            _wait_for_subscription_discovery_ready(sub_with_model, namespace=maas_ns)
+            _wait_for_subscription_discovery_ready(sub_without_model, namespace=maas_ns)
 
             _wait_for_maas_auth_policy_phase(ap_with_model, require_enforced=False, namespace=maas_ns)
             _wait_for_maas_auth_policy_phase(ap_without_model, require_enforced=False, namespace=maas_ns)
@@ -432,10 +433,16 @@ class TestListSubscriptionsForModel:
             log.info(f"GET /v1/model/{DISTINCT_MODEL_REF}/subscriptions -> {len(data)} subscription(s): {sub_ids}")
 
         finally:
-            _delete_cr("maasauthpolicy", ap_with_model, namespace=maas_ns)
-            _delete_cr("maasauthpolicy", ap_without_model, namespace=maas_ns)
-            _delete_cr("maassubscription", sub_with_model, namespace=maas_ns)
-            _delete_cr("maassubscription", sub_without_model, namespace=maas_ns)
+            _delete_governance_and_wait(
+                subscriptions=[
+                    (sub_with_model, maas_ns),
+                    (sub_without_model, maas_ns),
+                ],
+                auth_policies=[
+                    (ap_with_model, maas_ns),
+                    (ap_without_model, maas_ns),
+                ],
+            )
             _delete_sa(sa_name, namespace=sa_ns)
 
     def test_unknown_model_returns_empty(self):
@@ -496,7 +503,7 @@ class TestSubscriptionModelAccessFiltering:
             )
 
             _wait_for_maas_auth_policy_phase(auth_policy_name, require_enforced=False)
-            _wait_for_maas_subscription_phase(subscription_name)
+            _wait_for_subscription_discovery_ready(subscription_name)
 
             api_key = _create_api_key(sa_token, subscription=subscription_name)
 
@@ -578,7 +585,7 @@ class TestSubscriptionModelAccessFiltering:
             )
 
             _wait_for_maas_auth_policy_phase(auth_policy_name, require_enforced=False)
-            _wait_for_maas_subscription_phase(subscription_name)
+            _wait_for_subscription_discovery_ready(subscription_name)
 
             api_key = _create_api_key(sa_token, subscription=subscription_name)
 
