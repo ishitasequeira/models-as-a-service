@@ -1386,9 +1386,32 @@ class TestCascadeDeletion:
         fails (no subscriptions found for user) and returns 403 Forbidden before
         the request reaches TokenRateLimitPolicy.
         """
-        api_key = _get_default_api_key()
+        oc_token = _get_cluster_token()
         original = _snapshot_cr("maassubscription", SIMULATOR_SUBSCRIPTION)
         assert original, f"Pre-existing {SIMULATOR_SUBSCRIPTION} not found"
+
+        # Mint a dedicated key and prove it works before deletion, rather than
+        # relying on the process-cached _get_default_api_key(). An earlier test
+        # in TestCascadeDeletion also deletes SIMULATOR_SUBSCRIPTION, which can
+        # invalidate that cached key before this test starts -- making the 403
+        # checks below pass even if this test's own deletion does nothing.
+        key_response = _create_api_key_raw(
+            oc_token,
+            name=f"e2e-cascade-delete-{uuid.uuid4().hex[:8]}",
+            subscription=SIMULATOR_SUBSCRIPTION,
+        )
+        assert key_response.status_code in (200, 201), (
+            f"failed to create dedicated API key: {key_response.status_code} "
+            f"{key_response.text[:300]}"
+        )
+        key_data = key_response.json()
+        key_id = key_data["id"]
+        api_key = key_data["key"]
+        r = _poll_status(api_key, 200, timeout=30)
+        assert r.status_code == 200, (
+            f"dedicated API key must work before subscription deletion, got {r.status_code}"
+        )
+
         replacement_key_id = None
         try:
             _delete_cr("maassubscription", SIMULATOR_SUBSCRIPTION)
@@ -1407,7 +1430,7 @@ class TestCascadeDeletion:
                 timeout=180,
             )
             new_key_response = _create_api_key_raw(
-                _get_cluster_token(),
+                oc_token,
                 name=f"e2e-subscription-recreated-{uuid.uuid4().hex[:8]}",
                 subscription=SIMULATOR_SUBSCRIPTION,
             )
@@ -1425,8 +1448,9 @@ class TestCascadeDeletion:
                 f"subscription was recreated: {r.status_code}"
             )
         finally:
+            _revoke_api_key(oc_token, key_id)
             if replacement_key_id:
-                _revoke_api_key(_get_cluster_token(), replacement_key_id)
+                _revoke_api_key(oc_token, replacement_key_id)
             if not _get_cr("maassubscription", SIMULATOR_SUBSCRIPTION):
                 _apply_cr(original)
             # _wait_for_subscription_inference_ready also re-enforces the TRLP, confirming

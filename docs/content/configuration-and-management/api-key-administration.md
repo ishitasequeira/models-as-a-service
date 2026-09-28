@@ -147,8 +147,8 @@ A 30-minute grace period after expiration ensures that recently-expired keys are
 The cleanup endpoint is cluster-internal only:
 
 - It is registered under `/internal/v1/` and is **not exposed** on the external Service or Route
-- A `NetworkPolicy` (`maas-api-cleanup-restrict`) restricts cleanup pods to communicate only with `maas-api:8080` and DNS
-- No authentication is required on the endpoint itself — access control is enforced at the network layer
+- Requests must present a bearer token for the `maas-api-cleanup` ServiceAccount; maas-api validates it with a Kubernetes `TokenReview` and rejects any other caller, so authentication is required at the endpoint itself
+- A `NetworkPolicy` (`maas-api-cleanup-restrict`) further restricts cleanup pods to communicate only with `maas-api` and DNS, as defense in depth — it is not the sole access control
 
 ### Troubleshooting Cleanup
 
