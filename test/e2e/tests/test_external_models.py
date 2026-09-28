@@ -583,8 +583,9 @@ class TestExternalModelBodyRouting:
         setup = external_models_setup
         model_path = f"/{MODEL_NAMESPACE}/{EXTERNAL_MODEL_NAME}/v1"
         r = self._post_chat(setup["gateway_url"], model_path, setup["api_key"], body)
-        assert r.status_code != 200, (
-            f"Expected non-200 for {case_name} body, got 200. "
-            "Body routing may not be active — request succeeded via path routing alone."
+        assert 400 <= r.status_code < 500 and r.status_code not in (401, 403), (
+            f"Expected a non-auth 4xx from the external upstream for {case_name} body, "
+            f"got {r.status_code}. A 5xx means the request pipeline errored; "
+            "a 200 means body routing may not be active."
         )
         log.info("Body routing (%s): HTTP %d", case_name, r.status_code)

@@ -51,15 +51,19 @@ from test_helper import (
     _delete_cr,
     _delete_sa,
     _get_auth_policies_for_model,
+    _get_cluster_token,
     _get_cr,
     _get_subscriptions_for_model,
+    _inference,
     _maas_api_url,
     _ns,
     _sa_to_user,
     _snapshot_cr,
+    _wait_for_gateway_auth_enforced,
     _wait_for_maas_auth_policy_phase,
     _wait_for_maas_subscription_phase,
     _wait_for_model_ready,
+    _wait_for_token_rate_limit_policy,
     _wait_for_cr_absent,
 )
 
@@ -203,6 +207,58 @@ def _get_models_with_gateway_retry(headers, retries=GATEWAY_PROPAGATION_RETRIES)
         f"{_maas_api_url()}/v1/models",
         retries=retries,
         headers=headers,
+    )
+
+
+def _models_in_subscription(models_data, subscription_name):
+    """Return model IDs from a central /v1/models payload tied to subscription_name."""
+    models = models_data.get("data") or []
+    in_subscription = []
+    for model in models:
+        for sub in model.get("subscriptions") or []:
+            if sub.get("name") == subscription_name:
+                in_subscription.append(model.get("id"))
+                break
+    return in_subscription
+
+
+def _wait_for_central_models_in_subscription(
+    api_key,
+    subscription_name,
+    *,
+    timeout=90,
+    poll_interval=5,
+):
+    """Poll central /v1/models until at least one model is tied to subscription_name."""
+    headers = {"Authorization": f"Bearer {api_key}"}
+    deadline = time.time() + timeout
+    last_status = None
+    last_model_ids = []
+
+    while time.time() < deadline:
+        response = _get_models_with_gateway_retry(headers=headers)
+        last_status = response.status_code
+        if response.status_code != 200:
+            time.sleep(poll_interval)
+            continue
+
+        try:
+            models_data = response.json()
+        except (json.JSONDecodeError, ValueError):
+            time.sleep(poll_interval)
+            continue
+
+        in_subscription = _models_in_subscription(models_data, subscription_name)
+        if in_subscription:
+            return models_data, in_subscription
+
+        last_model_ids = [m.get("id") for m in models_data.get("data") or []]
+        time.sleep(poll_interval)
+
+    raise AssertionError(
+        f"Expected at least 1 model tied to subscription '{subscription_name}' "
+        f"within {timeout}s, but found none. "
+        f"Last HTTP status: {last_status}, returned model IDs: {last_model_ids}"
     )
 
 
@@ -2167,3 +2223,96 @@ class TestModelsEndpoint:
             pass
 
         log.info(f"✅ Unauthenticated request → {r.status_code}")
+
+    @pytest.mark.serial
+    def test_central_models_endpoint_exempt_from_rate_limiting(self):
+        """Central model discovery remains available after inference quota exhaustion."""
+        model_ref = UNCONFIGURED_MODEL_REF
+        model_path = UNCONFIGURED_MODEL_PATH
+        suffix = uuid.uuid4().hex[:6]
+        auth_policy_name = f"e2e-central-models-exempt-auth-{suffix}"
+        subscription_name = f"e2e-central-models-exempt-sub-{suffix}"
+        sa_name = f"e2e-central-models-exempt-sa-{suffix}"
+        token_limit = 3
+        max_requests = 5
+
+        try:
+            _create_test_auth_policy(
+                name=auth_policy_name,
+                model_refs=[model_ref],
+                groups=["system:authenticated"],
+            )
+            _wait_for_maas_auth_policy_phase(auth_policy_name, timeout=90)
+            _wait_for_gateway_auth_enforced()
+
+            _create_test_subscription(
+                name=subscription_name,
+                model_refs=[model_ref],
+                groups=["system:authenticated"],
+                token_limit=token_limit,
+                window="1m",
+            )
+            _wait_for_maas_subscription_phase(subscription_name, timeout=90)
+            _wait_for_token_rate_limit_policy(
+                model_ref,
+                model_namespace=MODEL_NAMESPACE,
+                timeout=90,
+            )
+            _wait_for_model_ready(model_ref, namespace=MODEL_NAMESPACE, timeout=90)
+
+            sa_token = _create_sa_token(sa_name, namespace=_ns())
+            api_key = _create_api_key(
+                sa_token,
+                name=f"e2e-central-exempt-{suffix}",
+                subscription=subscription_name,
+            )
+
+            # Establish that discovery works before consuming the quota. This
+            # keeps a setup/readiness failure distinct from an exemption failure.
+            _, baseline_models = _wait_for_central_models_in_subscription(
+                api_key,
+                subscription_name,
+            )
+            log.info("Central discovery baseline: %s", baseline_models)
+
+            success_count = 0
+            rate_limited = False
+            for request_num in range(1, max_requests + 1):
+                response = _inference(api_key, path=model_path, max_tokens=1)
+                log.info("Inference request %d: %d", request_num, response.status_code)
+                if response.status_code == 200:
+                    success_count += 1
+                elif response.status_code == 429:
+                    rate_limited = True
+                    break
+                else:
+                    raise AssertionError(
+                        f"Unexpected inference status {response.status_code}: "
+                        f"{response.text[:500]}"
+                    )
+
+            assert rate_limited, (
+                f"Expected quota exhaustion within {max_requests} requests at "
+                f"{token_limit} tokens/minute; {success_count} requests succeeded"
+            )
+            blocked = _inference(api_key, path=model_path, max_tokens=1)
+            assert blocked.status_code == 429, (
+                f"Expected inference to remain rate limited, got {blocked.status_code}: "
+                f"{blocked.text[:500]}"
+            )
+
+            models_data, matching_models = _wait_for_central_models_in_subscription(
+                api_key,
+                subscription_name,
+            )
+            assert isinstance(models_data.get("data"), list), models_data
+            assert matching_models, (
+                f"Central /v1/models lost subscription {subscription_name} "
+                "after quota exhaustion"
+            )
+        finally:
+            _delete_cr("maassubscription", subscription_name)
+            _delete_cr("maasauthpolicy", auth_policy_name)
+            _delete_sa(sa_name, namespace=_ns())
+            _wait_for_cr_absent("maassubscription", subscription_name)
+            _wait_for_cr_absent("maasauthpolicy", auth_policy_name)
