@@ -1412,11 +1412,26 @@ def _wait_for_subscription_discovery_ready(name, namespace=None, timeout=90):
         if cr:
             status = cr.get("status", {})
             last_status = status
-            expected = len(cr.get("spec", {}).get("modelRefs", []))
+            expected_refs = {
+                (model_ref.get("name"), model_ref.get("namespace"))
+                for model_ref in cr.get("spec", {}).get("modelRefs", [])
+                if isinstance(model_ref, dict)
+            }
             model_statuses = status.get("modelRefStatuses", [])
-            models_valid = (
-                len(model_statuses) >= expected
-                and all(model.get("ready") is True for model in model_statuses)
+            statuses_by_ref = {}
+            for model_status in model_statuses:
+                model_ref = (
+                    model_status.get("name"),
+                    model_status.get("namespace"),
+                )
+                statuses_by_ref.setdefault(model_ref, []).append(model_status)
+            models_valid = all(
+                bool(statuses_by_ref.get(model_ref))
+                and all(
+                    model_status.get("ready") is True
+                    for model_status in statuses_by_ref[model_ref]
+                )
+                for model_ref in expected_refs
             )
             if status.get("phase") in ("Active", "Degraded") and models_valid:
                 log.info(
