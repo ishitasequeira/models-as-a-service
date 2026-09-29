@@ -24,6 +24,7 @@ import uuid
 import pytest
 import requests
 
+from multitenancy_helpers import wait_for_llmisvc_backend_ready
 from test_helper import (
     DISTINCT_MODEL_2_ID,
     DISTINCT_MODEL_2_REF,
@@ -916,6 +917,13 @@ class TestModelsEndpoint:
                     "maas-default-gateway",
                     GATEWAY_NAMESPACE,
                     model_name=shared_served_id,
+                )
+                wait_for_llmisvc_backend_ready(
+                    ref,
+                    MODEL_NAMESPACE,
+                    "maas-default-gateway",
+                    GATEWAY_NAMESPACE,
+                    timeout=180,
                 )
                 _create_maas_model_ref(ref, MODEL_NAMESPACE, ref)
 
