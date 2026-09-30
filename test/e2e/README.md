@@ -119,6 +119,9 @@ SKIP_DEPLOYMENT=true ./test/e2e/run-tests-quick.sh
 | `E2E_AUTHPOLICY_PHASE_TIMEOUT` | `120` (parallel) / `60` (serial) | MaaSAuthPolicy phase wait |
 | `E2E_GATEWAY_ENFORCED_TIMEOUT` | `240` (parallel) / `180` (serial) | Kuadrant gateway auth enforced wait |
 | `E2E_MULTITENANCY_PHASE_TIMEOUT` | `180` (parallel) / `120` (serial) | Tenant discovery phase wait |
+| `E2E_SUBSCRIPTION_INFERENCE_READY_TIMEOUT` | `300` | Subscription discovery + direct/mirrored TRLP enforcement |
+| `E2E_SUBSCRIPTION_TRLP_TIMEOUT` | `180` | Mirrored TRLP ready wait on tenant subscriptions |
+| `E2E_MODEL_BACKEND_READY_TIMEOUT` | `300` | LLMInferenceService backend ready (tenant model provisioning) |
 | `E2E_USE_WORKER_TENANT` | `true` | When `true`, xdist workers bootstrap a dedicated AITenant for Bucket C pilots (`test_subscription.py` first). Set `false` to keep using `models-as-a-service`. |
 
 `@serial` tests run in pass 2; verify the current set with `pytest -m serial tests/ --collect-only -q`.
