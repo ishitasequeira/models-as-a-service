@@ -1079,7 +1079,7 @@ def provision_tenant_model(
     tenant_namespace: str,
     gateway_name: str,
     *,
-    ready_timeout: int = 180,
+    ready_timeout: int = MODEL_BACKEND_READY_TIMEOUT,
 ) -> None:
     """Deploy a model in a tenant namespace per ADR MS-0003 (model deployer role).
 

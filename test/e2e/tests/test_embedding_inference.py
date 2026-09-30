@@ -165,6 +165,8 @@ def embedding_path_governance(_worker_embedding_context):
 class TestEmbeddingPathRouting:
     """Path-based and BBR embedding inference (read-only, uses existing fixtures)."""
 
+    pytestmark = pytest.mark.serial
+
     def test_embedding_path_based_200(self, embedding_path_governance):
         """POST /{ns}/{model}/v1/embeddings returns valid embedding response."""
         r = _embedding_inference(

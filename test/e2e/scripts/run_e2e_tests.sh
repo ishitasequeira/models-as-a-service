@@ -213,6 +213,14 @@ run_serial_pass() {
     fi
 }
 
+maybe_run_serial_pass() {
+    if [[ "$parallel_rc" -ne 0 ]]; then
+        echo "Skipping E2E pass 2/2 (serial): parallel pass failed"
+        return 0
+    fi
+    run_serial_pass
+}
+
 if [[ "$serial_only" == "true" ]]; then
     echo "Running E2E tests (serial pass only, -m serial)"
     run_serial_pass
@@ -230,7 +238,7 @@ elif [[ "$E2E_PARALLEL_WORKERS" -le 1 ]]; then
         parallel_rc=1
     fi
     snapshot_parallel_pass_pods || echo "WARNING: failed to snapshot pods after the parallel pass"
-    run_serial_pass
+    maybe_run_serial_pass
 else
     echo "Running E2E pass 1/2: parallel (E2E_PARALLEL_WORKERS=${E2E_PARALLEL_WORKERS}, --dist=loadgroup, -m 'not serial')"
     if ! run_pytest_pass "pass 1 (non-serial)" \
@@ -244,7 +252,7 @@ else
         parallel_rc=1
     fi
     snapshot_parallel_pass_pods || echo "WARNING: failed to snapshot pods after the parallel pass"
-    run_serial_pass
+    maybe_run_serial_pass
 fi
 
 # ── Result ───────────────────────────────────────────────────────────────
