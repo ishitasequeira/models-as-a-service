@@ -2895,6 +2895,7 @@ class TestDegradedSubscriptionFiltering:
             _delete_sa(sa_name, namespace=MODEL_NAMESPACE)
             _wait_for_cr_absent("maassubscription", subscription_name)
 
+    @pytest.mark.serial
     def test_failed_subscription_blocks_inference(self):
         """
         Test: Failed subscription blocks inference via OPA rule.
@@ -2925,6 +2926,17 @@ class TestDegradedSubscriptionFiltering:
 
             cr = _wait_for_maas_subscription_phase(subscription_name, "Active", timeout=60)
 
+            # This test overrides controller-owned status to exercise the gateway
+            # rejection path. Let initial TRLP/discovery reconciliation settle first,
+            # and run serially so a queued reconcile from parallel test activity does
+            # not overwrite the injected Failed phase before the inference request.
+            _wait_for_subscription_inference_ready(
+                subscription_name,
+                MODEL_REF,
+                namespace=ns,
+                model_namespace=MODEL_NAMESPACE,
+            )
+
             # Verify it starts as Active
             phase = cr.get("status", {}).get("phase")
             log.info(f"Initial phase: {phase}")
@@ -2947,7 +2959,6 @@ class TestDegradedSubscriptionFiltering:
             import subprocess
             import json
             from datetime import datetime
-
             log.info("Manually patching subscription to Failed phase...")
             patch_data = {
                 "status": {
@@ -2978,14 +2989,15 @@ class TestDegradedSubscriptionFiltering:
                 "-n", ns,
                 "--type=merge",
                 "--subresource=status",
-                "-p", json.dumps(patch_data)
+                "-p", json.dumps(patch_data),
+                "-o", "json",
             ]
             result = subprocess.run(cmd, capture_output=True, text=True)
             assert result.returncode == 0, f"Failed to patch to Failed phase: {result.stderr}"
-
-            # Verify phase is Failed
-            cr = _get_cr("maassubscription", subscription_name, namespace=ns)
-            phase = cr.get("status", {}).get("phase")
+            # Read the object returned by the patch itself; a second API request
+            # leaves extra time for any queued controller reconciliation to win.
+            patched_cr = json.loads(result.stdout)
+            phase = patched_cr.get("status", {}).get("phase")
             assert phase == "Failed", f"Expected Failed phase after patch, got {phase}"
             log.info("✅ Subscription patched to Failed phase")
 
