@@ -68,7 +68,7 @@ type MaaSSubscriptionReconciler struct {
 	APIReader client.Reader
 	// AppNamespace is where per-tenant maas-api Services and cleanup Jobs run.
 	AppNamespace string
-	// Recorder emits Kubernetes events for API-key cleanup failures or skips.
+	// Recorder emits Kubernetes events for API-key cleanup and InferenceObjective failures.
 	Recorder record.EventRecorder
 
 	// DefaultTenantNamespace is the legacy single-tenant namespace (default
@@ -84,9 +84,6 @@ type MaaSSubscriptionReconciler struct {
 	// MaxConcurrentReconciles is the maximum number of concurrent Reconciles which can be run.
 	// Defaults to 1 if not set.
 	MaxConcurrentReconciles int
-	// Recorder emits Kubernetes events for InferenceObjective conflicts and failures.
-	Recorder record.EventRecorder
-
 	// inferenceObjectivesUnavailable is set while the InferenceObjective CRD is not
 	// installed, so reconciles skip the InferenceObjective pass.
 	inferenceObjectivesUnavailable atomic.Bool
