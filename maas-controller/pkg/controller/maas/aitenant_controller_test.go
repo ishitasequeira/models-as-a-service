@@ -2427,9 +2427,14 @@ func TestAITenantReconcile_DeletionCreatesAPIKeyRevocationJob(t *testing.T) {
 	g.Expect(container.Args[0]).To(ContainSubstring("/var/run/secrets/kubernetes.io/serviceaccount/token"))
 	g.Expect(container.Args[0]).To(ContainSubstring("Authorization: Bearer ${TOKEN}"))
 	g.Expect(container.Args[0]).To(ContainSubstring("https://maas-api-team-revoke.odh-ai-gateway-infra.svc:8443/internal/v1/tenants/team-revoke/api-keys"))
+	g.Expect(container.Args[0]).To(ContainSubstring(aitenantAPIKeyCleanupOpenShiftCAPath))
+	g.Expect(container.Args[0]).To(ContainSubstring(aitenantAPIKeyCleanupXKSCAPath))
+	g.Expect(container.Args[0]).To(ContainSubstring(`--cacert "${CA_BUNDLE}"`))
 	g.Expect(strings.Join(container.Args, " ")).NotTo(ContainSubstring(" -k "))
-	g.Expect(jobHasVolume(&job, "maas-api-service-ca", "openshift-service-ca.crt")).To(BeTrue())
-	g.Expect(containerHasVolumeMount(&job.Spec.Template.Spec.Containers[0], "maas-api-service-ca", "/etc/pki/maas-api")).To(BeTrue())
+	g.Expect(jobHasOptionalConfigMapVolume(&job, "maas-api-openshift-ca", aitenantAPIKeyCleanupOpenShiftCABundleName)).To(BeTrue())
+	g.Expect(jobHasOptionalSecretVolume(&job, "maas-api-xks-ca", aitenantAPIKeyCleanupXKSCABundleName, "tls.crt")).To(BeTrue())
+	g.Expect(containerHasVolumeMount(&job.Spec.Template.Spec.Containers[0], "maas-api-openshift-ca", "/etc/pki/maas-api/openshift")).To(BeTrue())
+	g.Expect(containerHasVolumeMount(&job.Spec.Template.Spec.Containers[0], "maas-api-xks-ca", "/etc/pki/maas-api/xks")).To(BeTrue())
 	g.Expect(cl.Get(ctx, client.ObjectKeyFromObject(tenant), &maasv1alpha1.MaasTenantConfig{})).To(Succeed())
 	g.Expect(cl.Get(ctx, client.ObjectKeyFromObject(maasAPI), maasAPI)).To(Succeed(),
 		"maas-api must remain available until API-key revocation completes")
@@ -2442,10 +2447,26 @@ func TestAITenantReconcile_DeletionCreatesAPIKeyRevocationJob(t *testing.T) {
 	g.Expect(ready.Reason).To(Equal("DeletionInProgress"))
 }
 
-func jobHasVolume(job *batcv1.Job, name, configMapName string) bool {
+func jobHasOptionalConfigMapVolume(job *batcv1.Job, name, configMapName string) bool {
 	for _, volume := range job.Spec.Template.Spec.Volumes {
-		if volume.Name == name && volume.ConfigMap != nil && volume.ConfigMap.Name == configMapName {
+		if volume.Name == name && volume.ConfigMap != nil && volume.ConfigMap.Name == configMapName &&
+			volume.ConfigMap.Optional != nil && *volume.ConfigMap.Optional {
 			return true
+		}
+	}
+	return false
+}
+
+func jobHasOptionalSecretVolume(job *batcv1.Job, name, secretName, key string) bool {
+	for _, volume := range job.Spec.Template.Spec.Volumes {
+		if volume.Name != name || volume.Secret == nil || volume.Secret.SecretName != secretName ||
+			volume.Secret.Optional == nil || !*volume.Secret.Optional {
+			continue
+		}
+		for _, item := range volume.Secret.Items {
+			if item.Key == key && item.Path == "service-ca.crt" {
+				return true
+			}
 		}
 	}
 	return false

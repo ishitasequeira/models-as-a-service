@@ -79,10 +79,12 @@ const (
 
 	gatewayLabelsAnnotation = "maas.opendatahub.io/gateway-selector-labels"
 
-	aitenantAPIKeyCleanupServiceAccountName = "maas-api-cleanup"
-	aitenantAPIKeyCleanupCABundleName       = "openshift-service-ca.crt"         //nolint:gosec // ConfigMap name for a public CA bundle, not a credential.
-	aitenantAPIKeyCleanupCABundlePath       = "/etc/pki/maas-api/service-ca.crt" //nolint:gosec // Public CA bundle mount path, not a credential.
-	aitenantAPIKeyCleanupTTLSeconds         = int32(300)
+	aitenantAPIKeyCleanupServiceAccountName    = "maas-api-cleanup"
+	aitenantAPIKeyCleanupOpenShiftCABundleName = "openshift-service-ca.crt"                   //nolint:gosec // ConfigMap name for a public CA bundle, not a credential.
+	aitenantAPIKeyCleanupOpenShiftCAPath       = "/etc/pki/maas-api/openshift/service-ca.crt" //nolint:gosec // Public CA bundle mount path, not a credential.
+	aitenantAPIKeyCleanupXKSCABundleName       = "opendatahub-ca"                             //nolint:gosec // Secret name for a public CA bundle, not a credential.
+	aitenantAPIKeyCleanupXKSCAPath             = "/etc/pki/maas-api/xks/service-ca.crt"       //nolint:gosec // Public CA bundle mount path, not a credential.
+	aitenantAPIKeyCleanupTTLSeconds            = int32(300)
 )
 
 var errTenantAPIKeyRevocationJobFailed = errors.New("API key revocation Job failed")
@@ -1377,10 +1379,12 @@ func apiKeyRevocationJob(jobName, ownerName, ownerNamespace, ownerUID, tenantNam
 			net.JoinHostPort(serviceHost, "8443"), tenantName, url.PathEscape(subscription))
 	}
 	cleanupCommand := fmt.Sprintf(
-		"TOKEN=\"$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)\" "+
+		"if [ -s %s ]; then CA_BUNDLE=%s; elif [ -s %s ]; then CA_BUNDLE=%s; else echo 'no MaaS API CA bundle found' >&2; exit 1; fi "+
+			"&& TOKEN=\"$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)\" "+
 			"&& exec curl --fail --silent --show-error --max-time 30 "+
-			"--cacert %s -H \"Authorization: Bearer ${TOKEN}\" -X DELETE %s",
-		aitenantAPIKeyCleanupCABundlePath, endpoint)
+			"--cacert \"${CA_BUNDLE}\" -H \"Authorization: Bearer ${TOKEN}\" -X DELETE %s",
+		aitenantAPIKeyCleanupOpenShiftCAPath, aitenantAPIKeyCleanupOpenShiftCAPath,
+		aitenantAPIKeyCleanupXKSCAPath, aitenantAPIKeyCleanupXKSCAPath, endpoint)
 
 	return &batcv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
@@ -1431,14 +1435,27 @@ func apiKeyRevocationJob(jobName, ownerName, ownerNamespace, ownerUID, tenantNam
 					},
 					Volumes: []corev1.Volume{
 						{
-							Name: "maas-api-service-ca",
+							Name: "maas-api-openshift-ca",
 							VolumeSource: corev1.VolumeSource{
 								ConfigMap: &corev1.ConfigMapVolumeSource{
 									LocalObjectReference: corev1.LocalObjectReference{
-										Name: aitenantAPIKeyCleanupCABundleName,
+										Name: aitenantAPIKeyCleanupOpenShiftCABundleName,
 									},
+									Optional: boolPtr(true),
 									Items: []corev1.KeyToPath{
 										{Key: "service-ca.crt", Path: "service-ca.crt"},
+									},
+								},
+							},
+						},
+						{
+							Name: "maas-api-xks-ca",
+							VolumeSource: corev1.VolumeSource{
+								Secret: &corev1.SecretVolumeSource{
+									SecretName: aitenantAPIKeyCleanupXKSCABundleName,
+									Optional:   boolPtr(true),
+									Items: []corev1.KeyToPath{
+										{Key: "tls.crt", Path: "service-ca.crt"},
 									},
 								},
 							},
@@ -1454,8 +1471,13 @@ func apiKeyRevocationJob(jobName, ownerName, ownerNamespace, ownerUID, tenantNam
 							},
 							VolumeMounts: []corev1.VolumeMount{
 								{
-									Name:      "maas-api-service-ca",
-									MountPath: "/etc/pki/maas-api",
+									Name:      "maas-api-openshift-ca",
+									MountPath: "/etc/pki/maas-api/openshift",
+									ReadOnly:  true,
+								},
+								{
+									Name:      "maas-api-xks-ca",
+									MountPath: "/etc/pki/maas-api/xks",
 									ReadOnly:  true,
 								},
 							},

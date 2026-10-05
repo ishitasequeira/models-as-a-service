@@ -63,10 +63,12 @@ import (
 type MaaSSubscriptionReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+	// APIReader bypasses the cache for cleanup Job reads. The controller does
+	// not watch Jobs and therefore must not require list/watch permission.
+	APIReader client.Reader
 	// AppNamespace is where per-tenant maas-api Services and cleanup Jobs run.
 	AppNamespace string
-	// Recorder emits Kubernetes events for cleanup failures so operators can
-	// alert on subscriptions blocked in Terminating.
+	// Recorder emits Kubernetes events for API-key cleanup failures or skips.
 	Recorder record.EventRecorder
 
 	// DefaultTenantNamespace is the legacy single-tenant namespace (default
@@ -970,6 +972,16 @@ func (r *MaaSSubscriptionReconciler) ensureSubscriptionAPIKeysRevoked(ctx contex
 
 	tenant, err := fetchTenantForNamespace(ctx, r.Client, subscription.Namespace)
 	if err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Info("Skipping subscription API-key cleanup because the tenant configuration no longer exists",
+				"subscription", subscription.Namespace+"/"+subscription.Name)
+			if r.Recorder != nil {
+				r.Recorder.Eventf(subscription, corev1.EventTypeWarning, "APIKeyCleanupSkipped",
+					"Skipping API-key cleanup for MaaSSubscription %s/%s because its tenant configuration no longer exists",
+					subscription.Namespace, subscription.Name)
+			}
+			return true, nil
+		}
 		return false, fmt.Errorf("resolve tenant for MaaSSubscription %s/%s: %w", subscription.Namespace, subscription.Name, err)
 	}
 	tenantID, err := tenant.identifier()
@@ -983,7 +995,11 @@ func (r *MaaSSubscriptionReconciler) ensureSubscriptionAPIKeysRevoked(ctx contex
 
 	job := subscriptionAPIKeyRevocationJob(subscription, tenantName, tenantID, r.AppNamespace)
 	var existing batcv1.Job
-	if err := r.Get(ctx, client.ObjectKeyFromObject(job), &existing); err != nil {
+	jobReader := r.APIReader
+	if jobReader == nil {
+		jobReader = r.Client
+	}
+	if err := jobReader.Get(ctx, client.ObjectKeyFromObject(job), &existing); err != nil {
 		if !apierrors.IsNotFound(err) {
 			return false, fmt.Errorf("get subscription API-key cleanup Job %s/%s: %w", job.Namespace, job.Name, err)
 		}

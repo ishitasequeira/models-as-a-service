@@ -20,7 +20,6 @@ import (
 	"context"
 	"testing"
 
-	batcv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -326,17 +325,11 @@ func TestMaaSSubscriptionReconciler_DeletionRunsAfterNamespaceDelabeled(t *testi
 	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}
 	sub := newMaaSSubscription(subName, namespace, "team-a", modelName, 100)
 	sub.Finalizers = []string{maasSubscriptionFinalizer}
-	tenant := &maasv1alpha1.MaasTenantConfig{
-		ObjectMeta: metav1.ObjectMeta{Name: maasv1alpha1.MaasTenantConfigInstanceName, Namespace: namespace},
-	}
-	cleanupJob := subscriptionAPIKeyRevocationJob(sub, "models-as-a-service", "", "odh-ai-gateway-infra")
-	cleanupJob.Status.Conditions = []batcv1.JobCondition{{Type: batcv1.JobComplete, Status: corev1.ConditionTrue}}
 
 	c := fake.NewClientBuilder().
 		WithScheme(scheme).
 		WithRESTMapper(testRESTMapper()).
-		WithStatusSubresource(&batcv1.Job{}).
-		WithObjects(ns, sub, tenant, cleanupJob).
+		WithObjects(ns, sub).
 		WithIndex(&maasv1alpha1.MaaSSubscription{}, "spec.modelRef", subscriptionModelRefIndexer).
 		Build()
 

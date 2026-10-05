@@ -31,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -40,6 +41,17 @@ import (
 
 	maasv1alpha1 "github.com/opendatahub-io/models-as-a-service/maas-controller/api/maas/v1alpha1"
 )
+
+type clientRejectingJobGets struct {
+	client.Client
+}
+
+func (c clientRejectingJobGets) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	if _, ok := obj.(*batcv1.Job); ok {
+		return errors.New("cleanup Job read must use APIReader")
+	}
+	return c.Client.Get(ctx, key, obj, opts...)
+}
 
 // subscriptionModelRefIndexer is the field indexer function for MaaSSubscription.
 // Extracted as a helper to be reused across tests with fake clients.
@@ -182,7 +194,12 @@ func TestEnsureSubscriptionAPIKeysRevoked_CreatesScopedJob(t *testing.T) {
 	}
 
 	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&batcv1.Job{}).WithObjects(subscription, tenant).Build()
-	r := &MaaSSubscriptionReconciler{Client: c, Scheme: scheme, AppNamespace: appNamespace}
+	r := &MaaSSubscriptionReconciler{
+		Client:       clientRejectingJobGets{Client: c},
+		APIReader:    c,
+		Scheme:       scheme,
+		AppNamespace: appNamespace,
+	}
 
 	complete, err := r.ensureSubscriptionAPIKeysRevoked(context.Background(), ctrl.Log, subscription)
 	if err != nil {
@@ -228,6 +245,35 @@ func TestEnsureSubscriptionAPIKeysRevoked_RequiresApplicationNamespace(t *testin
 	}
 	if complete {
 		t.Fatal("cleanup must not be reported complete when namespace wiring is missing")
+	}
+}
+
+func TestEnsureSubscriptionAPIKeysRevoked_SkipsWhenTenantConfigIsGone(t *testing.T) {
+	subscription := newMaaSSubscription("sub-delete", "team-a-maas", "team-a", "llm", 100)
+	c := fake.NewClientBuilder().WithScheme(scheme).Build()
+	recorder := record.NewFakeRecorder(1)
+	r := &MaaSSubscriptionReconciler{
+		Client:       c,
+		APIReader:    c,
+		Scheme:       scheme,
+		AppNamespace: "odh-ai-gateway-infra",
+		Recorder:     recorder,
+	}
+
+	complete, err := r.ensureSubscriptionAPIKeysRevoked(context.Background(), ctrl.Log, subscription)
+	if err != nil {
+		t.Fatalf("ensureSubscriptionAPIKeysRevoked: %v", err)
+	}
+	if !complete {
+		t.Fatal("cleanup must be considered complete when tenant configuration is gone")
+	}
+	select {
+	case event := <-recorder.Events:
+		if !strings.Contains(event, "Warning APIKeyCleanupSkipped") {
+			t.Fatalf("event = %q, want Warning APIKeyCleanupSkipped", event)
+		}
+	default:
+		t.Fatal("expected a Warning event when tenant configuration is missing")
 	}
 }
 
