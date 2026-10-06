@@ -47,6 +47,28 @@ Thanks for your interest in contributing. This guide explains how to work with t
 3. **Keep changes focused** and ensure CI passes (see below).
 4. **Address review feedback** from [OWNERS](OWNERS); maintainers will approve and merge when ready.
 
+### Approval policy (1 vs 2 reviewers)
+
+Applies to pull requests **into upstream** [`opendatahub-io/models-as-a-service`](https://github.com/opendatahub-io/models-as-a-service) (feature branches on the org repo). Fork PRs are out of scope for this policy.
+
+Workflow [`.github/workflows/approval-policy.yml`](.github/workflows/approval-policy.yml) sets the **`approval-policy`** status from **which paths** changed (not from the PR title alone).
+
+**Lightweight — 1 approving review** (author excluded). Every changed file must fall in one or more of these buckets (any **individual** bucket or **combination**):
+
+| Bucket | Paths |
+|--------|--------|
+| **docs** | `docs/**`, root `README.md`, `CONTRIBUTING.md`, `AGENTS.md`, `CLAUDE.md` |
+| **ci** | `.github/**`, `.tekton/**`, `scripts/ci/**` |
+| **test** | `test/**`, any `*_test.go`, any `*/testdata/**` |
+
+Examples at **1 review:** docs only; CI workflow only; E2E tests only; docs + `.github/workflows`; docs + tests; docs + ci + tests.
+
+**Standard — 2 approving reviews** if **any** file is outside those buckets (e.g. `maas-api/`, `maas-controller/`, `deployment/`, `scripts/deploy.sh`), if the PR has **no changed files**, or if **`.github/workflows/approval-policy.yml`** is modified (so policy changes always need two reviewers).
+
+The workflow applies label `maas/policy-lightweight` or `maas/policy-standard` automatically.
+
+Merge still requires OpenShift **Prow/Tide** (`approved` + `lgtm` and green **`tide`**). That is separate from GitHub review count: **standard** PRs need **two** distinct **Approve** reviews on GitHub; **lightweight** PRs need **one**. Prow may still be satisfied by one maintainer using `/approve` plus a single **Approve** review—that does not by itself satisfy the **two**-review rule for standard PRs.
+
 ## Release strategy
 
 This project follows a **Stream-Lake-Ocean** release model. Code flows from active development (`main`) through quality-gated branches (`stable`, `rhoai`) to the downstream RHOAI repository. See the full details in [docs/content/contributing/release-strategy.md](docs/content/contributing/release-strategy.md).
