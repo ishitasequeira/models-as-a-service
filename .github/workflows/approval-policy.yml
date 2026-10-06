@@ -1,18 +1,19 @@
 # Enforces 1 vs 2 approving GitHub reviews by changed paths (see CONTRIBUTING.md).
-# Intended for PRs into opendatahub-io/models-as-a-service 
+# Intended for PRs into opendatahub-io/models-as-a-service (upstream branches).
 
 name: Approval policy
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, labeled, unlabeled]
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+      - labeled
+      - unlabeled
   pull_request_review:
     types: [submitted, dismissed]
-
-permissions:
-  contents: read
-  pull-requests: write
-  statuses: write
 
 jobs:
   approval-policy:
@@ -20,6 +21,10 @@ jobs:
     if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+      statuses: write
 
     steps:
       - name: Evaluate approving review count
@@ -43,6 +48,7 @@ jobs:
 
             const policyLabels = ['maas/policy-lightweight', 'maas/policy-standard'];
             const approvalPolicyWorkflow = '.github/workflows/approval-policy.yml';
+            const maxListFiles = 3000;
 
             /** @returns {'docs'|'ci'|'test'|'other'} */
             function classifyPath(filename) {
@@ -65,33 +71,53 @@ jobs:
               return 'other';
             }
 
+            function pathsForFile(file) {
+              const paths = [file.filename];
+              if (file.previous_filename) {
+                paths.push(file.previous_filename);
+              }
+              return paths;
+            }
+
             const files = await github.paginate(github.rest.pulls.listFiles, {
               owner,
               repo,
               pull_number,
             });
 
-            const touchesApprovalPolicy = files.some(
-              (f) => f.filename === approvalPolicyWorkflow,
-            );
+            const fileListTruncated = files.length >= maxListFiles;
 
+            let touchesApprovalPolicy = false;
             const touched = new Set();
             let hasOther = false;
+
             for (const f of files) {
-              const bucket = classifyPath(f.filename);
-              touched.add(bucket);
-              if (bucket === 'other') hasOther = true;
+              for (const path of pathsForFile(f)) {
+                if (path === approvalPolicyWorkflow) {
+                  touchesApprovalPolicy = true;
+                }
+                const bucket = classifyPath(path);
+                touched.add(bucket);
+                if (bucket === 'other') {
+                  hasOther = true;
+                }
+              }
             }
             touched.delete('other');
 
             const lightweight =
-              files.length > 0 && !hasOther && !touchesApprovalPolicy;
+              files.length > 0 &&
+              !hasOther &&
+              !touchesApprovalPolicy &&
+              !fileListTruncated;
             const required = lightweight ? 1 : 2;
 
             const categoryOrder = ['docs', 'ci', 'test'];
             const parts = categoryOrder.filter((c) => touched.has(c));
             let tier;
-            if (touchesApprovalPolicy) {
+            if (fileListTruncated) {
+              tier = 'standard (file list truncated at 3000 paths)';
+            } else if (touchesApprovalPolicy) {
               tier = 'standard (approval-policy workflow changed)';
             } else if (lightweight) {
               tier = parts.length === 0 ? 'lightweight' : `lightweight (${parts.join('+')})`;
@@ -176,7 +202,7 @@ jobs:
             core.summary.addRaw(
               `Tier: **${tier}** → requires **${required}** approving GitHub review(s) (author and bots excluded).\n\n` +
                 `**Lightweight (1 review)** — every file is only in docs / ci / test buckets (see CONTRIBUTING.md).\n\n` +
-                `**Standard (2 reviews)** — any production path, empty file list, or edit to \`${approvalPolicyWorkflow}\`.\n\n` +
+                `**Standard (2 reviews)** — production paths, renames from production paths, 3000+ listed files, empty file list, or edit to \`${approvalPolicyWorkflow}\`.\n\n` +
                 `Current: **${approvingCount}** approving review(s). Status: **${pass ? 'pass' : 'fail'}**.`,
             );
             await core.summary.write();

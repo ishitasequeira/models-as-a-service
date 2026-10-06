@@ -61,9 +61,9 @@ Workflow [`.github/workflows/approval-policy.yml`](.github/workflows/approval-po
 | **ci** | `.github/**`, `.tekton/**`, `scripts/ci/**` |
 | **test** | `test/**`, any `*_test.go`, any `*/testdata/**` |
 
-Examples at **1 review:** docs only; CI workflow only; E2E tests only; docs + `.github/workflows`; docs + tests; docs + ci + tests.
+Examples at **1 review:** docs only; CI workflows other than `approval-policy.yml`; E2E tests only; docs + other `.github/workflows`; docs + tests; docs + ci + tests.
 
-**Standard — 2 approving reviews** if **any** file is outside those buckets (e.g. `maas-api/`, `maas-controller/`, `deployment/`, `scripts/deploy.sh`), if the PR has **no changed files**, or if **`.github/workflows/approval-policy.yml`** is modified (so policy changes always need two reviewers).
+**Standard — 2 approving reviews** if **any** file is outside those buckets (e.g. `maas-api/`, `maas-controller/`, `deployment/`, `scripts/deploy.sh`), if a **rename** touches a production path (old or new name), if GitHub returns **3000** changed files (incomplete list), if the PR has **no changed files**, or if **`.github/workflows/approval-policy.yml`** is modified (so policy changes always need two reviewers).
 
 The workflow applies label `maas/policy-lightweight` or `maas/policy-standard` automatically.
 
