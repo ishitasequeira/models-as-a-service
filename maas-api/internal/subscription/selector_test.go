@@ -1235,22 +1235,24 @@ func TestSelect_AccessAllowed(t *testing.T) {
 	}
 }
 
+type listAccessibleForModelTestCase struct {
+	name          string
+	subscriptions []*unstructured.Unstructured
+	authorized    map[authpolicy.ModelKey]bool
+	withChecker   bool
+	groups        []string
+	username      string
+	modelID       string
+	wantCount     int
+	wantSubNames  []string
+	wantModelRefs map[string][]string
+	wantError     bool
+}
+
 func TestListAccessibleForModel_MultiNamespace(t *testing.T) {
 	log := logger.New(false)
 
-	tests := []struct {
-		name          string
-		subscriptions []*unstructured.Unstructured
-		authorized    map[authpolicy.ModelKey]bool
-		withChecker   bool
-		groups        []string
-		username      string
-		modelID       string
-		wantCount     int
-		wantSubNames  []string
-		wantModelRefs map[string][]string
-		wantError     bool
-	}{
+	tests := []listAccessibleForModelTestCase{
 		{
 			name: "single namespace match authorized",
 			subscriptions: []*unstructured.Unstructured{
@@ -1409,75 +1411,96 @@ func TestListAccessibleForModel_MultiNamespace(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			lister := &fakeLister{subscriptions: tt.subscriptions}
-
-			var accessChecker subscription.ModelAccessChecker
-			if tt.withChecker || tt.authorized != nil {
-				accessChecker = &fakeAccessChecker{authorized: tt.authorized}
-			}
-
-			selector := subscription.NewSelector(log, lister, nil, accessChecker)
-			result, err := selector.ListAccessibleForModel(tt.username, tt.groups, tt.modelID)
-			if tt.wantError {
-				if err == nil {
-					t.Fatal("expected authorization lookup error")
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("Unexpected error: %v", err)
-			}
-
-			if len(result) != tt.wantCount {
-				t.Errorf("Expected %d subscriptions, got %d", tt.wantCount, len(result))
-			}
-
-			if tt.wantSubNames != nil {
-				for i, wantName := range tt.wantSubNames {
-					if i >= len(result) {
-						t.Errorf("Missing expected subscription %q at index %d", wantName, i)
-						continue
-					}
-					if result[i].SubscriptionIDHeader != wantName {
-						t.Errorf("Expected subscription %q at index %d, got %q", wantName, i, result[i].SubscriptionIDHeader)
-					}
-				}
-			}
-
-			for subName, wantRefs := range tt.wantModelRefs {
-				var gotRefs []string
-				for _, info := range result {
-					if info.SubscriptionIDHeader != subName {
-						continue
-					}
-					for _, ref := range info.ModelRefs {
-						gotRefs = append(gotRefs, ref.Namespace+"/"+ref.Name)
-					}
-				}
-				if !slices.Equal(gotRefs, wantRefs) {
-					t.Errorf("model refs for %q = %v, want %v", subName, gotRefs, wantRefs)
-				}
-			}
+			runListAccessibleForModelTest(t, log, tt)
 		})
 	}
+}
+
+func runListAccessibleForModelTest(t *testing.T, log *logger.Logger, tt listAccessibleForModelTestCase) {
+	t.Helper()
+	var accessChecker subscription.ModelAccessChecker
+	if tt.withChecker || tt.authorized != nil {
+		accessChecker = &fakeAccessChecker{authorized: tt.authorized}
+	}
+
+	selector := subscription.NewSelector(log, &fakeLister{subscriptions: tt.subscriptions}, nil, accessChecker)
+	result, err := selector.ListAccessibleForModel(tt.username, tt.groups, tt.modelID)
+	if tt.wantError {
+		if err == nil {
+			t.Fatal("expected authorization lookup error")
+		}
+		return
+	}
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	assertAccessibleSubscriptions(t, result, tt)
+}
+
+func assertAccessibleSubscriptions(t *testing.T, result []subscription.SubscriptionInfo, tt listAccessibleForModelTestCase) {
+	t.Helper()
+	if len(result) != tt.wantCount {
+		t.Errorf("Expected %d subscriptions, got %d", tt.wantCount, len(result))
+	}
+	assertSubscriptionNames(t, result, tt.wantSubNames)
+	assertModelRefsBySubscription(t, result, tt.wantModelRefs)
+}
+
+func assertSubscriptionNames(t *testing.T, result []subscription.SubscriptionInfo, wantNames []string) {
+	t.Helper()
+	for i, wantName := range wantNames {
+		if i >= len(result) {
+			t.Errorf("Missing expected subscription %q at index %d", wantName, i)
+			continue
+		}
+		if result[i].SubscriptionIDHeader != wantName {
+			t.Errorf("Expected subscription %q at index %d, got %q", wantName, i, result[i].SubscriptionIDHeader)
+		}
+	}
+}
+
+func assertModelRefsBySubscription(t *testing.T, result []subscription.SubscriptionInfo, wantRefsBySubscription map[string][]string) {
+	t.Helper()
+	for subName, wantRefs := range wantRefsBySubscription {
+		gotRefs := modelRefsForSubscription(result, subName)
+		if !slices.Equal(gotRefs, wantRefs) {
+			t.Errorf("model refs for %q = %v, want %v", subName, gotRefs, wantRefs)
+		}
+	}
+}
+
+func modelRefsForSubscription(result []subscription.SubscriptionInfo, subName string) []string {
+	var gotRefs []string
+	for _, info := range result {
+		if info.SubscriptionIDHeader != subName {
+			continue
+		}
+		for _, ref := range info.ModelRefs {
+			gotRefs = append(gotRefs, ref.Namespace+"/"+ref.Name)
+		}
+	}
+	return gotRefs
+}
+
+type selectFiltersModelRefsTestCase struct {
+	name               string
+	subscriptions      []*unstructured.Unstructured
+	accessChecker      *fakeAccessChecker
+	groups             []string
+	username           string
+	requestedSub       string
+	requestedModel     string
+	wantModelNames     []string
+	wantAccessAllowed  bool
+	expectError        bool
+	expectAccessDenied bool
 }
 
 func TestSelect_FiltersModelRefsByAuthPolicy(t *testing.T) {
 	log := logger.New(false)
 
-	tests := []struct {
-		name               string
-		subscriptions      []*unstructured.Unstructured
-		accessChecker      *fakeAccessChecker
-		groups             []string
-		username           string
-		requestedSub       string
-		requestedModel     string
-		wantModelNames     []string
-		wantAccessAllowed  bool
-		expectError        bool
-		expectAccessDenied bool
-	}{
+	tests := []selectFiltersModelRefsTestCase{
 		{
 			name: "Select auto filters modelRefs by AuthPolicy",
 			subscriptions: []*unstructured.Unstructured{
@@ -1704,42 +1727,49 @@ func TestSelect_FiltersModelRefsByAuthPolicy(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			lister := &fakeLister{subscriptions: tt.subscriptions}
-
-			var accessChecker subscription.ModelAccessChecker
-			if tt.accessChecker != nil {
-				accessChecker = tt.accessChecker
-			}
-			selector := subscription.NewSelector(log, lister, nil, accessChecker)
-
-			//nolint:unqueryvet,nolintlint // False positive - not a SQL query
-			result, err := selector.Select(tt.groups, tt.username, tt.requestedSub, tt.requestedModel)
-			if tt.accessChecker != nil {
-				if tt.accessChecker.calls != 1 {
-					t.Errorf("AuthorizedModels calls = %d, want 1", tt.accessChecker.calls)
-				}
-				if !slices.Equal(tt.accessChecker.gotGroups, tt.groups) {
-					t.Errorf("AuthorizedModels groups = %v, want %v", tt.accessChecker.gotGroups, tt.groups)
-				}
-				if tt.accessChecker.gotUser != tt.username {
-					t.Errorf("AuthorizedModels username = %q, want %q", tt.accessChecker.gotUser, tt.username)
-				}
-			}
-
-			if tt.expectError {
-				requireAccessDeniedError(t, err, tt.expectAccessDenied)
-				return
-			}
-			if err != nil {
-				t.Fatalf("Select() error = %v", err)
-			}
-
-			assertModelRefs(t, result.ModelRefs, tt.wantModelNames)
-
-			if result.AccessAllowed != tt.wantAccessAllowed {
-				t.Errorf("AccessAllowed = %v, want %v", result.AccessAllowed, tt.wantAccessAllowed)
-			}
+			runSelectFiltersModelRefsTest(t, log, tt)
 		})
+	}
+}
+
+func runSelectFiltersModelRefsTest(t *testing.T, log *logger.Logger, tt selectFiltersModelRefsTestCase) {
+	t.Helper()
+	var accessChecker subscription.ModelAccessChecker
+	if tt.accessChecker != nil {
+		accessChecker = tt.accessChecker
+	}
+	selector := subscription.NewSelector(log, &fakeLister{subscriptions: tt.subscriptions}, nil, accessChecker)
+
+	//nolint:unqueryvet,nolintlint // False positive - not a SQL query
+	result, err := selector.Select(tt.groups, tt.username, tt.requestedSub, tt.requestedModel)
+	assertAccessCheckerCall(t, tt)
+	if tt.expectError {
+		requireAccessDeniedError(t, err, tt.expectAccessDenied)
+		return
+	}
+	if err != nil {
+		t.Fatalf("Select() error = %v", err)
+	}
+
+	assertModelRefs(t, result.ModelRefs, tt.wantModelNames)
+	if result.AccessAllowed != tt.wantAccessAllowed {
+		t.Errorf("AccessAllowed = %v, want %v", result.AccessAllowed, tt.wantAccessAllowed)
+	}
+}
+
+func assertAccessCheckerCall(t *testing.T, tt selectFiltersModelRefsTestCase) {
+	t.Helper()
+	if tt.accessChecker == nil {
+		return
+	}
+	if tt.accessChecker.calls != 1 {
+		t.Errorf("AuthorizedModels calls = %d, want 1", tt.accessChecker.calls)
+	}
+	if !slices.Equal(tt.accessChecker.gotGroups, tt.groups) {
+		t.Errorf("AuthorizedModels groups = %v, want %v", tt.accessChecker.gotGroups, tt.groups)
+	}
+	if tt.accessChecker.gotUser != tt.username {
+		t.Errorf("AuthorizedModels username = %q, want %q", tt.accessChecker.gotUser, tt.username)
 	}
 }
 
