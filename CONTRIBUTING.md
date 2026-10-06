@@ -67,7 +67,9 @@ Examples at **1 review:** docs only; CI workflows other than `approval-policy.ym
 
 The workflow applies label `maas/policy-lightweight` or `maas/policy-standard` automatically.
 
-Merge still requires OpenShift **Prow/Tide** (`approved` + `lgtm` and green **`tide`**). That is separate from GitHub review count: **standard** PRs need **two** distinct **Approve** reviews on GitHub; **lightweight** PRs need **one**. Prow may still be satisfied by one maintainer using `/approve` plus a single **Approve** review—that does not by itself satisfy the **two**-review rule for standard PRs.
+**Override (standard PRs only):** a maintainer may add the label **`override-approval-policy`** so a **standard** PR needs only **one** approving GitHub review for the **`approval-policy`** check (for example after a thorough review when a second reviewer is unavailable). Path classification is unchanged; only the required **Approve** count drops from 2 to 1. Restrict who can add this label in GitHub. Tide still requires **`approved`** and **`lgtm`** unless Prow is configured separately.
+
+Merge still requires OpenShift **Prow/Tide** (`approved` + `lgtm` and green **`tide`**). **Standard** PRs need **two** GitHub **Approve** reviews unless **`override-approval-policy`** is present; **lightweight** PRs need **one**.
 
 ## Release strategy
 

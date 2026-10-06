@@ -47,6 +47,7 @@ jobs:
             }
 
             const policyLabels = ['maas/policy-lightweight', 'maas/policy-standard'];
+            const singleReviewOverrideLabel = 'override-approval-policy';
             const approvalPolicyWorkflow = '.github/workflows/approval-policy.yml';
             const maxListFiles = 3000;
 
@@ -110,7 +111,19 @@ jobs:
               !hasOther &&
               !touchesApprovalPolicy &&
               !fileListTruncated;
-            const required = lightweight ? 1 : 2;
+            let required = lightweight ? 1 : 2;
+
+            const { data: issueForOverride } = await github.rest.issues.get({
+              owner,
+              repo,
+              issue_number: pull_number,
+            });
+            const singleReviewOverride = issueForOverride.labels.some(
+              (label) => label.name === singleReviewOverrideLabel,
+            );
+            if (singleReviewOverride && required === 2) {
+              required = 1;
+            }
 
             const categoryOrder = ['docs', 'ci', 'test'];
             const parts = categoryOrder.filter((c) => touched.has(c));
@@ -125,6 +138,9 @@ jobs:
               tier = 'standard';
             } else {
               tier = `standard (includes ${parts.join('+')} plus production paths)`;
+            }
+            if (singleReviewOverride && !lightweight) {
+              tier = `${tier}; ${singleReviewOverrideLabel} label`;
             }
 
             const reviews = await github.paginate(github.rest.pulls.listReviews, {
@@ -159,7 +175,7 @@ jobs:
               description:
                 description.length <= 140
                   ? description
-                  : `${approvingCount}/${required} (${lightweight ? 'lightweight' : 'standard'})`,
+                  : `${approvingCount}/${required} (${required === 1 ? 'one review' : 'two reviews'})`,
               target_url: pr.html_url,
             });
 
@@ -203,6 +219,7 @@ jobs:
               `Tier: **${tier}** → requires **${required}** approving GitHub review(s) (author and bots excluded).\n\n` +
                 `**Lightweight (1 review)** — every file is only in docs / ci / test buckets (see CONTRIBUTING.md).\n\n` +
                 `**Standard (2 reviews)** — production paths, renames from production paths, 3000+ listed files, empty file list, or edit to \`${approvalPolicyWorkflow}\`.\n\n` +
+                `**Override:** label \`${singleReviewOverrideLabel}\` on a standard PR lowers the requirement to **1** approving review (maintainers only; see CONTRIBUTING.md).\n\n` +
                 `Current: **${approvingCount}** approving review(s). Status: **${pass ? 'pass' : 'fail'}**.`,
             );
             await core.summary.write();
