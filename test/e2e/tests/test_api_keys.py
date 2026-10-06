@@ -230,8 +230,10 @@ def model_completions_url(model_v1: str) -> str:
 
 
 @pytest.fixture
-def inference_model_name() -> str:
-    """Model name for inference requests. Override with INFERENCE_MODEL_NAME env var."""
+def inference_model_name(_worker_api_keys_context) -> str:
+    """Use the worker model name or the shared tenant environment override."""
+    if _worker_api_keys_context is not None:
+        return f"e2e/{_worker_api_keys_context.model_ref}"
     return os.environ.get("INFERENCE_MODEL_NAME", MODEL_NAME)
 
 
@@ -1663,13 +1665,15 @@ class TestAPIKeySubscriptionPhases:
             log.info("✅ API key created successfully for Pending subscription")
 
         finally:
-            _delete_cr("maassubscription", subscription_name, namespace=ns)
-            _delete_cr("maasauthpolicy", auth_name, namespace=ns)
-            _delete_sa(sa_name, namespace=MODEL_NAMESPACE)
+            # Subscription deletion now waits for the API-key cleanup Job,
+            # which requires maas-controller to be running.
             try:
                 _scale_controller_up()
             except Exception:
-                log.exception("Best-effort controller scale-up failed")
+                log.exception("Best-effort maas-controller scale-up failed")
+            _delete_cr("maassubscription", subscription_name, namespace=ns)
+            _delete_cr("maasauthpolicy", auth_name, namespace=ns)
+            _delete_sa(sa_name, namespace=MODEL_NAMESPACE)
             _wait_for_cr_absent("maassubscription", subscription_name, namespace=ns)
             _wait_for_cr_absent("maasauthpolicy", auth_name, namespace=ns)
 
