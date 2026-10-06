@@ -346,6 +346,18 @@ func TestGetAllAccessible_ErrorHandling(t *testing.T) {
 			t.Errorf("unexpected error message: %v", err)
 		}
 	})
+
+	t.Run("authorization lookup failure returns an error", func(t *testing.T) {
+		lister := &fakeLister{subscriptions: []*unstructured.Unstructured{
+			createSubscription("sub1", []string{"g1"}, nil, 1, defaultTestTokenRateLimit, "", ""),
+		}}
+		selector := subscription.NewSelector(log, lister, nil, &fakeAccessChecker{})
+
+		_, err := selector.GetAllAccessible([]string{"g1"}, "")
+		if err == nil {
+			t.Fatal("expected authorization lookup error")
+		}
+	})
 }
 
 func TestSelectHighestPriority(t *testing.T) {
@@ -973,16 +985,17 @@ func TestEnrichModelRefsSource(t *testing.T) {
 // fakeAccessChecker implements subscription.ModelAccessChecker for testing.
 type fakeAccessChecker struct {
 	authorized map[authpolicy.ModelKey]bool
+	err        error
 	gotGroups  []string
 	gotUser    string
 	calls      int
 }
 
-func (f *fakeAccessChecker) AuthorizedModels(groups []string, username string) map[authpolicy.ModelKey]bool {
+func (f *fakeAccessChecker) AuthorizedModels(groups []string, username string) (map[authpolicy.ModelKey]bool, error) {
 	f.calls++
 	f.gotGroups = groups
 	f.gotUser = username
-	return f.authorized
+	return f.authorized, f.err
 }
 
 // createSubscriptionWithModelRefs creates a subscription with custom model refs (each with name and namespace).
@@ -1235,6 +1248,8 @@ func TestListAccessibleForModel_MultiNamespace(t *testing.T) {
 		modelID       string
 		wantCount     int
 		wantSubNames  []string
+		wantModelRefs map[string][]string
+		wantError     bool
 	}{
 		{
 			name: "single namespace match authorized",
@@ -1339,6 +1354,7 @@ func TestListAccessibleForModel_MultiNamespace(t *testing.T) {
 			groups:      []string{"g1"},
 			modelID:     "model-x",
 			wantCount:   0,
+			wantError:   true,
 		},
 		{
 			name: "access checker returns empty authorized set - deny",
@@ -1385,6 +1401,9 @@ func TestListAccessibleForModel_MultiNamespace(t *testing.T) {
 			modelID:      "model-x",
 			wantCount:    1,
 			wantSubNames: []string{"sub2"},
+			wantModelRefs: map[string][]string{
+				"sub2": {"tenant-b/model-x"},
+			},
 		},
 	}
 
@@ -1399,6 +1418,12 @@ func TestListAccessibleForModel_MultiNamespace(t *testing.T) {
 
 			selector := subscription.NewSelector(log, lister, nil, accessChecker)
 			result, err := selector.ListAccessibleForModel(tt.username, tt.groups, tt.modelID)
+			if tt.wantError {
+				if err == nil {
+					t.Fatal("expected authorization lookup error")
+				}
+				return
+			}
 			if err != nil {
 				t.Fatalf("Unexpected error: %v", err)
 			}
@@ -1416,6 +1441,21 @@ func TestListAccessibleForModel_MultiNamespace(t *testing.T) {
 					if result[i].SubscriptionIDHeader != wantName {
 						t.Errorf("Expected subscription %q at index %d, got %q", wantName, i, result[i].SubscriptionIDHeader)
 					}
+				}
+			}
+
+			for subName, wantRefs := range tt.wantModelRefs {
+				var gotRefs []string
+				for _, info := range result {
+					if info.SubscriptionIDHeader != subName {
+						continue
+					}
+					for _, ref := range info.ModelRefs {
+						gotRefs = append(gotRefs, ref.Namespace+"/"+ref.Name)
+					}
+				}
+				if !slices.Equal(gotRefs, wantRefs) {
+					t.Errorf("model refs for %q = %v, want %v", subName, gotRefs, wantRefs)
 				}
 			}
 		})
@@ -1452,6 +1492,19 @@ func TestSelect_FiltersModelRefsByAuthPolicy(t *testing.T) {
 			}},
 			groups:            []string{"g1"},
 			wantModelNames:    []string{"model-a"},
+			wantAccessAllowed: true,
+		},
+		{
+			name: "Select returns no modelRefs when authorization grants none",
+			subscriptions: []*unstructured.Unstructured{
+				createSubscriptionWithModelRefs("sub1", []string{"g1"}, []map[string]any{
+					{"name": "model-a", "namespace": "ns"},
+					{"name": "model-b", "namespace": "ns"},
+				}),
+			},
+			accessChecker:     &fakeAccessChecker{authorized: map[authpolicy.ModelKey]bool{}},
+			groups:            []string{"g1"},
+			wantModelNames:    []string{},
 			wantAccessAllowed: true,
 		},
 		{
@@ -1543,6 +1596,33 @@ func TestSelect_FiltersModelRefsByAuthPolicy(t *testing.T) {
 			requestedSub:      "sub1",
 			requestedModel:    "ns/model-b",
 			wantModelNames:    []string{"model-a"},
+			wantAccessAllowed: false,
+		},
+		{
+			name: "Select skips health checks for unauthorized degraded model",
+			subscriptions: []*unstructured.Unstructured{
+				func() *unstructured.Unstructured {
+					sub := createSubscriptionWithModelRefs("sub1", []string{"g1"}, []map[string]any{
+						{
+							"name":      "model-a",
+							"namespace": "ns",
+							"tokenRateLimits": []any{
+								map[string]any{"limit": int64(1000), "window": "1m"},
+							},
+						},
+						{"name": "model-b", "namespace": "ns"},
+					})
+					sub.Object["status"] = map[string]any{"phase": phaseDegraded}
+					return sub
+				}(),
+			},
+			accessChecker: &fakeAccessChecker{authorized: map[authpolicy.ModelKey]bool{
+				{Namespace: "ns", Name: "model-b"}: true,
+			}},
+			groups:            []string{"g1"},
+			requestedSub:      "sub1",
+			requestedModel:    "ns/model-a",
+			wantModelNames:    []string{"model-b"},
 			wantAccessAllowed: false,
 		},
 		{

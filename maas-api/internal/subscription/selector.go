@@ -32,7 +32,7 @@ type Lister interface {
 
 // ModelAccessChecker determines whether a user has access to a specific model.
 type ModelAccessChecker interface {
-	AuthorizedModels(groups []string, username string) map[authpolicy.ModelKey]bool
+	AuthorizedModels(groups []string, username string) (map[authpolicy.ModelKey]bool, error)
 }
 
 // Selector handles subscription selection logic.
@@ -55,6 +55,23 @@ func NewSelector(log *logger.Logger, lister Lister, modelLister models.MaaSModel
 		accessChecker: accessChecker,
 		logger:        log,
 	}
+}
+
+// authorizedModels evaluates MaaSAuthPolicy once for a request. A nil map with
+// no error means authorization filtering is not configured; a non-nil empty
+// map means the evaluation succeeded but authorized no models.
+func (s *Selector) authorizedModels(groups []string, username string) (map[authpolicy.ModelKey]bool, error) {
+	if s.accessChecker == nil {
+		return nil, nil
+	}
+	authorized, err := s.accessChecker.AuthorizedModels(groups, username)
+	if err != nil {
+		return nil, fmt.Errorf("failed to determine authorized models: %w", err)
+	}
+	if authorized == nil {
+		return nil, errors.New("failed to determine authorized models: checker returned nil")
+	}
+	return authorized, nil
 }
 
 // buildModelIndex builds a lookup map keyed by "namespace/name" from the MaaSModelRef cache.
@@ -150,7 +167,10 @@ func (s *Selector) GetAllAccessible(groups []string, username string) ([]*Select
 	}
 
 	if s.accessChecker != nil {
-		authorizedSet := s.accessChecker.AuthorizedModels(groups, username)
+		authorizedSet, err := s.authorizedModels(groups, username)
+		if err != nil {
+			return nil, err
+		}
 		filtered := accessible[:0]
 		for _, sub := range accessible {
 			sub.ModelRefs = filterAuthorizedModels(sub.ModelRefs, authorizedSet)
@@ -181,13 +201,15 @@ func isResolvedModelAuthorized(sub *subscription, requestedModel string, authori
 }
 
 func buildAuthorizedResponse(sub *subscription, requestedModel string, authorizedSet map[authpolicy.ModelKey]bool) (*SelectResponse, error) {
-	if err := checkModelHealth(sub, requestedModel); err != nil {
-		return nil, err
-	}
 	resp := toResponseWithResolvedModel(sub, requestedModel)
 	resp.AccessAllowed = requestedModel == "" || (authorizedSet != nil && isResolvedModelAuthorized(sub, requestedModel, authorizedSet))
 	if authorizedSet != nil {
 		resp.ModelRefs = filterAuthorizedModels(resp.ModelRefs, authorizedSet)
+	}
+	if authorizedSet == nil || resp.AccessAllowed || requestedModel == "" {
+		if err := checkModelHealth(sub, requestedModel); err != nil {
+			return nil, err
+		}
 	}
 	return resp, nil
 }
@@ -262,12 +284,9 @@ func (s *Selector) Select(groups []string, username string, requestedSubscriptio
 
 	sortSubscriptionsByPriority(subscriptions)
 
-	var authorizedSet map[authpolicy.ModelKey]bool
-	if s.accessChecker != nil {
-		authorizedSet = s.accessChecker.AuthorizedModels(groups, username)
-		if authorizedSet == nil {
-			return nil, errors.New("failed to determine authorized models")
-		}
+	authorizedSet, err := s.authorizedModels(groups, username)
+	if err != nil {
+		return nil, err
 	}
 
 	if requestedSubscription != "" {
@@ -345,9 +364,9 @@ func (s *Selector) SelectHighestPriority(groups []string, username string) (*Sel
 	sortSubscriptionsByPriority(accessible)
 	resp := toResponse(&accessible[0])
 	if s.accessChecker != nil {
-		authorizedSet := s.accessChecker.AuthorizedModels(groups, username)
-		if authorizedSet == nil {
-			return nil, errors.New("failed to determine authorized models")
+		authorizedSet, err := s.authorizedModels(groups, username)
+		if err != nil {
+			return nil, err
 		}
 		resp.ModelRefs = filterAuthorizedModels(resp.ModelRefs, authorizedSet)
 	}
@@ -795,12 +814,9 @@ func (s *Selector) ListAccessibleForModel(username string, groups []string, mode
 		return nil, fmt.Errorf("failed to load subscriptions: %w", err)
 	}
 
-	var authorizedSet map[authpolicy.ModelKey]bool
-	if s.accessChecker != nil {
-		authorizedSet = s.accessChecker.AuthorizedModels(groups, username)
-		if authorizedSet == nil {
-			authorizedSet = map[authpolicy.ModelKey]bool{}
-		}
+	authorizedSet, err := s.authorizedModels(groups, username)
+	if err != nil {
+		return nil, err
 	}
 
 	result := []SubscriptionInfo{}
@@ -823,7 +839,11 @@ func (s *Selector) ListAccessibleForModel(username string, groups []string, mode
 			}
 		}
 
-		result = append(result, toSubscriptionInfo(&sub))
+		info := toSubscriptionInfo(&sub)
+		if authorizedSet != nil {
+			info.ModelRefs = filterAuthorizedModels(info.ModelRefs, authorizedSet)
+		}
+		result = append(result, info)
 	}
 
 	// Sort for deterministic ordering
