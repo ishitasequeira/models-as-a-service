@@ -54,7 +54,6 @@ from test_helper import (
     _delete_governance_and_wait,
     _delete_sa,
     _get_auth_policies_for_model,
-    _get_cluster_token,
     _get_cr,
     _get_subscriptions_for_model,
     _inference,
@@ -799,6 +798,14 @@ class TestModelsEndpoint:
                 check=True,
             )
 
+            # This test depends on both resources being reconciled. Wait for the
+            # AuthPolicy first so the subscription/TRLP wait does not race the
+            # controller's cross-resource reconciliation.
+            _wait_for_maas_auth_policy_phase(
+                auth_policy_name,
+                namespace=maas_ns,
+                require_enforced=False,
+            )
             _wait_for_subscription_inference_ready(
                 subscription_name,
                 MODEL_REF,
@@ -808,8 +815,6 @@ class TestModelsEndpoint:
 
             # Create API key bound to our test subscription
             api_key = _create_api_key(sa_token, name="e2e-dedup-test-key", subscription=subscription_name)
-
-            _wait_for_maas_auth_policy_phase(auth_policy_name, namespace=maas_ns, require_enforced=False)
 
             log.info(f"Querying /v1/models with subscription: {subscription_name}")
             data, _in_subscription = _wait_for_central_models_in_subscription(
