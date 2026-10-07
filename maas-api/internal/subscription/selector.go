@@ -159,7 +159,7 @@ func (s *Selector) GetAllAccessible(groups []string, username string) ([]*Select
 		}
 
 		// Exclude subscriptions being deleted
-		if sub.DeletionTimestamp != nil {
+		if subscriptionIsDeleting(&sub) {
 			continue
 		}
 
@@ -235,6 +235,9 @@ func selectExplicit(
 	for _, sub := range subscriptions {
 		qualifiedName := fmt.Sprintf("%s/%s", sub.Namespace, sub.Name)
 		if qualifiedName == requestedSubscription {
+			if subscriptionIsDeleting(&sub) {
+				continue
+			}
 			if !userHasAccess(&sub, username, groups) {
 				return nil, &AccessDeniedError{Subscription: requestedSubscription}
 			}
@@ -248,6 +251,9 @@ func selectExplicit(
 	if !strings.Contains(requestedSubscription, "/") {
 		for _, sub := range subscriptions {
 			if sub.Name != requestedSubscription {
+				continue
+			}
+			if subscriptionIsDeleting(&sub) {
 				continue
 			}
 			if !userHasAccess(&sub, username, groups) {
@@ -296,6 +302,9 @@ func (s *Selector) Select(groups []string, username string, requestedSubscriptio
 	// Auto-selection
 	var accessibleSubs []subscription
 	for _, sub := range subscriptions {
+		if subscriptionIsDeleting(&sub) {
+			continue
+		}
 		if userHasAccess(&sub, username, groups) {
 			if requestedModel != "" && !subscriptionIncludesModel(&sub, requestedModel) {
 				continue
@@ -352,6 +361,9 @@ func (s *Selector) SelectHighestPriority(groups []string, username string) (*Sel
 
 	var accessible []subscription
 	for _, sub := range subscriptions {
+		if subscriptionIsDeleting(&sub) {
+			continue
+		}
 		if userHasAccess(&sub, username, groups) {
 			accessible = append(accessible, sub)
 		}
@@ -371,6 +383,10 @@ func (s *Selector) SelectHighestPriority(groups []string, username string) (*Sel
 		resp.ModelRefs = filterAuthorizedModels(resp.ModelRefs, authorizedSet)
 	}
 	return resp, nil
+}
+
+func subscriptionIsDeleting(sub *subscription) bool {
+	return sub != nil && sub.DeletionTimestamp != nil
 }
 
 // loadSubscriptions fetches and parses MaaSSubscription resources.
