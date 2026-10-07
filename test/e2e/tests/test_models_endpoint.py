@@ -762,7 +762,6 @@ class TestModelsEndpoint:
                 check=True,
             )
             _wait_for_maas_auth_policy_phase(auth_policy_name, namespace=maas_ns)
-            _wait_for_gateway_auth_enforced()
 
             # Create subscription with the SAME model ref TWICE (guaranteed duplicates)
             log.info(f"Creating subscription with {MODEL_REF} listed twice (to test deduplication)")
