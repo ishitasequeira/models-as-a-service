@@ -1082,22 +1082,31 @@ func createUserSubscriptionWithModelRefs(subName, username string, modelRefs []m
 	return sub
 }
 
+type selectAccessAllowedTestCase struct {
+	name                  string
+	subscriptions         []*unstructured.Unstructured
+	groups                []string
+	username              string
+	requestedSubscription string
+	requestedModel        string
+	accessChecker         subscription.ModelAccessChecker
+	wantAccessAllowed     bool
+	wantError             bool
+	wantAccessDenied      bool
+	wantModelNotInSub     bool
+}
+
 func TestSelect_AccessAllowed(t *testing.T) {
 	log := logger.New(false)
+	for _, tt := range selectAccessAllowedTestCases() {
+		t.Run(tt.name, func(t *testing.T) {
+			runSelectAccessAllowedTest(t, log, tt)
+		})
+	}
+}
 
-	tests := []struct {
-		name                  string
-		subscriptions         []*unstructured.Unstructured
-		groups                []string
-		username              string
-		requestedSubscription string
-		requestedModel        string
-		accessChecker         subscription.ModelAccessChecker
-		wantAccessAllowed     bool
-		wantError             bool
-		wantAccessDenied      bool
-		wantModelNotInSub     bool
-	}{
+func selectAccessAllowedTestCases() []selectAccessAllowedTestCase {
+	return []selectAccessAllowedTestCase{
 		{
 			name: "authorized model returns AccessAllowed true",
 			subscriptions: []*unstructured.Unstructured{
@@ -1281,48 +1290,46 @@ func TestSelect_AccessAllowed(t *testing.T) {
 			wantError: true,
 		},
 	}
+}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			lister := &fakeLister{subscriptions: tt.subscriptions}
-			var accessChecker subscription.ModelAccessChecker
-			if tt.accessChecker != nil {
-				accessChecker = tt.accessChecker
-			}
-			selector := subscription.NewSelector(log, lister, nil, accessChecker)
+func runSelectAccessAllowedTest(t *testing.T, log *logger.Logger, tt selectAccessAllowedTestCase) {
+	t.Helper()
+	selector := subscription.NewSelector(log, &fakeLister{subscriptions: tt.subscriptions}, nil, tt.accessChecker)
+	result, err := selector.Select(tt.groups, tt.username, tt.requestedSubscription, tt.requestedModel)
+	if tt.wantError {
+		assertSelectAccessAllowedError(t, err, tt)
+		return
+	}
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.AccessAllowed != tt.wantAccessAllowed {
+		t.Errorf("AccessAllowed = %v, want %v", result.AccessAllowed, tt.wantAccessAllowed)
+	}
+}
 
-			result, err := selector.Select(tt.groups, tt.username, tt.requestedSubscription, tt.requestedModel)
-			if tt.wantError {
-				if err == nil {
-					t.Fatal("expected error, got nil")
-				}
-				if tt.wantAccessDenied {
-					var denied *subscription.AccessDeniedError
-					if !errors.As(err, &denied) {
-						t.Fatalf("expected AccessDeniedError, got %T: %v", err, err)
-					}
-					if denied.Subscription != "" {
-						t.Errorf("AccessDeniedError leaks subscription identifier %q", denied.Subscription)
-					}
-					if tt.requestedModel != "" && strings.Contains(err.Error(), tt.requestedModel) {
-						t.Errorf("AccessDeniedError leaks requested model %q", tt.requestedModel)
-					}
-				}
-				if tt.wantModelNotInSub {
-					var notInSub *subscription.ModelNotInSubscriptionError
-					if !errors.As(err, &notInSub) {
-						t.Fatalf("expected ModelNotInSubscriptionError, got %T: %v", err, err)
-					}
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if result.AccessAllowed != tt.wantAccessAllowed {
-				t.Errorf("AccessAllowed = %v, want %v", result.AccessAllowed, tt.wantAccessAllowed)
-			}
-		})
+func assertSelectAccessAllowedError(t *testing.T, err error, tt selectAccessAllowedTestCase) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if tt.wantAccessDenied {
+		var denied *subscription.AccessDeniedError
+		if !errors.As(err, &denied) {
+			t.Fatalf("expected AccessDeniedError, got %T: %v", err, err)
+		}
+		if denied.Subscription != "" {
+			t.Errorf("AccessDeniedError leaks subscription identifier %q", denied.Subscription)
+		}
+		if tt.requestedModel != "" && strings.Contains(err.Error(), tt.requestedModel) {
+			t.Errorf("AccessDeniedError leaks requested model %q", tt.requestedModel)
+		}
+	}
+	if tt.wantModelNotInSub {
+		var notInSub *subscription.ModelNotInSubscriptionError
+		if !errors.As(err, &notInSub) {
+			t.Fatalf("expected ModelNotInSubscriptionError, got %T: %v", err, err)
+		}
 	}
 }
 
