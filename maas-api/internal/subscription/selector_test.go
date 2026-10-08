@@ -1096,6 +1096,7 @@ func TestSelect_AccessAllowed(t *testing.T) {
 		wantAccessAllowed     bool
 		wantError             bool
 		wantAccessDenied      bool
+		wantModelNotInSub     bool
 	}{
 		{
 			name: "authorized model returns AccessAllowed true",
@@ -1218,6 +1219,54 @@ func TestSelect_AccessAllowed(t *testing.T) {
 			wantAccessAllowed: true,
 		},
 		{
+			name: "explicit bare subscription with auth policy does not leak missing model",
+			subscriptions: []*unstructured.Unstructured{
+				createSubscriptionWithModelRefs("sub1", []string{"g1"}, []map[string]any{
+					{"name": "model-a", "namespace": "ns1"},
+				}),
+			},
+			groups:                []string{"g1"},
+			requestedSubscription: "sub1",
+			requestedModel:        "ns1/missing-model",
+			accessChecker: &fakeAccessChecker{
+				authorized: map[authpolicy.ModelKey]bool{
+					{Namespace: "ns1", Name: "model-a"}: true,
+				},
+			},
+			wantAccessAllowed: false,
+		},
+		{
+			name: "explicit qualified subscription with auth policy does not leak missing model",
+			subscriptions: []*unstructured.Unstructured{
+				createSubscriptionWithModelRefs("sub1", []string{"g1"}, []map[string]any{
+					{"name": "model-a", "namespace": "ns1"},
+				}),
+			},
+			groups:                []string{"g1"},
+			requestedSubscription: "test-ns/sub1",
+			requestedModel:        "ns1/missing-model",
+			accessChecker: &fakeAccessChecker{
+				authorized: map[authpolicy.ModelKey]bool{
+					{Namespace: "ns1", Name: "model-a"}: true,
+				},
+			},
+			wantAccessAllowed: false,
+		},
+		{
+			name: "explicit subscription without auth policy returns model not in subscription",
+			subscriptions: []*unstructured.Unstructured{
+				createSubscriptionWithModelRefs("sub1", []string{"g1"}, []map[string]any{
+					{"name": "model-a", "namespace": "ns1"},
+				}),
+			},
+			groups:                []string{"g1"},
+			requestedSubscription: "sub1",
+			requestedModel:        "ns1/missing-model",
+			accessChecker:         nil,
+			wantError:             true,
+			wantModelNotInSub:     true,
+		},
+		{
 			name: "nil authorized set returns checker error",
 			subscriptions: []*unstructured.Unstructured{
 				createSubscriptionWithModelRefs("sub1", []string{"g1"}, []map[string]any{
@@ -1257,6 +1306,12 @@ func TestSelect_AccessAllowed(t *testing.T) {
 					}
 					if tt.requestedModel != "" && strings.Contains(err.Error(), tt.requestedModel) {
 						t.Errorf("AccessDeniedError leaks requested model %q", tt.requestedModel)
+					}
+				}
+				if tt.wantModelNotInSub {
+					var notInSub *subscription.ModelNotInSubscriptionError
+					if !errors.As(err, &notInSub) {
+						t.Fatalf("expected ModelNotInSubscriptionError, got %T: %v", err, err)
 					}
 				}
 				return

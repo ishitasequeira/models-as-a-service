@@ -241,7 +241,7 @@ func selectExplicit(
 			if !userHasAccess(&sub, username, groups) {
 				return nil, &AccessDeniedError{Subscription: requestedSubscription}
 			}
-			if requestedModel != "" && !subscriptionIncludesModel(&sub, requestedModel) {
+			if requestedModel != "" && authorizedSet == nil && !subscriptionIncludesModel(&sub, requestedModel) {
 				return nil, &ModelNotInSubscriptionError{Subscription: requestedSubscription, Model: requestedModel}
 			}
 			return buildAuthorizedResponse(&sub, requestedModel, authorizedSet)
@@ -259,7 +259,7 @@ func selectExplicit(
 			if !userHasAccess(&sub, username, groups) {
 				return nil, &AccessDeniedError{Subscription: requestedSubscription}
 			}
-			if requestedModel != "" && !subscriptionIncludesModel(&sub, requestedModel) {
+			if requestedModel != "" && authorizedSet == nil && !subscriptionIncludesModel(&sub, requestedModel) {
 				return nil, &ModelNotInSubscriptionError{Subscription: requestedSubscription, Model: requestedModel}
 			}
 			return buildAuthorizedResponse(&sub, requestedModel, authorizedSet)
