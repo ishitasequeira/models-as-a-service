@@ -1023,7 +1023,7 @@ func TestTenantReconcile_DeletionDefersCleanupWhileAITenantRevocationPending(t *
 		NamespacedName: types.NamespacedName{Name: maasv1alpha1.MaasTenantConfigInstanceName, Namespace: tenantNS},
 	})
 	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(res.RequeueAfter).To(Equal(10 * time.Second), "should requeue while waiting for AITenant revocation")
+	g.Expect(res.RequeueAfter).To(Equal(10*time.Second), "should requeue while waiting for AITenant revocation")
 
 	// maas-api resources must still exist — cleanup was deferred.
 	g.Expect(cl.Get(ctx, client.ObjectKeyFromObject(maasAPIDep), maasAPIDep)).To(Succeed(),
