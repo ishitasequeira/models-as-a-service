@@ -1444,6 +1444,9 @@ func TestAITenantReconcile_DeletingTenantConfigBlocksActive(t *testing.T) {
 	g.Expect(ready).NotTo(BeNil())
 	g.Expect(ready.Reason).To(Equal("TenantConfigReconcileFailed"))
 	g.Expect(ready.Message).To(ContainSubstring("being deleted"))
+	platformPrerequisites := apimeta.FindStatusCondition(updated.Status.Conditions, maasv1alpha1.AITenantConditionPlatformPrerequisitesReady)
+	g.Expect(platformPrerequisites).NotTo(BeNil())
+	g.Expect(platformPrerequisites.Status).To(Equal(metav1.ConditionFalse))
 
 	// Simulate the ghost finalizer completing: remove finalizer so the object can be deleted.
 	var ghost maasv1alpha1.MaasTenantConfig
@@ -1463,6 +1466,10 @@ func TestAITenantReconcile_DeletingTenantConfigBlocksActive(t *testing.T) {
 	g.Expect(readyAfter).NotTo(BeNil())
 	g.Expect(readyAfter.Status).To(Equal(metav1.ConditionFalse))
 	g.Expect(readyAfter.Reason).To(Equal("TenantConfigNotReady"))
+	platformPrerequisites = apimeta.FindStatusCondition(updated.Status.Conditions, maasv1alpha1.AITenantConditionPlatformPrerequisitesReady)
+	g.Expect(platformPrerequisites).NotTo(BeNil())
+	g.Expect(platformPrerequisites.Status).To(Equal(metav1.ConditionTrue))
+	g.Expect(platformPrerequisites.Reason).To(Equal("PrerequisitesMet"))
 
 	var replacement maasv1alpha1.MaasTenantConfig
 	replacementKey := client.ObjectKey{Name: maasv1alpha1.MaasTenantConfigInstanceName, Namespace: "ai-tenant-team-ghost"}
@@ -1486,6 +1493,9 @@ func TestAITenantReconcile_DeletingTenantConfigBlocksActive(t *testing.T) {
 	g.Expect(readyAfter).NotTo(BeNil())
 	g.Expect(readyAfter.Status).To(Equal(metav1.ConditionTrue))
 	g.Expect(readyAfter.Reason).To(Equal("Reconciled"))
+	platformPrerequisites = apimeta.FindStatusCondition(updated.Status.Conditions, maasv1alpha1.AITenantConditionPlatformPrerequisitesReady)
+	g.Expect(platformPrerequisites).NotTo(BeNil())
+	g.Expect(platformPrerequisites.Status).To(Equal(metav1.ConditionTrue))
 }
 
 func TestAITenantReconcile_RejectsNamespaceOwnedByAnotherAITenant(t *testing.T) {

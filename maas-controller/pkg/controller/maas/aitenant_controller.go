@@ -1816,6 +1816,28 @@ func setAITenantPhase(aitenant *maasv1alpha1.AITenant, phase, reason, message st
 		ObservedGeneration: aitenant.Generation,
 		LastTransitionTime: metav1.Now(),
 	})
+
+	// PlatformPrerequisitesReady is deliberately separate from Ready. The
+	// selected dataplane controller may need to provision its Gateway resources
+	// before the MaaSTenantConfig can report full readiness. Keep the existing
+	// Ready/Active contract unchanged while exposing the validated base
+	// resources needed to break that controller dependency cycle.
+	platformPrerequisitesStatus := metav1.ConditionFalse
+	platformPrerequisitesReason := reason
+	platformPrerequisitesMessage := message
+	if phase == "Active" || reason == "TenantConfigNotReady" {
+		platformPrerequisitesStatus = metav1.ConditionTrue
+		platformPrerequisitesReason = "PrerequisitesMet"
+		platformPrerequisitesMessage = "AITenant platform prerequisites are reconciled; waiting for the MaaS dataplane to report Ready"
+	}
+	apimeta.SetStatusCondition(&aitenant.Status.Conditions, metav1.Condition{
+		Type:               maasv1alpha1.AITenantConditionPlatformPrerequisitesReady,
+		Status:             platformPrerequisitesStatus,
+		Reason:             platformPrerequisitesReason,
+		Message:            platformPrerequisitesMessage,
+		ObservedGeneration: aitenant.Generation,
+		LastTransitionTime: metav1.Now(),
+	})
 }
 
 func (r *AITenantReconciler) updateAITenantStatus(ctx context.Context, aitenant *maasv1alpha1.AITenant, statusSnapshot *maasv1alpha1.AITenantStatus) error {

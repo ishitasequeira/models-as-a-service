@@ -26,6 +26,13 @@ const (
 
 	// AITenantConditionReady indicates whether the tenant bootstrap resources are reconciled.1
 	AITenantConditionReady = "Ready"
+
+	// AITenantConditionPlatformPrerequisitesReady indicates that the tenant's
+	// namespace, validated Gateway claim, RBAC, and MaasTenantConfig exist and
+	// are safe for the selected dataplane controller to provision. It may be
+	// True while AITenantConditionReady is still False because the dataplane
+	// controller is itself required to make the MaasTenantConfig Ready.
+	AITenantConditionPlatformPrerequisitesReady = "PlatformPrerequisitesReady"
 )
 
 // +kubebuilder:object:root=true
