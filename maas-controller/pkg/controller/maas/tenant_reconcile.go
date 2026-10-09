@@ -271,22 +271,17 @@ func (r *TenantReconciler) waitForAITenantRevocation(ctx context.Context, log lo
 		if apierrors.IsNotFound(err) {
 			return false, ctrl.Result{}
 		}
-		log.Error(err, "failed to look up owning AITenant, proceeding with cleanup")
-		return false, ctrl.Result{}
+		log.Error(err, "failed to look up owning AITenant, deferring cleanup")
+		return true, ctrl.Result{RequeueAfter: 10 * time.Second}
 	}
 
 	if aitenant.DeletionTimestamp.IsZero() {
 		return false, ctrl.Result{}
 	}
-	if !controllerutil.ContainsFinalizer(&aitenant, "maas.opendatahub.io/aitenant-cleanup") {
+	if !controllerutil.ContainsFinalizer(&aitenant, aitenantFinalizer) {
 		return false, ctrl.Result{}
 	}
-
-	revoked := apimeta.FindStatusCondition(aitenant.Status.Conditions, "APIKeysRevoked")
-	if revoked != nil && revoked.Status == metav1.ConditionTrue {
-		return false, ctrl.Result{}
-	}
-	if aitenant.Annotations != nil && aitenant.Annotations["maas.opendatahub.io/api-keys-revoked"] == "true" {
+	if tenantAPIKeysRevoked(&aitenant) {
 		return false, ctrl.Result{}
 	}
 
