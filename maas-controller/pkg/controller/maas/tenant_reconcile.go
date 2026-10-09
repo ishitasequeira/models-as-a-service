@@ -224,6 +224,17 @@ func (r *TenantReconciler) handleDeletion(ctx context.Context, log logr.Logger, 
 			return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 		}
 
+		// When an AITenant owns this config, its deletion sequence runs API-key
+		// revocation against maas-api before triggering MaasTenantConfig deletion.
+		// If something external (e.g. a CI pipeline) deletes the tenant namespace
+		// directly, MaasTenantConfig starts deleting independently. In that case
+		// cleanupTenantResources would tear down maas-api while the AITenant
+		// controller still needs it for revocation — deadlocking both controllers.
+		// Defer maas-api cleanup until the owning AITenant has finished revocation.
+		if waiting, res := r.waitForAITenantRevocation(ctx, log, tenant); waiting {
+			return res, nil
+		}
+
 		if err := r.cleanupTenantResources(ctx, log, tenant); err != nil {
 			log.Error(err, "failed to cleanup tenant resources")
 			return ctrl.Result{}, err
@@ -231,10 +242,57 @@ func (r *TenantReconciler) handleDeletion(ctx context.Context, log logr.Logger, 
 
 		controllerutil.RemoveFinalizer(tenant, tenantFinalizer)
 		if err := r.Update(ctx, tenant); err != nil {
+			if apierrors.IsNotFound(err) {
+				log.Info("MaasTenantConfig or its namespace is already gone; finalizer removal is moot")
+				return ctrl.Result{}, nil
+			}
 			return ctrl.Result{}, err
 		}
 	}
 	return ctrl.Result{}, nil
+}
+
+// waitForAITenantRevocation checks whether the owning AITenant still needs
+// maas-api alive for API-key revocation. Returns (true, requeue) if
+// MaasTenantConfig should defer its maas-api cleanup; (false, _) to proceed.
+func (r *TenantReconciler) waitForAITenantRevocation(ctx context.Context, log logr.Logger, tenant *maasv1alpha1.MaasTenantConfig) (bool, ctrl.Result) {
+	ann := tenant.GetAnnotations()
+	if ann == nil {
+		return false, ctrl.Result{}
+	}
+	name := ann[tenantreconcile.AnnotationAITenantName]
+	ns := ann[tenantreconcile.AnnotationAITenantNamespace]
+	if name == "" || ns == "" {
+		return false, ctrl.Result{}
+	}
+
+	var aitenant maasv1alpha1.AITenant
+	if err := r.Get(ctx, types.NamespacedName{Name: name, Namespace: ns}, &aitenant); err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, ctrl.Result{}
+		}
+		log.Error(err, "failed to look up owning AITenant, proceeding with cleanup")
+		return false, ctrl.Result{}
+	}
+
+	if aitenant.DeletionTimestamp.IsZero() {
+		return false, ctrl.Result{}
+	}
+	if !controllerutil.ContainsFinalizer(&aitenant, "maas.opendatahub.io/aitenant-cleanup") {
+		return false, ctrl.Result{}
+	}
+
+	revoked := apimeta.FindStatusCondition(aitenant.Status.Conditions, "APIKeysRevoked")
+	if revoked != nil && revoked.Status == metav1.ConditionTrue {
+		return false, ctrl.Result{}
+	}
+	if aitenant.Annotations != nil && aitenant.Annotations["maas.opendatahub.io/api-keys-revoked"] == "true" {
+		return false, ctrl.Result{}
+	}
+
+	log.Info("Deferring maas-api cleanup: owning AITenant has not completed API-key revocation",
+		"aitenant", ns+"/"+name)
+	return true, ctrl.Result{RequeueAfter: 10 * time.Second}
 }
 
 func (r *TenantReconciler) handleManagementState(ctx context.Context, log logr.Logger, tenant *maasv1alpha1.MaasTenantConfig) (*ctrl.Result, error) {
