@@ -8,31 +8,36 @@ These tests validate the Phase 1 multi-tenant contract:
   - Default and multiple tenant maas-api instances coexist
 """
 
+import os
+import time
+
 import pytest
 
 from multitenancy_helpers import (
     AITENANT_KIND,
     AITENANT_NAMESPACE,
-    DEPLOYMENT_NAMESPACE,
     GATEWAY_NAMESPACE,
     INFRA_NAMESPACE,
     apply_maas_auth_policy,
     bootstrap_aitenant_tenant,
     cleanup_discovery_case,
     deployment_env,
-    env_bool,
     get_json_or_none,
     http_route_backend_refs,
     http_route_parent_refs,
+    list_json,
     new_named_tenant_case,
     per_tenant_maas_api_names,
     redact_mapping,
     require_aitenant_crd,
     wait_for_deployment_available,
+    wait_for_gateway_authpolicy_ready,
     wait_for_json,
 )
 
 pytestmark = pytest.mark.xdist_group("mt_lifecycle")
+AUTHORINO_NAMESPACE = os.environ.get("AUTHORINO_NAMESPACE", "kuadrant-system")
+HTTPROUTE_RULE_AUTHCONFIG_ANNOTATION = "HTTPRouteRule.gateway.networking.k8s.io"
 
 # Multi-tenant maas-api tests are enabled by default (Phase 1 implementation)
 
@@ -51,6 +56,98 @@ def tenant_cases():
     finally:
         cleanup_discovery_case(case_a)
         cleanup_discovery_case(case_b)
+
+
+@pytest.fixture(scope="module")
+def dual_listener_tenant_cases():
+    """Create two tenant gateways whose HTTP and HTTPS listeners match the same routes."""
+    require_aitenant_crd()
+    case_a = new_named_tenant_case("e2e-authcfg-http-a")
+    case_b = new_named_tenant_case("e2e-authcfg-http-b")
+    cases = (case_a, case_b)
+    try:
+        for case in cases:
+            bootstrap_aitenant_tenant(case, dual_http_listener=True)
+            apply_maas_auth_policy(case["policy_name"], case["tenant_ns"])
+            wait_for_gateway_authpolicy_ready(case["gateway_name"])
+        yield cases
+    finally:
+        cleanup_discovery_case(case_a)
+        cleanup_discovery_case(case_b)
+
+
+def _route_accepted_by_gateway(route: dict, gateway_name: str) -> bool:
+    for parent in (route.get("status") or {}).get("parents") or []:
+        parent_ref = parent.get("parentRef") or {}
+        parent_namespace = parent_ref.get("namespace") or GATEWAY_NAMESPACE
+        if parent_ref.get("name") != gateway_name or parent_namespace != GATEWAY_NAMESPACE:
+            continue
+        if any(
+            condition.get("type") == "Accepted" and condition.get("status") == "True"
+            for condition in parent.get("conditions") or []
+        ):
+            return True
+    return False
+
+
+def _gateway_listener_names_with_routes(gateway: dict) -> set[str]:
+    """Return accepted Gateway listeners with at least one attached route."""
+    attached = set()
+    for listener in (gateway.get("status") or {}).get("listeners") or []:
+        conditions = listener.get("conditions") or []
+        accepted = any(
+            condition.get("type") == "Accepted" and condition.get("status") == "True"
+            for condition in conditions
+        )
+        if accepted and listener.get("attachedRoutes", 0) > 0:
+            attached.add(listener.get("name"))
+    return attached
+
+
+def _route_rule_authconfig_names(route_namespace: str, route_name: str) -> dict[str, list[str]]:
+    """Return managed AuthConfigs grouped by the HTTPRoute rule they represent."""
+    route_annotation_prefix = (
+        f"httproute.gateway.networking.k8s.io:{route_namespace}/{route_name}#"
+    )
+    by_rule = {}
+    for authconfig in list_json(
+        "authconfig", AUTHORINO_NAMESPACE, labels="kuadrant.io/auth=true"
+    ):
+        annotation = ((authconfig.get("metadata") or {}).get("annotations") or {}).get(
+            HTTPROUTE_RULE_AUTHCONFIG_ANNOTATION, ""
+        )
+        if annotation.startswith(route_annotation_prefix):
+            rule = annotation.rsplit("#", 1)[-1]
+            by_rule.setdefault(rule, []).append(
+                (authconfig.get("metadata") or {}).get("name", "<unnamed>")
+            )
+    return by_rule
+
+
+def _wait_for_one_authconfig_per_route_rule(route: dict) -> dict[str, list[str]]:
+    namespace = (route.get("metadata") or {}).get("namespace", INFRA_NAMESPACE)
+    route_name = (route.get("metadata") or {}).get("name", "")
+    expected_rules = {f"rule-{index}" for index, _ in enumerate((route.get("spec") or {}).get("rules") or [])}
+    assert expected_rules, f"HTTPRoute {namespace}/{route_name} has no rules"
+
+    deadline = time.time() + 180
+    last_by_rule = {}
+    while time.time() < deadline:
+        last_by_rule = _route_rule_authconfig_names(namespace, route_name)
+        duplicates = {rule: names for rule, names in last_by_rule.items() if len(names) > 1}
+        assert not duplicates, (
+            f"HTTPRoute {namespace}/{route_name} has duplicate AuthConfigs for rules: {duplicates!r}"
+        )
+        if set(last_by_rule) == expected_rules and all(
+            len(names) == 1 for names in last_by_rule.values()
+        ):
+            return last_by_rule
+        time.sleep(3)
+
+    raise AssertionError(
+        f"Expected exactly one AuthConfig per HTTPRoute rule for {namespace}/{route_name}; "
+        f"rules={expected_rules!r}, observed={last_by_rule!r}"
+    )
 
 
 def _tenant_name(case: dict[str, str]) -> str:
@@ -136,3 +233,48 @@ class TestPerTenantMaaSAPI:
         ]
         assert all(deployment is not None for deployment in tenant_deployments)
         assert len({deployment["metadata"]["name"] for deployment in tenant_deployments if deployment}) == len(tenant_cases)
+
+    def test_dual_listeners_do_not_duplicate_authconfigs_per_tenant_route_rule(
+        self, dual_listener_tenant_cases
+    ):
+        """Each tenant route rule keeps one AuthConfig when HTTP and HTTPS both match it."""
+        for case in dual_listener_tenant_cases:
+            gateway = wait_for_json(
+                "gateway",
+                case["gateway_name"],
+                GATEWAY_NAMESPACE,
+                predicate=lambda obj: {"http", "https"}
+                <= _gateway_listener_names_with_routes(obj),
+                timeout=180,
+            )
+            listeners = {
+                listener.get("name"): listener
+                for listener in (gateway.get("spec") or {}).get("listeners") or []
+            }
+            assert {"http", "https"} <= set(listeners), (
+                f"{case['gateway_name']} must have both HTTP and HTTPS listeners, got {listeners!r}"
+            )
+            assert listeners["http"].get("protocol") == "HTTP" and listeners["http"].get("port") == 80
+            assert listeners["https"].get("protocol") == "HTTPS" and listeners["https"].get("port") == 443
+            assert listeners["http"].get("hostname") == listeners["https"].get("hostname"), (
+                f"Test setup must use a shared hostname across listeners: {listeners!r}"
+            )
+
+            route_name = _tenant_api_names(case)["httproute"]
+            route = wait_for_json(
+                "httproute",
+                route_name,
+                INFRA_NAMESPACE,
+                predicate=lambda obj: _route_accepted_by_gateway(obj, case["gateway_name"]),
+                timeout=180,
+            )
+            authconfigs_by_rule = _wait_for_one_authconfig_per_route_rule(route)
+            expected_rules = {
+                f"rule-{index}"
+                for index, _ in enumerate((route.get("spec") or {}).get("rules") or [])
+            }
+            assert set(authconfigs_by_rule) == expected_rules
+            assert all(len(names) == 1 for names in authconfigs_by_rule.values()), (
+                f"Expected one Authorino AuthConfig per rule for {INFRA_NAMESPACE}/{route_name}; "
+                f"got {authconfigs_by_rule!r}"
+            )
