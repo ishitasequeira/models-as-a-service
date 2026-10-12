@@ -4,7 +4,7 @@ import pytest
 import requests
 
 from conftest import TLS_VERIFY
-from test_helper import completions
+from test_helper import MODEL_NAME as SERVED_MODEL_NAME, completions
 
 log = logging.getLogger(__name__)
 
@@ -78,7 +78,7 @@ def test_models_catalog(model_catalog: dict):
     if "ready" in first:
         print(f"[models] first model ready={first['ready']}")
 
-def test_chat_completions_gateway_alive(model_v1: str, api_key_headers: dict, model_name: str):
+def test_chat_completions_gateway_alive(model_v1: str, api_key_headers: dict):
     """
     Given a governed model and valid API key, a non-streaming request returns
     HTTP 200 with non-whitespace assistant content.
@@ -87,7 +87,9 @@ def test_chat_completions_gateway_alive(model_v1: str, api_key_headers: dict, mo
         f"{model_v1}/chat/completions",
         headers=api_key_headers,
         json={
-            "model": model_name,
+            # MODEL_NAME selects the MaaS route; the body must use the ID the
+            # simulator serves (E2E_MODEL_NAME), which may be different.
+            "model": SERVED_MODEL_NAME,
             "messages": [{"role": "user", "content": "Say 'hello' in one word."}],
             "max_tokens": 16,
             "stream": False,

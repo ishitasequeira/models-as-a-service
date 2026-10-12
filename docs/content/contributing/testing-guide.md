@@ -184,10 +184,12 @@ The non-streaming chat response regression is covered by
 `tests/test_smoke.py::test_chat_completions_gateway_alive`. It uses the governed
 `facebook-opt-125m-simulated` LLMInferenceService and MaaSModelRef deployed by
 `scripts/deploy-models.sh`, plus the `simulator-subscription` API key created by
-the `api_key_headers` fixture. The full CI runner sets `GATEWAY_HOST` and
-`MODEL_NAME` for this fixture. For a local run, set `GATEWAY_HOST` to the
-gateway hostname, `MODEL_NAME` to the catalog model ID, and set
-`E2E_MODEL_PATH` when the catalog URL does not identify the model route.
+the `api_key_headers` fixture. `MODEL_NAME` selects the route/catalog model,
+while `E2E_MODEL_NAME` sets the ID sent in the inference request body (default
+`facebook/opt-125m`). The full CI runner sets `GATEWAY_HOST` and `MODEL_NAME`;
+for a local run, set `GATEWAY_HOST` to the gateway hostname and `MODEL_NAME` to
+the catalog model ID. Set `E2E_MODEL_PATH` when the catalog URL does not identify
+the model route.
 
 ### Parallel E2E (pytest-xdist)
 
