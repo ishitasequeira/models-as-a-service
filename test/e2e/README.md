@@ -33,7 +33,7 @@ Smoke helper only:
 - OpenShift access (`oc` logged in)
 - From repo root: `cd test/e2e`, create venv, `pip install -r requirements.txt`
 - Most HTTP tests need `GATEWAY_HOST` (and often routes/API reachable). Full env list: `tests/test_helper.py` docstring.
-- The dual-listener AuthConfig regression uses the model fixture selected by `E2E_MODEL_REF` (default `facebook-opt-125m-simulated`) and `E2E_MODEL_NAMESPACE` (default `llm`). It discovers the cluster apps domain from the MaaS gateway Route; set `GATEWAY_HOST` as a fallback if that Route is unavailable. AuthConfig inspection uses `AUTHORINO_NAMESPACE` (default `kuadrant-system`; set it to `rh-connectivity-link` for RHCL installations where Authorino runs there).
+- The dual-listener regression uses the model fixture selected by `E2E_MODEL_REF` (default `facebook-opt-125m-simulated`) and `E2E_MODEL_NAMESPACE` (default `llm`). It discovers the cluster apps domain from the MaaS gateway Route; set `GATEWAY_HOST` as a fallback if that Route is unavailable. AuthConfig inspection uses `AUTHORINO_NAMESPACE` (default `kuadrant-system`; set it to `rh-connectivity-link` for RHCL installations where Authorino runs there). The wasm EnvoyFilter/WasmPlugin generation is observed for 60 seconds by default; override with `E2E_DUAL_LISTENER_WASM_STABILITY_WINDOW`.
 
 ## Pytest modules
 
