@@ -33,7 +33,7 @@ Smoke helper only:
 - OpenShift access (`oc` logged in)
 - From repo root: `cd test/e2e`, create venv, `pip install -r requirements.txt`
 - Most HTTP tests need `GATEWAY_HOST` (and often routes/API reachable). Full env list: `tests/test_helper.py` docstring.
-- The dual-listener AuthConfig regression uses the model fixture selected by `E2E_MODEL_REF` (default `facebook-opt-125m-simulated`) and `E2E_MODEL_NAMESPACE` (default `llm`). It discovers the cluster apps domain from the MaaS gateway Route; set `GATEWAY_HOST` as a fallback if that Route is unavailable. AuthConfig inspection uses `AUTHORINO_NAMESPACE` (default `kuadrant-system`; set it to `rh-connectivity-link` for RHCL installations where Authorino runs there).
+- The dual-listener regression uses the model fixture selected by `E2E_MODEL_REF` (default `facebook-opt-125m-simulated`) and `E2E_MODEL_NAMESPACE` (default `llm`). It discovers the cluster apps domain from the MaaS gateway Route; set `GATEWAY_HOST` as a fallback if that Route is unavailable. AuthConfig inspection uses `AUTHORINO_NAMESPACE` (default `kuadrant-system`; set it to `rh-connectivity-link` for RHCL installations where Authorino runs there). The wasm EnvoyFilter/WasmPlugin generation is observed for 60 seconds by default; override with `E2E_DUAL_LISTENER_WASM_STABILITY_WINDOW`.
 
 ## Pytest modules
 
@@ -58,7 +58,7 @@ pytest tests/<file>.py -v
 | `test_gateway_scoped_authpolicy.py` | Gateway-scoped `maas-gateway-auth` (S10 / #912); runs in default CI |
 | `test_multi_tenant_integration.py` | Multi-tenant lifecycle and coexistence scenarios; smoke enables tenant namespace discovery by default |
 | `test_tenant_model_inference.py` | Per-tenant inference, symmetric cross-gateway API-key isolation, and AuthPolicy EnvoyFilter workload selectors |
-| `test_multi_tenant_maas_api.py` | Per-tenant `maas-api` infrastructure and AuthConfig deduplication with dual HTTP/HTTPS listeners; runs in the default E2E pytest suite |
+| `test_multi_tenant_maas_api.py` | Per-tenant `maas-api` infrastructure plus AuthConfig uniqueness and Kuadrant wasm config stability with dual HTTP/HTTPS listeners; runs in the default E2E pytest suite |
 | `test_tenant_auth_isolation.py` | Tenant-scoped API-key/OIDC isolation (S4); gated by `ENABLE_S4_E2E=true` and tenant API URLs |
 | `test_tenant_subscription_isolation.py` | Tenant-scoped subscription listing/selection (S4); gated by `ENABLE_S4_E2E=true` and tenant API URLs |
 | `test_tenant_rate_limit_isolation.py` | Tenant-scoped rate-limit isolation (S4); gated by `ENABLE_S4_E2E=true` and tenant API URLs |
