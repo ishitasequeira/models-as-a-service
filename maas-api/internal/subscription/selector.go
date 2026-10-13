@@ -204,8 +204,11 @@ func (s *Selector) GetAllAccessible(groups []string, username string) ([]*Select
 }
 
 func isResolvedModelAuthorized(sub *subscription, requestedModel string, authorizedSet map[authpolicy.ModelKey]bool) bool {
-	if authorizedSet == nil || requestedModel == "" {
+	if requestedModel == "" {
 		return true
+	}
+	if authorizedSet == nil {
+		return false
 	}
 	ref := findModelRef(sub, requestedModel)
 	if ref == nil {
@@ -216,7 +219,7 @@ func isResolvedModelAuthorized(sub *subscription, requestedModel string, authori
 
 func (s *Selector) buildAuthorizedResponse(sub *subscription, requestedModel string, authorizedSet map[authpolicy.ModelKey]bool) (*SelectResponse, error) {
 	resp := s.toResponseWithResolvedModel(sub, requestedModel)
-	resp.AccessAllowed = requestedModel == "" || (authorizedSet != nil && isResolvedModelAuthorized(sub, requestedModel, authorizedSet))
+	resp.AccessAllowed = isResolvedModelAuthorized(sub, requestedModel, authorizedSet)
 	if authorizedSet != nil {
 		resp.ModelRefs = filterAuthorizedModels(resp.ModelRefs, authorizedSet)
 	}
