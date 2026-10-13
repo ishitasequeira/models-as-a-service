@@ -558,6 +558,10 @@ validate_configuration() {
 
   # Export so subprocesses (subscripts called via bash, not sourced functions) inherit the values.
   export NAMESPACE OPERATOR_TYPE DEPLOY_MODE
+  export POLICY_ENGINE OPERATOR_CATALOG OPERATOR_IMAGE OPERATOR_CHANNEL
+  export OPERATOR_STARTING_CSV OPERATOR_INSTALL_PLAN_APPROVAL
+  export MAAS_API_IMAGE MAAS_CONTROLLER_IMAGE AI_GATEWAY_OPERATOR_IMAGE
+  export PAYLOAD_PROCESSING_IMAGE RHCL_STARTING_CSV RHCL_NAMESPACE
 
   log_info "Configuration validated successfully"
 }

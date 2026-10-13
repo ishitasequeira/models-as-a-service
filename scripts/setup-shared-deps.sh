@@ -257,32 +257,55 @@ EOF
   esac
 }
 
+operator_olm_namespace() {
+  case "$OPERATOR_TYPE" in
+    odh) echo "opendatahub-operator-system" ;;
+    rhoai) echo "redhat-ods-operator" ;;
+    *)
+      log_error "Unknown OPERATOR_TYPE: ${OPERATOR_TYPE}"
+      return 1
+      ;;
+  esac
+}
+
+operator_csv_prefix() {
+  case "$OPERATOR_TYPE" in
+    odh) echo "opendatahub-operator" ;;
+    rhoai) echo "rhods-operator" ;;
+    *)
+      log_error "Unknown OPERATOR_TYPE: ${OPERATOR_TYPE}"
+      return 1
+      ;;
+  esac
+}
+
 wait_for_operator_ready() {
   local operator_ns
-  case "$OPERATOR_TYPE" in
-    odh) operator_ns="opendatahub-operator-system" ;;
-    rhoai) operator_ns="redhat-ods-operator" ;;
-  esac
+  operator_ns="$(operator_olm_namespace)" || return 1
 
   local timeout=300
   local elapsed=0
   local interval=10
 
   while [[ $elapsed -lt $timeout ]]; do
-    local phase
+    local phase=""
     phase=$(kubectl get csv -n "$operator_ns" --no-headers 2>/dev/null \
-      | grep -E "^(opendatahub|rhods)-operator" | head -1 | awk '{print $NF}')
+      | { grep -E "^(opendatahub|rhods)-operator" || true; } | head -1 | awk '{print $NF}')
     if [[ "$phase" == "Succeeded" ]]; then
       log_info "Operator CSV is Succeeded in $operator_ns"
-      kubectl wait deployment -n "$operator_ns" -l app.kubernetes.io/part-of=opendatahub-operator \
-        --for=condition=Available --timeout=120s 2>/dev/null || true
+      if ! kubectl wait deployment -n "$operator_ns" -l app.kubernetes.io/part-of=opendatahub-operator \
+        --for=condition=Available --timeout=120s; then
+        log_error "Operator deployment not Available in $operator_ns"
+        return 1
+      fi
       return 0
     fi
     log_info "  Operator CSV phase: ${phase:-pending} (${elapsed}s / ${timeout}s)"
     sleep $interval
     elapsed=$((elapsed + interval))
   done
-  log_warn "Operator CSV not Succeeded after ${timeout}s — proceeding anyway"
+  log_error "Operator CSV not Succeeded after ${timeout}s"
+  return 1
 }
 
 run_helm_install() {
@@ -299,16 +322,8 @@ post_helm_steps() {
   if [[ -n "$OPERATOR_IMAGE" ]]; then
     local operator_prefix
     local operator_ns
-    case "$OPERATOR_TYPE" in
-      odh)
-        operator_prefix="opendatahub-operator"
-        operator_ns="openshift-operators"
-        ;;
-      rhoai)
-        operator_prefix="rhods-operator"
-        operator_ns="redhat-ods-operator"
-        ;;
-    esac
+    operator_prefix="$(operator_csv_prefix)" || return 1
+    operator_ns="$(operator_olm_namespace)" || return 1
 
     log_info "Patching operator CSV with custom image: $OPERATOR_IMAGE"
 
