@@ -240,7 +240,7 @@ func filterAuthorizedModels(refs []ModelRefInfo, authorizedSet map[authpolicy.Mo
 
 // selectExplicit handles the explicit subscription selection branch of Select.
 // It supports both "namespace/name" and bare "name" formats.
-func selectExplicit(
+func (s *Selector) selectExplicit(
 	subscriptions []subscription,
 	requestedSubscription, requestedModel, username string,
 	groups []string,
@@ -310,7 +310,7 @@ func (s *Selector) Select(groups []string, username string, requestedSubscriptio
 	}
 
 	if requestedSubscription != "" {
-		return selectExplicit(subscriptions, requestedSubscription, requestedModel, username, groups, authorizedSet)
+		return s.selectExplicit(subscriptions, requestedSubscription, requestedModel, username, groups, authorizedSet)
 	}
 
 	// Auto-selection
