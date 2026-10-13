@@ -1613,9 +1613,7 @@ type selectFiltersModelRefsTestCase struct {
 }
 
 func TestSelect_FiltersModelRefsByAuthPolicy(t *testing.T) {
-	log := logger.New(false)
-
-	tests := []selectFiltersModelRefsTestCase{
+	runSelectFiltersModelRefsCases(t, []selectFiltersModelRefsTestCase{
 		{
 			name: "Select auto filters modelRefs by AuthPolicy",
 			subscriptions: []*unstructured.Unstructured{
@@ -1674,6 +1672,97 @@ func TestSelect_FiltersModelRefsByAuthPolicy(t *testing.T) {
 			wantModelRefs:     []string{"ns/model-a"},
 			wantAccessAllowed: true,
 		},
+		{
+			name: "Select without access checker returns all models",
+			subscriptions: []*unstructured.Unstructured{
+				createSubscriptionWithModelRefs("sub1", []string{"g1"}, []map[string]any{
+					{"name": "model-a", "namespace": "ns"},
+					{"name": "model-b", "namespace": "ns"},
+				}),
+			},
+			groups:            []string{"g1"},
+			wantModelRefs:     []string{"ns/model-a", "ns/model-b"},
+			wantAccessAllowed: true,
+		},
+		{
+			name: "Select auto rejects unauthorized requestedModel",
+			subscriptions: []*unstructured.Unstructured{
+				createSubscriptionWithModelRefs("sub1", []string{"g1"}, []map[string]any{
+					{"name": "model-a", "namespace": "ns"},
+					{"name": "model-b", "namespace": "ns"},
+				}),
+			},
+			accessChecker: &fakeAccessChecker{authorized: map[authpolicy.ModelKey]bool{
+				{Namespace: "ns", Name: "model-a"}: true,
+			}},
+			groups:             []string{"g1"},
+			requestedModel:     "ns/model-b",
+			expectError:        true,
+			expectAccessDenied: true,
+		},
+		{
+			name: "Select auto allows authorized requestedModel",
+			subscriptions: []*unstructured.Unstructured{
+				createSubscriptionWithModelRefs("sub1", []string{"g1"}, []map[string]any{
+					{"name": "model-a", "namespace": "ns"},
+					{"name": "model-b", "namespace": "ns"},
+				}),
+			},
+			accessChecker: &fakeAccessChecker{authorized: map[authpolicy.ModelKey]bool{
+				{Namespace: "ns", Name: "model-a"}: true,
+			}},
+			groups:            []string{"g1"},
+			requestedModel:    "ns/model-a",
+			wantModelRefs:     []string{"ns/model-a"},
+			wantAccessAllowed: true,
+		},
+		{
+			name: "Select with nil authorizedSet (checker error) fails closed",
+			subscriptions: []*unstructured.Unstructured{
+				createSubscriptionWithModelRefs("sub1", []string{"g1"}, []map[string]any{
+					{"name": "model-a", "namespace": "ns"},
+					{"name": "model-b", "namespace": "ns"},
+				}),
+			},
+			accessChecker: &fakeAccessChecker{},
+			groups:        []string{"g1"},
+			expectError:   true,
+		},
+		{
+			name: "Select auto with nil authorizedSet rejects requestedModel",
+			subscriptions: []*unstructured.Unstructured{
+				createSubscriptionWithModelRefs("sub1", []string{"g1"}, []map[string]any{
+					{"name": "model-a", "namespace": "ns"},
+				}),
+			},
+			accessChecker:  &fakeAccessChecker{},
+			groups:         []string{"g1"},
+			requestedModel: "ns/model-a",
+			expectError:    true,
+		},
+		{
+			name: "Select auto two subscriptions unauthorized model returns AccessDeniedError",
+			subscriptions: []*unstructured.Unstructured{
+				createSubscriptionWithModelRefs("sub1", []string{"g1"}, []map[string]any{
+					{"name": "model-a", "namespace": "ns"},
+				}),
+				createSubscriptionWithModelRefs("sub2", []string{"g1"}, []map[string]any{
+					{"name": "model-a", "namespace": "ns"},
+				}),
+			},
+			accessChecker: &fakeAccessChecker{authorized: map[authpolicy.ModelKey]bool{
+				{Namespace: "ns", Name: "model-b"}: true,
+			}},
+			groups:             []string{"g1"},
+			requestedModel:     "ns/model-a",
+			expectError:        true,
+			expectAccessDenied: true,
+		},
+	})
+}
+
+func TestSelectExplicit_FiltersModelRefsByAuthPolicy(t *testing.T) {
+	runSelectFiltersModelRefsCases(t, []selectFiltersModelRefsTestCase{
 		{
 			name: "Select explicit subscription filters modelRefs by AuthPolicy",
 			subscriptions: []*unstructured.Unstructured{
@@ -1741,34 +1830,6 @@ func TestSelect_FiltersModelRefsByAuthPolicy(t *testing.T) {
 			wantAccessAllowed: false,
 		},
 		{
-			name: "Select without access checker returns all models",
-			subscriptions: []*unstructured.Unstructured{
-				createSubscriptionWithModelRefs("sub1", []string{"g1"}, []map[string]any{
-					{"name": "model-a", "namespace": "ns"},
-					{"name": "model-b", "namespace": "ns"},
-				}),
-			},
-			groups:            []string{"g1"},
-			wantModelRefs:     []string{"ns/model-a", "ns/model-b"},
-			wantAccessAllowed: true,
-		},
-		{
-			name: "Select auto rejects unauthorized requestedModel",
-			subscriptions: []*unstructured.Unstructured{
-				createSubscriptionWithModelRefs("sub1", []string{"g1"}, []map[string]any{
-					{"name": "model-a", "namespace": "ns"},
-					{"name": "model-b", "namespace": "ns"},
-				}),
-			},
-			accessChecker: &fakeAccessChecker{authorized: map[authpolicy.ModelKey]bool{
-				{Namespace: "ns", Name: "model-a"}: true,
-			}},
-			groups:             []string{"g1"},
-			requestedModel:     "ns/model-b",
-			expectError:        true,
-			expectAccessDenied: true,
-		},
-		{
 			name: "Select explicit subscription with unauthorized model returns AccessAllowed false",
 			subscriptions: []*unstructured.Unstructured{
 				createSubscriptionWithModelRefs("sub1", []string{"g1"}, []map[string]any{
@@ -1829,66 +1890,12 @@ func TestSelect_FiltersModelRefsByAuthPolicy(t *testing.T) {
 			wantModelRefs:     []string{"ns/model-a"},
 			wantAccessAllowed: false,
 		},
-		{
-			name: "Select auto allows authorized requestedModel",
-			subscriptions: []*unstructured.Unstructured{
-				createSubscriptionWithModelRefs("sub1", []string{"g1"}, []map[string]any{
-					{"name": "model-a", "namespace": "ns"},
-					{"name": "model-b", "namespace": "ns"},
-				}),
-			},
-			accessChecker: &fakeAccessChecker{authorized: map[authpolicy.ModelKey]bool{
-				{Namespace: "ns", Name: "model-a"}: true,
-			}},
-			groups:            []string{"g1"},
-			requestedModel:    "ns/model-a",
-			wantModelRefs:     []string{"ns/model-a"},
-			wantAccessAllowed: true,
-		},
-		{
-			name: "Select with nil authorizedSet (checker error) fails closed",
-			subscriptions: []*unstructured.Unstructured{
-				createSubscriptionWithModelRefs("sub1", []string{"g1"}, []map[string]any{
-					{"name": "model-a", "namespace": "ns"},
-					{"name": "model-b", "namespace": "ns"},
-				}),
-			},
-			accessChecker: &fakeAccessChecker{},
-			groups:        []string{"g1"},
-			expectError:   true,
-		},
-		{
-			name: "Select auto with nil authorizedSet rejects requestedModel",
-			subscriptions: []*unstructured.Unstructured{
-				createSubscriptionWithModelRefs("sub1", []string{"g1"}, []map[string]any{
-					{"name": "model-a", "namespace": "ns"},
-				}),
-			},
-			accessChecker:  &fakeAccessChecker{},
-			groups:         []string{"g1"},
-			requestedModel: "ns/model-a",
-			expectError:    true,
-		},
-		{
-			name: "Select auto two subscriptions unauthorized model returns AccessDeniedError",
-			subscriptions: []*unstructured.Unstructured{
-				createSubscriptionWithModelRefs("sub1", []string{"g1"}, []map[string]any{
-					{"name": "model-a", "namespace": "ns"},
-				}),
-				createSubscriptionWithModelRefs("sub2", []string{"g1"}, []map[string]any{
-					{"name": "model-a", "namespace": "ns"},
-				}),
-			},
-			accessChecker: &fakeAccessChecker{authorized: map[authpolicy.ModelKey]bool{
-				{Namespace: "ns", Name: "model-b"}: true,
-			}},
-			groups:             []string{"g1"},
-			requestedModel:     "ns/model-a",
-			expectError:        true,
-			expectAccessDenied: true,
-		},
-	}
+	})
+}
 
+func runSelectFiltersModelRefsCases(t *testing.T, tests []selectFiltersModelRefsTestCase) {
+	t.Helper()
+	log := logger.New(false)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			runSelectFiltersModelRefsTest(t, log, tt)
