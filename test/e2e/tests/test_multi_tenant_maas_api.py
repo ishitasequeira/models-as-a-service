@@ -129,10 +129,8 @@ def _route_rule_authconfig_names(route_namespace: str, route_name: str) -> dict[
 def _wait_for_stable_route_authconfigs(route: dict) -> dict[str, list[str]]:
     namespace = (route.get("metadata") or {}).get("namespace", INFRA_NAMESPACE)
     route_name = (route.get("metadata") or {}).get("name", "")
-    expected_rules = {
-        f"rule-{index}"
-        for index, _ in enumerate((route.get("spec") or {}).get("rules") or [])
-    }
+    rules = (route.get("spec") or {}).get("rules") or []
+    expected_rules = {f"rule-{index}" for index in range(1, len(rules) + 1)}
     assert expected_rules, f"HTTPRoute {namespace}/{route_name} has no rules"
 
     deadline = time.monotonic() + AUTHCONFIG_SETTLE_TIMEOUT
@@ -196,14 +194,17 @@ def _wait_for_gateway_wasm_config(
 
 def _assert_gateway_wasm_generation_stable(gateway_name: str) -> None:
     kind, initial = _wait_for_gateway_wasm_config(gateway_name)
-    initial_generation = (initial.get("metadata") or {}).get("generation")
+    initial_metadata = initial.get("metadata") or {}
+    initial_generation = initial_metadata.get("generation")
     assert initial_generation is not None, (
         f"{kind} kuadrant-{gateway_name} has no metadata.generation"
     )
+    initial_uid = initial_metadata.get("uid")
+    assert initial_uid is not None, f"{kind} kuadrant-{gateway_name} has no metadata.uid"
 
     started_at = time.monotonic()
     deadline = started_at + WASM_GENERATION_STABILITY_WINDOW
-    observations = [(0, initial_generation)]
+    observations = [(0, initial_uid, initial_generation)]
     while time.monotonic() < deadline:
         time.sleep(POLL_INTERVAL)
         current = _gateway_wasm_config(gateway_name)
@@ -213,12 +214,15 @@ def _assert_gateway_wasm_generation_stable(gateway_name: str) -> None:
             f"observations={observations!r}"
         )
         current_kind, config = current
-        generation = (config.get("metadata") or {}).get("generation")
-        observations.append((elapsed, generation))
-        assert current_kind == kind and generation == initial_generation, (
-            f"{kind} kuadrant-{gateway_name} generation changed during the "
+        metadata = config.get("metadata") or {}
+        uid = metadata.get("uid")
+        generation = metadata.get("generation")
+        observations.append((elapsed, uid, generation))
+        assert current_kind == kind and uid == initial_uid and generation == initial_generation, (
+            f"{kind} kuadrant-{gateway_name} identity or generation changed during the "
             f"{WASM_GENERATION_STABILITY_WINDOW}s quiet window: "
-            f"{initial_generation} -> {generation}; observations={observations!r}"
+            f"uid/generation {initial_uid}/{initial_generation} -> {uid}/{generation}; "
+            f"observations={observations!r}"
         )
 
 
@@ -339,10 +343,8 @@ class TestPerTenantMaaSAPI:
             timeout=180,
         )
         authconfigs_by_rule = _wait_for_stable_route_authconfigs(route)
-        expected_rules = {
-            f"rule-{index}"
-            for index, _ in enumerate((route.get("spec") or {}).get("rules") or [])
-        }
+        rules = (route.get("spec") or {}).get("rules") or []
+        expected_rules = {f"rule-{index}" for index in range(1, len(rules) + 1)}
         assert set(authconfigs_by_rule) == expected_rules
         assert all(len(names) == 1 for names in authconfigs_by_rule.values()), (
             f"Expected exactly one stable Authorino AuthConfig per rule for "
