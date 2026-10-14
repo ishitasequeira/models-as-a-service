@@ -5,7 +5,7 @@ name: Approval policy
 
 on:
   pull_request:
-    branches: [main, master]
+    branches: [main]
     types:
       - opened
       - synchronize
@@ -21,8 +21,7 @@ jobs:
     name: approval-policy
     if: >-
       github.event.pull_request.draft == false &&
-      (github.event.pull_request.base.ref == 'main' ||
-       github.event.pull_request.base.ref == 'master')
+      github.event.pull_request.base.ref == 'main'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     concurrency:
