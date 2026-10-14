@@ -11,6 +11,7 @@ on:
       - synchronize
       - reopened
       - ready_for_review
+      # labeled/unlabeled: job runs only for override-approval-policy (not maas/policy-*).
       - labeled
       - unlabeled
   pull_request_review:
@@ -21,12 +22,25 @@ jobs:
     name: approval-policy
     if: >-
       github.event.pull_request.draft == false &&
-      github.event.pull_request.base.ref == 'main'
+      github.event.pull_request.base.ref == 'main' &&
+      (
+        github.event_name == 'pull_request_review' ||
+        github.event.action == 'opened' ||
+        github.event.action == 'synchronize' ||
+        github.event.action == 'reopened' ||
+        github.event.action == 'ready_for_review' ||
+        (
+          (github.event.action == 'labeled' || github.event.action == 'unlabeled') &&
+          github.event.label.name == 'override-approval-policy'
+        )
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # Queue runs per PR (do not cancel): pull_request and pull_request_review often
+    # fire together; cancel-in-progress marks the other run as failed in the UI.
     concurrency:
       group: approval-policy-${{ github.event.pull_request.number }}
-      cancel-in-progress: true
+      cancel-in-progress: false
     permissions:
       contents: read
       pull-requests: write
