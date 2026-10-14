@@ -49,9 +49,9 @@ Thanks for your interest in contributing. This guide explains how to work with t
 
 ### Approval policy (1 vs 2 reviewers)
 
-Applies to pull requests **into upstream** [`opendatahub-io/models-as-a-service`](https://github.com/opendatahub-io/models-as-a-service) (feature branches on the org repo). Fork PRs are out of scope for this policy.
+Applies to pull requests **into `main`** on upstream [`opendatahub-io/models-as-a-service`](https://github.com/opendatahub-io/models-as-a-service) (feature branches on the org repo). Fork PRs are out of scope.
 
-Workflow [`.github/workflows/approval-policy.yml`](.github/workflows/approval-policy.yml) sets the **`approval-policy`** status from **which paths** changed (not from the PR title alone).
+Workflow [`.github/workflows/approval-policy.yml`](.github/workflows/approval-policy.yml) publishes an **`approval-policy`** commit status from **which paths** changed (not from the PR title alone). The check is **advisory** until repo maintainers add **`approval-policy`** to the branch ruleset required checks; **Tide** merge requirements are unchanged until then. Only **Approve** reviews on the **current PR head commit** count toward the policy.
 
 **Lightweight — 1 approving review** (author excluded). Every changed file must fall in one or more of these buckets (any **individual** bucket or **combination**):
 

@@ -1,10 +1,11 @@
-# Enforces 1 vs 2 approving GitHub reviews by changed paths (see CONTRIBUTING.md).
-# Intended for PRs into opendatahub-io/models-as-a-service (upstream branches).
+# Advisory 1 vs 2 approving GitHub reviews by changed paths (see CONTRIBUTING.md).
+# Not a required ruleset check until maintainers enable it; Tide merge is unchanged.
 
 name: Approval policy
 
 on:
   pull_request:
+    branches: [main, master]
     types:
       - opened
       - synchronize
@@ -18,9 +19,15 @@ on:
 jobs:
   approval-policy:
     name: approval-policy
-    if: github.event.pull_request.draft == false
+    if: >-
+      github.event.pull_request.draft == false &&
+      (github.event.pull_request.base.ref == 'main' ||
+       github.event.pull_request.base.ref == 'master')
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    concurrency:
+      group: approval-policy-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
     permissions:
       contents: read
       pull-requests: write
@@ -160,6 +167,7 @@ jobs:
               if (login === author) continue;
               if (review.state !== 'APPROVED') continue;
               if (review.user.type === 'Bot') continue;
+              if (review.commit_id !== headSha) continue;
               approvingCount++;
             }
 
@@ -216,7 +224,7 @@ jobs:
 
             core.summary.addHeading('Approval policy');
             core.summary.addRaw(
-              `Tier: **${tier}** → requires **${required}** approving GitHub review(s) (author and bots excluded).\n\n` +
+              `Tier: **${tier}** → requires **${required}** approving GitHub review(s) on commit \`${headSha.slice(0, 7)}\` (author and bots excluded).\n\n` +
                 `**Lightweight (1 review)** — every file is only in docs / ci / test buckets (see CONTRIBUTING.md).\n\n` +
                 `**Standard (2 reviews)** — production paths, renames from production paths, 3000+ listed files, empty file list, or edit to \`${approvalPolicyWorkflow}\`.\n\n` +
                 `**Override:** label \`${singleReviewOverrideLabel}\` on a standard PR lowers the requirement to **1** approving review (maintainers only; see CONTRIBUTING.md).\n\n` +
