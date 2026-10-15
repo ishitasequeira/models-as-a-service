@@ -19,7 +19,7 @@ import (
 	maasv1alpha1 "github.com/opendatahub-io/models-as-a-service/maas-controller/api/maas/v1alpha1"
 )
 
-var postrenderForbiddenHasRequestHeadersSubscript = regexp.MustCompile(`has\s*\(\s*request\.headers\s*\[`)
+var postrenderForbiddenHasOnRequestHeaders = regexp.MustCompile(`has\s*\(\s*request\.headers(?:\s*\[|\.)`)
 
 type postrenderCELOccurrence struct {
 	Path string
@@ -62,7 +62,7 @@ func collectPostrenderAuthPolicyCEL(path string, v any) []postrenderCELOccurrenc
 
 func postrenderNormalizeYAMLValue(v any) any {
 	switch x := v.(type) {
-	case map[interface{}]interface{}:
+	case map[any]any:
 		m := make(map[string]any, len(x))
 		for k, val := range x {
 			m[fmt.Sprint(k)] = val
@@ -89,11 +89,8 @@ func assertPostrenderAuthPolicyCEL_RHCLCompatible(t *testing.T, spec map[string]
 	occurrences := collectPostrenderAuthPolicyCEL("spec", spec)
 	require.NotEmpty(t, occurrences)
 	for _, occ := range occurrences {
-		if postrenderForbiddenHasRequestHeadersSubscript.MatchString(occ.Expr) {
-			t.Fatalf("CEL at %s uses has(request.headers[...]) on RHCL 1.4.2: %q", occ.Path, occ.Expr)
-		}
-		if strings.Contains(occ.Expr, "request.headers") && strings.Contains(occ.Expr, "has(request.headers") {
-			t.Fatalf("CEL at %s must use in for request.headers keys: %q", occ.Path, occ.Expr)
+		if postrenderForbiddenHasOnRequestHeaders.MatchString(occ.Expr) {
+			t.Fatalf("CEL at %s uses has(request.headers...) on RHCL 1.4.2: %q", occ.Path, occ.Expr)
 		}
 	}
 }

@@ -17,8 +17,8 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-// RHCL 1.4.2 / Authorino v1.4.2 rejects has() with map subscript on request.headers (RHOAIENG-84699).
-var forbiddenHasRequestHeadersSubscript = regexp.MustCompile(`has\s*\(\s*request\.headers\s*\[`)
+// RHCL 1.4.2 / Authorino v1.4.2 rejects has() on request.headers map keys (subscript or field access) (RHOAIENG-84699).
+var forbiddenHasOnRequestHeaders = regexp.MustCompile(`has\s*\(\s*request\.headers(?:\s*\[|\.)`)
 
 type authPolicyCELOccurrence struct {
 	Path string
@@ -61,7 +61,7 @@ func collectAuthPolicyCEL(path string, v any) []authPolicyCELOccurrence {
 
 func normalizeYAMLValue(v any) any {
 	switch x := v.(type) {
-	case map[interface{}]interface{}:
+	case map[any]any:
 		m := make(map[string]any, len(x))
 		for k, val := range x {
 			m[fmt.Sprint(k)] = val
@@ -85,11 +85,20 @@ func joinCELPath(parent, key string) string {
 
 func assertRHCLCompatibleCEL(t *testing.T, path, expr string) {
 	t.Helper()
-	if forbiddenHasRequestHeadersSubscript.MatchString(expr) {
-		t.Fatalf("CEL at %s uses has(request.headers[...]) which Authorino v1.4.2 rejects; use (\"header\" in request.headers) instead: %q", path, expr)
+	if forbiddenHasOnRequestHeaders.MatchString(expr) {
+		t.Fatalf("CEL at %s uses has(request.headers...) which Authorino v1.4.2 rejects; use (\"header\" in request.headers) instead: %q", path, expr)
 	}
-	if strings.Contains(expr, "request.headers") && strings.Contains(expr, "has(request.headers") {
-		t.Fatalf("CEL at %s must not use has(request.headers...); use the in operator for map keys: %q", path, expr)
+}
+
+func TestRejectRHCLHasOnRequestHeadersCEL(t *testing.T) {
+	for _, expr := range []string{
+		`!has(request.headers["x-maas-username"])`,
+		`has (request.headers.authorization)`,
+		`has( request.headers.foo)`,
+	} {
+		if !forbiddenHasOnRequestHeaders.MatchString(expr) {
+			t.Errorf("expected rejection for %q", expr)
+		}
 	}
 }
 
@@ -190,7 +199,7 @@ func TestMaaSAPIAuthPolicyYAML_CEL_RHCLCompatible(t *testing.T) {
 	spec, ok := doc["spec"].(map[string]any)
 	if !ok {
 		// yaml.v3 may decode nested maps as map[interface{}]interface{}
-		if m, ok := doc["spec"].(map[interface{}]interface{}); ok {
+		if m, ok := doc["spec"].(map[any]any); ok {
 			spec = make(map[string]any, len(m))
 			for k, v := range m {
 				spec[fmt.Sprint(k)] = v
