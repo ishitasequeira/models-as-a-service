@@ -153,8 +153,6 @@ DEV_MODE="${DEV_MODE:-false}"
 OPERATOR_CATALOG="${OPERATOR_CATALOG:-}"
 OPERATOR_IMAGE="${OPERATOR_IMAGE:-}"
 OPERATOR_CHANNEL="${OPERATOR_CHANNEL:-}"
-OPERATOR_STARTING_CSV="${OPERATOR_STARTING_CSV:-opendatahub-operator.v3.6.0-ea.2}"
-OPERATOR_INSTALL_PLAN_APPROVAL="${OPERATOR_INSTALL_PLAN_APPROVAL:-}"
 MAAS_API_IMAGE="${MAAS_API_IMAGE:-}"
 MAAS_CONTROLLER_IMAGE="${MAAS_CONTROLLER_IMAGE:-}"
 AI_GATEWAY_OPERATOR_IMAGE="${AI_GATEWAY_OPERATOR_IMAGE:-}"
@@ -279,8 +277,6 @@ ENVIRONMENT VARIABLES:
   AI_GATEWAY_OPERATOR_IMAGE Custom ai-gateway-operator image (operator mode only)
   OPERATOR_CATALOG          Custom operator catalog
   OPERATOR_IMAGE            Custom operator image
-  OPERATOR_STARTING_CSV     ODH Subscription startingCSV (default: opendatahub-operator.v3.6.0-ea.2; set "-" to follow channel head)
-  OPERATOR_INSTALL_PLAN_APPROVAL  ODH Subscription OLM approval (default: Manual — no auto-upgrades; first InstallPlan is auto-approved by the script)
   OPERATOR_TYPE             Operator type (rhoai/odh)
   POLICY_ENGINE             Policy engine override (rhcl|kuadrant)
   RHCL_STARTING_CSV         Pin RHCL operator CSV (default: channel head on redhat-operators)
@@ -559,7 +555,6 @@ validate_configuration() {
   # Export so subprocesses (subscripts called via bash, not sourced functions) inherit the values.
   export NAMESPACE OPERATOR_TYPE DEPLOY_MODE
   export POLICY_ENGINE OPERATOR_CATALOG OPERATOR_IMAGE OPERATOR_CHANNEL
-  export OPERATOR_STARTING_CSV OPERATOR_INSTALL_PLAN_APPROVAL
   export MAAS_API_IMAGE MAAS_CONTROLLER_IMAGE AI_GATEWAY_OPERATOR_IMAGE
   export PAYLOAD_PROCESSING_IMAGE RHCL_STARTING_CSV RHCL_NAMESPACE
 
