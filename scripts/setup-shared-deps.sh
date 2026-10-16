@@ -276,14 +276,19 @@ wait_for_operator_ready() {
   local timeout=300
   local elapsed=0
   local interval=10
+  local csv_info=""
+  local csv_name=""
+  local phase=""
 
   while [[ $elapsed -lt $timeout ]]; do
-    local phase=""
-    phase=$(kubectl get csv -n "$operator_ns" --no-headers 2>/dev/null \
-      | { grep -E "^(opendatahub|rhods)-operator" || true; } | head -1 | awk '{print $NF}')
+    csv_info=$(kubectl get csv -n "$operator_ns" \
+      -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.status.phase}{"\n"}{end}' 2>/dev/null \
+      | { grep -E "^(opendatahub|rhods)-operator" || true; } | head -1)
+    csv_name="${csv_info%% *}"
+    phase="${csv_info##* }"
     if [[ "$phase" == "Succeeded" ]]; then
       log_info "Operator CSV is Succeeded in $operator_ns"
-      if ! kubectl wait deployment -n "$operator_ns" -l app.kubernetes.io/part-of=opendatahub-operator \
+      if ! kubectl wait deployment -n "$operator_ns" -l "olm.owner=$csv_name" \
         --for=condition=Available --timeout=120s; then
         log_error "Operator deployment not Available in $operator_ns"
         return 1
