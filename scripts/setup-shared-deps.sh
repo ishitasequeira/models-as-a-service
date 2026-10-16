@@ -196,6 +196,13 @@ build_helm_sets() {
     ]'
   )
 
+  # Match the resource sizing applied by the legacy RHCL installer. The
+  # operator's upstream defaults can OOM while reconciling many rate-limit
+  # policies, leaving TokenRateLimitPolicies waiting for Limitador to sync.
+  HELM_SETS+=(
+    --set-json 'dependencies.rhcl.olm.config.resources={"requests":{"cpu":"200m","memory":"512Mi"},"limits":{"cpu":"1","memory":"1Gi"}}'
+  )
+
   if [[ -n "$RHCL_STARTING_CSV" ]]; then
     HELM_SETS+=(--set "dependencies.rhcl.olm.version=${RHCL_STARTING_CSV}")
   fi
