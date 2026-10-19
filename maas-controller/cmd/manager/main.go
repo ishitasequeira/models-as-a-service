@@ -1324,20 +1324,6 @@ func main() {
 		os.Exit(1)
 	}
 	aitenantDeletionTimeout := parseAITenantDeletionTimeout()
-	if err := (&maas.AITenantReconciler{
-		Client:            mgr.GetClient(),
-		Scheme:            mgr.GetScheme(),
-		APIReader:         mgr.GetAPIReader(),
-		AppNamespace:      infraNamespace,
-		TenantNamespace:   maasSubscriptionNamespace,
-		AITenantNamespace: aitenantNamespace,
-		GatewayName:       gatewayName,
-		GatewayNamespace:  gatewayNamespace,
-		DeletionTimeout:   aitenantDeletionTimeout,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "AITenant")
-		os.Exit(1)
-	}
 
 	if err := (&externalmodel.Reconciler{
 		Client:           mgr.GetClient(),
@@ -1384,6 +1370,25 @@ func main() {
 		manifestPath = abs
 	}
 	setupLog.Info("Tenant platform kustomize path", "path", manifestPath)
+
+	if err := (&maas.AITenantReconciler{
+		Client:              mgr.GetClient(),
+		Scheme:              mgr.GetScheme(),
+		APIReader:           mgr.GetAPIReader(),
+		AppNamespace:        infraNamespace,
+		TenantNamespace:     maasSubscriptionNamespace,
+		AITenantNamespace:   aitenantNamespace,
+		GatewayName:         gatewayName,
+		GatewayNamespace:    gatewayNamespace,
+		DeletionTimeout:     aitenantDeletionTimeout,
+		ManifestPath:        manifestPath,
+		ControllerNamespace: controllerNamespace,
+		ClusterAudience:     clusterAudience,
+		MonitoringNamespace: monitoringNamespace,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "AITenant")
+		os.Exit(1)
+	}
 
 	tenantReconciler := &maas.TenantReconciler{
 		Client:                          mgr.GetClient(),
