@@ -26,9 +26,9 @@ import (
 	maasv1alpha1 "github.com/opendatahub-io/models-as-a-service/maas-controller/api/maas/v1alpha1"
 )
 
-const legacyExternalModelCreateDeniedMessage = "maas.opendatahub.io ExternalModel is deprecated. " +
-	"Create inference.opendatahub.io ExternalProvider and ExternalModel instead. " +
-	"See the External Model setup guide in the MaaS documentation."
+const legacyExternalModelCreateDeniedMessage = "maas.opendatahub.io ExternalModel is deprecated; " +
+	"create inference.opendatahub.io ExternalProvider and ExternalModel instead " +
+	"(see the External Model setup guide in the MaaS documentation)"
 
 // ExternalModelValidator rejects creation of legacy maas.opendatahub.io ExternalModel resources.
 // Updates and deletes remain allowed so existing objects can be managed during migration.
