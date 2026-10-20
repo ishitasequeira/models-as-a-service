@@ -2,6 +2,7 @@ package maas
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -137,15 +138,35 @@ func (r *AITenantReconciler) requestRevocationOperandsViaMaasTenantConfig(ctx co
 		return nil
 	}
 
+	marker := revocationOperandsRequestMarker(aitenant)
+	if marker == "" {
+		return errors.New("cannot request revocation operand restore without AITenant UID")
+	}
+	if tenant.Annotations != nil &&
+		tenant.Annotations[maasTenantConfigRevocationOperandsRequestedAnnotation] == marker {
+		return nil
+	}
+
 	base := tenant.DeepCopy()
 	if tenant.Annotations == nil {
 		tenant.Annotations = map[string]string{}
 	}
-	tenant.Annotations[maasTenantConfigRevocationOperandsRequestedAnnotation] = time.Now().Format(time.RFC3339Nano)
+	tenant.Annotations[maasTenantConfigRevocationOperandsRequestedAnnotation] = marker
 	if err := r.Patch(ctx, &tenant, client.MergeFrom(base)); err != nil {
 		return fmt.Errorf("request MaasTenantConfig reconcile for revocation operands: %w", err)
 	}
 	return nil
+}
+
+// revocationOperandsRequestMarker identifies one AITenant deletion so recovery nudges are idempotent.
+func revocationOperandsRequestMarker(aitenant *maasv1alpha1.AITenant) string {
+	if aitenant.UID == "" {
+		return ""
+	}
+	if aitenant.DeletionTimestamp != nil && !aitenant.DeletionTimestamp.IsZero() {
+		return fmt.Sprintf("%s/%s", aitenant.UID, aitenant.DeletionTimestamp.UTC().Format(time.RFC3339))
+	}
+	return string(aitenant.UID)
 }
 
 func (r *AITenantReconciler) skipTenantAPIKeysRevocation(ctx context.Context, aitenant *maasv1alpha1.AITenant, message string) (bool, error) {
