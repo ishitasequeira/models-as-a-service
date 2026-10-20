@@ -33,7 +33,7 @@ Smoke helper only:
 - OpenShift access (`oc` logged in)
 - From repo root: `cd test/e2e`, create venv, `pip install -r requirements.txt`
 - Most HTTP tests need `GATEWAY_HOST` (and often routes/API reachable). Full env list: `tests/test_helper.py` docstring.
-- The dual-listener regression uses the model fixture selected by `E2E_MODEL_REF` (default `facebook-opt-125m-simulated`) and `E2E_MODEL_NAMESPACE` (default `llm`). It discovers the cluster apps domain from the MaaS gateway Route; set `GATEWAY_HOST` as a fallback if that Route is unavailable. AuthConfig inspection uses `AUTHORINO_NAMESPACE` (default `kuadrant-system`; set it to `rh-connectivity-link` for RHCL installations where Authorino runs there). The wasm EnvoyFilter/WasmPlugin generation is observed for 60 seconds by default; override with `E2E_DUAL_LISTENER_WASM_STABILITY_WINDOW`.
+- Dual-listener AuthConfig regression tests are `@pytest.mark.nightly` (pass 3 only when `MAAS_PYTEST_INCLUDE_NIGHTLY=true`; `/group-test` does not run them). They use `E2E_MODEL_REF` / `E2E_MODEL_NAMESPACE`, `AUTHORINO_NAMESPACE` (default `kuadrant-system`), and `E2E_DUAL_LISTENER_WASM_STABILITY_WINDOW` (default 60s).
 
 ## Pytest modules
 
@@ -91,7 +91,7 @@ Multi-tenancy discovery tests run by default in `prow_run_smoke_test.sh`, which 
 
 The dormant-mode regression inside `test_tenant_namespace_discovery.py` mutates controller flags and only runs when `ENABLE_TENANT_DISCOVERY_DORMANT_E2E=true`.
 
-The tenant authentication, subscription, and rate-limit isolation suites are in the smoke list but skip unless `ENABLE_S4_E2E=true` and both tenant API URLs and namespaces are configured. `test_multi_tenant_maas_api.py` runs by default. If the AITenant CRD is unavailable, it skips when `ENABLE_TENANT_NAMESPACE_DISCOVERY` is unset or false, and fails when that variable is true because the discovery-enabled E2E requires the CRD.
+The tenant authentication, subscription, and rate-limit isolation suites are in the smoke list but skip unless `ENABLE_S4_E2E=true` and both tenant API URLs and namespaces are configured. `test_multi_tenant_maas_api.py` (per-tenant maas-api checks) runs in the default suite; dual-listener AuthConfig regression cases are nightly-only. If the AITenant CRD is missing, `require_aitenant_crd()` skips the module when `ENABLE_TENANT_NAMESPACE_DISCOVERY` is unset or false, and fails when discovery is enabled (`true`) because discovery E2E requires the CRD.
 
 External OIDC runs require `EXTERNAL_OIDC=true` and `OIDC_ISSUER_URL`, `OIDC_TOKEN_URL`, `OIDC_CLIENT_ID`, `OIDC_USERNAME`, `OIDC_PASSWORD` per your deploy/test setup.
 

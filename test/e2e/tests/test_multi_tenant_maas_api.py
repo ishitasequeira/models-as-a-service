@@ -92,6 +92,23 @@ def _route_accepted_by_gateway(route: dict, gateway_name: str) -> bool:
     return False
 
 
+def _authconfig_condition(authconfig: dict, condition_type: str) -> str | None:
+    for condition in (authconfig.get("status") or {}).get("conditions") or []:
+        if condition.get("type") == condition_type:
+            return condition.get("status")
+    return None
+
+
+def _authconfig_is_ready(authconfig: dict) -> bool:
+    metadata = authconfig.get("metadata") or {}
+    if metadata.get("deletionTimestamp"):
+        return False
+    return (
+        _authconfig_condition(authconfig, "Ready") == "True"
+        and _authconfig_condition(authconfig, "Available") == "True"
+    )
+
+
 def _gateway_listener_names_with_routes(gateway: dict) -> set[str]:
     """Return accepted Gateway listeners with at least one attached route."""
     attached = set()
@@ -118,11 +135,14 @@ def _route_rule_authconfig_names(route_namespace: str, route_name: str) -> dict[
         annotation = ((authconfig.get("metadata") or {}).get("annotations") or {}).get(
             HTTPROUTE_RULE_AUTHCONFIG_ANNOTATION, ""
         )
-        if annotation.startswith(route_annotation_prefix):
-            rule = annotation.rsplit("#", 1)[-1]
-            by_rule.setdefault(rule, []).append(
-                (authconfig.get("metadata") or {}).get("name", "<unnamed>")
-            )
+        if not annotation.startswith(route_annotation_prefix):
+            continue
+        if not _authconfig_is_ready(authconfig):
+            continue
+        rule = annotation.rsplit("#", 1)[-1]
+        by_rule.setdefault(rule, []).append(
+            (authconfig.get("metadata") or {}).get("name", "<unnamed>")
+        )
     return by_rule
 
 
@@ -310,6 +330,8 @@ class TestPerTenantMaaSAPI:
         assert all(deployment is not None for deployment in tenant_deployments)
         assert len({deployment["metadata"]["name"] for deployment in tenant_deployments if deployment}) == len(tenant_cases)
 
+    @pytest.mark.nightly
+    @pytest.mark.serial
     def test_dual_listeners_keep_one_authconfig_per_route_rule(self, dual_listener_tenant_case):
         """One stable Authorino AuthConfig per rule when both listeners attach the route."""
         case = dual_listener_tenant_case
@@ -351,6 +373,8 @@ class TestPerTenantMaaSAPI:
             f"{INFRA_NAMESPACE}/{route_name}; got {authconfigs_by_rule!r}"
         )
 
+    @pytest.mark.nightly
+    @pytest.mark.serial
     def test_dual_listener_wasm_envoyfilter_generation_stays_stable(
         self, dual_listener_tenant_case
     ):
