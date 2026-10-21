@@ -240,17 +240,7 @@ func (r *MaaSModelRefReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	if phase != "Ready" {
 		model.Status.Endpoint = ""
 	}
-	if err := r.updateStatus(ctx, model, phase, message, statusSnapshot); err != nil {
-		return ctrl.Result{}, err
-	}
-	if governed && !runtimeReady {
-		// Governed but backend not yet ready (e.g. LLMInferenceService's Ready
-		// condition hasn't been observed as True yet, or a watch event on it was
-		// missed/coalesced). Requeue so we keep polling backend readiness instead
-		// of waiting indefinitely for another watch event that may never arrive.
-		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
-	}
-	return ctrl.Result{}, nil
+	return ctrl.Result{}, r.updateStatus(ctx, model, phase, message, statusSnapshot)
 }
 
 // checkGovernanceAttached returns true if there is at least one active
