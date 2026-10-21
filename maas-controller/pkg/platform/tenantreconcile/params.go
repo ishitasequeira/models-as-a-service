@@ -562,7 +562,7 @@ func patchResource(log logr.Logger, r *unstructured.Unstructured, params Platfor
 		r.SetName(PayloadProcessingPluginsConfigMapForTenant(tenantID))
 		r.SetNamespace(params.GatewayNamespace)
 	case gvk == GVKNetworkPolicy && name == baseMaaSAPIDeploymentNSNetworkPolicyName:
-		return patchDeploymentNSNetworkPolicy(r, params.ControllerNamespace)
+		return patchMaaSAPIDeploymentNSNetworkPolicy(r, params)
 	case gvk == GVKNetworkPolicy && name == baseMaaSAPIEgressRestrictNetworkPolicyName:
 		return patchMaaSAPIEgressRestrictNetworkPolicy(r, params)
 	case gvk == GVKNetworkPolicy && name == PayloadProcessingName:
@@ -577,36 +577,67 @@ func patchResource(log logr.Logger, r *unstructured.Unstructured, params Platfor
 	return nil
 }
 
-// patchDeploymentNSNetworkPolicy rewrites the namespaceSelector in the
-// deployment-ns NetworkPolicy to use the actual controller namespace.
-func patchDeploymentNSNetworkPolicy(r *unstructured.Unstructured, controllerNamespace string) error {
-	if controllerNamespace == "" {
-		return nil
-	}
+func patchMaaSAPIDeploymentNSNetworkPolicy(r *unstructured.Unstructured, params PlatformParams) error {
 	ingress, found, err := unstructured.NestedSlice(r.Object, "spec", "ingress")
-	if err != nil || !found || len(ingress) == 0 {
-		return err
+	if err != nil {
+		return fmt.Errorf("read maas-api deployment-namespace NetworkPolicy ingress: %w", err)
 	}
-	rule, ok := ingress[0].(map[string]any)
-	if !ok {
-		return nil
+	if !found || len(ingress) == 0 {
+		return errors.New("maas-api deployment-namespace NetworkPolicy ingress is empty")
 	}
-	from, ok := rule["from"].([]any)
-	if !ok || len(from) == 0 {
-		return nil
+	if params.ControllerNamespace == "" {
+		return errors.New("controller namespace is required for maas-api deployment-namespace ingress policy")
 	}
-	peer, ok := from[0].(map[string]any)
-	if !ok {
-		return nil
-	}
-	nsSelector, ok := peer["namespaceSelector"].(map[string]any)
-	if !ok {
-		return nil
-	}
-	nsSelector["matchLabels"] = map[string]any{
-		"kubernetes.io/metadata.name": controllerNamespace,
-	}
+	ingress = []any{map[string]any{
+		"from": []any{
+			maasAPIDeploymentNamespacePeer(params.ControllerNamespace, "control-plane", "maas-controller"),
+			maasAPIDeploymentNamespacePeerIn(params.ControllerNamespace, "deployment", maasAPIDashboardDeploymentLabelValues),
+			maasAPIDeploymentNamespacePeer(params.ControllerNamespace, "maas-api-e2e-probe", "true"),
+		},
+		"ports": []any{map[string]any{
+			"protocol": "TCP",
+			"port":     int64(8443),
+		}},
+	}}
 	return unstructured.SetNestedSlice(r.Object, ingress, "spec", "ingress")
+}
+
+func maasAPIDeploymentNamespacePeer(controllerNamespace, labelKey, labelValue string) map[string]any {
+	return map[string]any{
+		"namespaceSelector": map[string]any{
+			"matchLabels": map[string]any{
+				"kubernetes.io/metadata.name": controllerNamespace,
+			},
+		},
+		"podSelector": map[string]any{
+			"matchLabels": map[string]any{
+				labelKey: labelValue,
+			},
+		},
+	}
+}
+
+func maasAPIDeploymentNamespacePeerIn(controllerNamespace, labelKey string, labelValues []string) map[string]any {
+	values := make([]any, len(labelValues))
+	for i, v := range labelValues {
+		values[i] = v
+	}
+	return map[string]any{
+		"namespaceSelector": map[string]any{
+			"matchLabels": map[string]any{
+				"kubernetes.io/metadata.name": controllerNamespace,
+			},
+		},
+		"podSelector": map[string]any{
+			"matchExpressions": []any{
+				map[string]any{
+					"key":      labelKey,
+					"operator": "In",
+					"values":   values,
+				},
+			},
+		},
+	}
 }
 
 // patchMaaSAPIEgressRestrictNetworkPolicy applies maasconfig egress overrides to

@@ -471,22 +471,24 @@ func TestApplyPlatformParamsWithRenderedOverlay(t *testing.T) {
 	assert.Equal(t, DefaultOTLPCollectorComponentLabelValue, otlpPodMatchLabels[DefaultOTLPCollectorComponentLabelKey])
 
 	deploymentNSPolicy := requireResource(t, resources, GVKNetworkPolicy, baseMaaSAPIDeploymentNSNetworkPolicyName)
-	ingress, found, err := unstructured.NestedSlice(deploymentNSPolicy.Object, "spec", "ingress")
+	assert.Equal(t, params.AppNamespace, deploymentNSPolicy.GetNamespace())
+	deploymentIngress, ingressFound, err := unstructured.NestedSlice(deploymentNSPolicy.Object, "spec", "ingress")
 	require.NoError(t, err)
-	require.True(t, found)
-	require.NotEmpty(t, ingress)
-	rule, ok := ingress[0].(map[string]any)
+	require.True(t, ingressFound)
+	require.Len(t, deploymentIngress, 1)
+	deploymentRule, ok := deploymentIngress[0].(map[string]any)
 	require.True(t, ok)
-	from, ok := rule["from"].([]any)
+	deploymentPeers, ok := deploymentRule["from"].([]any)
 	require.True(t, ok)
-	require.NotEmpty(t, from)
-	peer, ok := from[0].(map[string]any)
-	require.True(t, ok)
-	nsSelector, ok := peer["namespaceSelector"].(map[string]any)
-	require.True(t, ok)
-	matchLabels, ok := nsSelector["matchLabels"].(map[string]any)
-	require.True(t, ok)
-	assert.Equal(t, params.ControllerNamespace, matchLabels["kubernetes.io/metadata.name"])
+	require.Len(t, deploymentPeers, 3)
+
+	assertDeploymentNSPeerMatchLabels(t, deploymentPeers[0], params.ControllerNamespace, map[string]any{
+		"control-plane": "maas-controller",
+	})
+	assertDeploymentNSPeerMatchExpressionsIn(t, deploymentPeers[1], params.ControllerNamespace, "deployment", maasAPIDashboardDeploymentLabelValues)
+	assertDeploymentNSPeerMatchLabels(t, deploymentPeers[2], params.ControllerNamespace, map[string]any{
+		"maas-api-e2e-probe": "true",
+	})
 
 	authorinoPolicy := requireResource(t, resources, GVKNetworkPolicy, "maas-authorino-allow")
 	assert.Equal(t, params.AppNamespace, authorinoPolicy.GetNamespace())
@@ -1044,6 +1046,52 @@ func requirePodTemplateLabel(t *testing.T, r *unstructured.Unstructured, key str
 	value, ok := labels[key]
 	require.True(t, ok, "label %q not found on pod template", key)
 	return value
+}
+
+func assertDeploymentNSPeerMatchLabels(t *testing.T, peer any, controllerNamespace string, expectedPodLabels map[string]any) {
+	t.Helper()
+
+	peerMap, ok := peer.(map[string]any)
+	require.True(t, ok)
+	nsSelector, ok := peerMap["namespaceSelector"].(map[string]any)
+	require.True(t, ok)
+	nsMatchLabels, ok := nsSelector["matchLabels"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, controllerNamespace, nsMatchLabels["kubernetes.io/metadata.name"])
+	podSelector, ok := peerMap["podSelector"].(map[string]any)
+	require.True(t, ok)
+	podMatchLabels, ok := podSelector["matchLabels"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, expectedPodLabels, podMatchLabels)
+}
+
+func assertDeploymentNSPeerMatchExpressionsIn(t *testing.T, peer any, controllerNamespace, labelKey string, expectedValues []string) {
+	t.Helper()
+
+	peerMap, ok := peer.(map[string]any)
+	require.True(t, ok)
+	nsSelector, ok := peerMap["namespaceSelector"].(map[string]any)
+	require.True(t, ok)
+	nsMatchLabels, ok := nsSelector["matchLabels"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, controllerNamespace, nsMatchLabels["kubernetes.io/metadata.name"])
+	podSelector, ok := peerMap["podSelector"].(map[string]any)
+	require.True(t, ok)
+	expressions, ok := podSelector["matchExpressions"].([]any)
+	require.True(t, ok)
+	require.Len(t, expressions, 1)
+	expr, ok := expressions[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, labelKey, expr["key"])
+	assert.Equal(t, "In", expr["operator"])
+	values, ok := expr["values"].([]any)
+	require.True(t, ok)
+	got := make([]string, len(values))
+	for i, v := range values {
+		got[i], ok = v.(string)
+		require.True(t, ok)
+	}
+	assert.Equal(t, expectedValues, got)
 }
 
 func requireDeploymentSelectorLabel(t *testing.T, r *unstructured.Unstructured, key string) string {

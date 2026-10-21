@@ -1,18 +1,16 @@
-# NetworkPolicy to allow pods in the deployment namespace (where the UI and
-# maas-controller run) to communicate with maas-api in the infrastructure
-# namespace (e.g., for /v1/tenants discovery).
+# NetworkPolicy to allow the MaaS controller, ODH/RHOAI Dashboard, maas-ui BFF, and
+# labeled E2E probes in the deployment namespace to communicate with maas-api.
 #
 # Security constraints:
 # - podSelector: Restricted to maas-api pods only (component=api)
-# - from: Only pods in the controller's deployment namespace (patched at
-#   render time by patchResource to the actual namespace)
+# - from: Only the controller, dashboard operands, maas-ui, or test workloads in the
+#   controller's deployment namespace (namespace patched at render time)
 #
 # Background:
-# - ODH creates a default NetworkPolicy that blocks ingress from unlabeled namespaces
 # - maas-api runs in the infrastructure namespace (odh-ai-gateway-infra /
 #   redhat-ai-gateway-infra), separate from the deployment namespace
-# - This policy adds an exception for the deployment namespace to reach maas-api
-#   on port 8443
+# - RHOAI renames the main dashboard pod label deployment=rhods-dashboard; maas-ui
+#   performs /v1/tenants discovery (see odh-dashboard manifests/modules/maas)
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -29,14 +27,30 @@ spec:
   policyTypes:
     - Ingress
   ingress:
-    # Allows all pods from the namespace rather than specific callers.
-    # The deployment namespace hosts the UI/Dashboard and controller, both of
-    # which may call maas-api. This matches the namespace-wide trust pattern
-    # used by maas-api-allow-gateway for openshift-ingress.
     - from:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: REPLACE_CONTROLLER_NAMESPACE
+          podSelector:
+            matchLabels:
+              control-plane: maas-controller
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: REPLACE_CONTROLLER_NAMESPACE
+          podSelector:
+            matchExpressions:
+              - key: deployment
+                operator: In
+                values:
+                  - odh-dashboard
+                  - rhods-dashboard
+                  - maas-ui
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: REPLACE_CONTROLLER_NAMESPACE
+          podSelector:
+            matchLabels:
+              maas-api-e2e-probe: "true"
       ports:
         - protocol: TCP
           port: 8443
