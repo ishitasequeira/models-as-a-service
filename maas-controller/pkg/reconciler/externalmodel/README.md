@@ -2,7 +2,7 @@
 
 > **Deprecated — do not create new resources with this API**
 >
-> `maas.opendatahub.io/v1alpha1` **ExternalModel** is legacy. Use **`inference.opendatahub.io/v1alpha1`** **`ExternalProvider`** and **`ExternalModel`** instead (see [External model setup](../../../docs/content/install/external-model-setup.md) and the [ExternalModel CRD reference](../../../docs/content/reference/crds/external-model.md)).
+> `maas.opendatahub.io/v1alpha1` **ExternalModel** is legacy. Use **`inference.opendatahub.io/v1alpha1`** **`ExternalProvider`** and **`ExternalModel`** instead (see [External model setup](../../../../docs/content/install/external-model-setup.md) and the [ExternalModel CRD reference](../../../../docs/content/reference/crds/external-model.md)).
 >
 > - **RHOAI 3.6+ (Praxis):** New legacy ExternalModels are **rejected at admission** by the maas-controller validating webhook (`vexternalmodel.kb.io`). GitOps and `kubectl apply` must use the inference API group.
 > - **RHOAI 3.5 (Go IPP):** Existing legacy objects could be converted automatically by the IPP `legacy-migration` controller into inference CRs; that path does **not** run on Praxis extproc.
