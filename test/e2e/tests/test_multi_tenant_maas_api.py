@@ -123,8 +123,10 @@ def _gateway_listener_names_with_routes(gateway: dict) -> set[str]:
     return attached
 
 
-def _route_rule_authconfig_names(route_namespace: str, route_name: str) -> dict[str, list[str]]:
-    """Return managed AuthConfigs grouped by the HTTPRoute rule they represent."""
+def _route_rule_authconfig_observations(
+    route_namespace: str, route_name: str
+) -> dict[str, list[tuple[str, str, bool]]]:
+    """Return non-deleting managed AuthConfigs grouped by HTTPRoute rule."""
     route_annotation_prefix = (
         f"httproute.gateway.networking.k8s.io:{route_namespace}/{route_name}#"
     )
@@ -132,21 +134,26 @@ def _route_rule_authconfig_names(route_namespace: str, route_name: str) -> dict[
     for authconfig in list_json(
         "authconfig", AUTHORINO_NAMESPACE, labels="kuadrant.io/auth=true"
     ):
-        annotation = ((authconfig.get("metadata") or {}).get("annotations") or {}).get(
-            HTTPROUTE_RULE_AUTHCONFIG_ANNOTATION, ""
-        )
+        metadata = authconfig.get("metadata") or {}
+        if metadata.get("deletionTimestamp"):
+            continue
+        annotations = metadata.get("annotations") or {}
+        annotation = annotations.get(HTTPROUTE_RULE_AUTHCONFIG_ANNOTATION, "")
         if not annotation.startswith(route_annotation_prefix):
             continue
-        if not _authconfig_is_ready(authconfig):
-            continue
         rule = annotation.rsplit("#", 1)[-1]
+        name = metadata.get("name", "<unnamed>")
+        uid = metadata.get("uid")
+        assert uid, f"Matching AuthConfig {name!r} has no metadata.uid"
         by_rule.setdefault(rule, []).append(
-            (authconfig.get("metadata") or {}).get("name", "<unnamed>")
+            (name, uid, _authconfig_is_ready(authconfig))
         )
     return by_rule
 
 
-def _wait_for_stable_route_authconfigs(route: dict) -> dict[str, list[str]]:
+def _wait_for_stable_route_authconfigs(
+    route: dict,
+) -> dict[str, list[tuple[str, str, bool]]]:
     namespace = (route.get("metadata") or {}).get("namespace", INFRA_NAMESPACE)
     route_name = (route.get("metadata") or {}).get("name", "")
     rules = (route.get("spec") or {}).get("rules") or []
@@ -156,14 +163,17 @@ def _wait_for_stable_route_authconfigs(route: dict) -> dict[str, list[str]]:
     deadline = time.monotonic() + AUTHCONFIG_SETTLE_TIMEOUT
     last_snapshot = None
     stable_since = None
-    last_by_rule: dict[str, list[str]] = {}
+    last_by_rule: dict[str, list[tuple[str, str, bool]]] = {}
     while time.monotonic() < deadline:
-        last_by_rule = _route_rule_authconfig_names(namespace, route_name)
+        last_by_rule = _route_rule_authconfig_observations(namespace, route_name)
         snapshot = {
-            rule: tuple(sorted(names))
-            for rule, names in sorted(last_by_rule.items())
+            rule: tuple(sorted((name, uid) for name, uid, _ in observations))
+            for rule, observations in sorted(last_by_rule.items())
         }
-        complete = set(last_by_rule) == expected_rules and all(last_by_rule.values())
+        complete = set(last_by_rule) == expected_rules and all(
+            any(ready for _, _, ready in observations)
+            for observations in last_by_rule.values()
+        )
         now = time.monotonic()
         if complete and snapshot == last_snapshot:
             if stable_since is not None and now - stable_since >= AUTHCONFIG_QUIET_WINDOW:
@@ -368,8 +378,12 @@ class TestPerTenantMaaSAPI:
         rules = (route.get("spec") or {}).get("rules") or []
         expected_rules = {f"rule-{index}" for index in range(1, len(rules) + 1)}
         assert set(authconfigs_by_rule) == expected_rules
-        assert all(len(names) == 1 for names in authconfigs_by_rule.values()), (
-            f"Expected exactly one stable Authorino AuthConfig per rule for "
+        assert all(
+            len(observations) == 1 and observations[0][2]
+            for observations in authconfigs_by_rule.values()
+        ), (
+            f"Expected exactly one Ready and Available non-deleting Authorino "
+            f"AuthConfig per rule for "
             f"{INFRA_NAMESPACE}/{route_name}; got {authconfigs_by_rule!r}"
         )
 
