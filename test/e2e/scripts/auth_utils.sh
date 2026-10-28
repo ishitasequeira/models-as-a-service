@@ -363,6 +363,19 @@ collect_namespace_pod_logs() {
        "lastState=\(.lastState.terminated.reason // "-")/\(.lastState.terminated.exitCode // "-")",
        "finishedAt=\(.lastState.terminated.finishedAt // "-")"]
     | @tsv' <<<"$pods_json" > "${outdir}/pods.txt" 2>/dev/null || true
+  # A restart count says a container died; it does not say whether it was pinned
+  # against its memory limit first. Record the limits and the live usage beside
+  # the restart table so an OOMKilled controller can be told apart from a
+  # crash-looping one without re-running the suite.
+  jq -r '.items[] | .metadata.name as $pod | .spec.containers[]?
+    | [$pod, .name,
+       "cpu=\(.resources.requests.cpu // "-")/\(.resources.limits.cpu // "-")",
+       "mem=\(.resources.requests.memory // "-")/\(.resources.limits.memory // "-")"]
+    | @tsv' <<<"$pods_json" > "${outdir}/pod-resources.txt" 2>/dev/null || true
+  # Needs metrics-server, which is absent or slow on some clusters: best-effort,
+  # and bounded so artifact collection cannot hang the job.
+  kubectl top pod -n "$ns" --no-headers --request-timeout=20s \
+    > "${outdir}/pod-metrics.txt" 2>/dev/null || true
   while read -r pod container; do
     log_tail=500; [[ "$pod" =~ $full_log_pods ]] && log_tail=-1
     kubectl logs -n "$ns" "$pod" -c "$container" --previous --tail="$log_tail" 2>/dev/null \

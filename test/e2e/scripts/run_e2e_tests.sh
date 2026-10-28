@@ -23,6 +23,10 @@
 #
 # Optional env vars:
 #   E2E_PARALLEL_WORKERS          pytest-xdist worker count (default: 5)
+#   E2E_MAXFAIL                   stop a pass after N failures (default: 5, 0 = never).
+#                                 CI sets 0: on a shared control plane, five failures used
+#                                 to truncate the pass, undercounting failures and leaving
+#                                 the flake report covering only the part that ran.
 #   E2E_AUTHPOLICY_PHASE_TIMEOUT  seconds (default: 120, parallel only)
 #   E2E_MAAS_SUBSCRIPTION_PHASE_TIMEOUT  seconds (default: 120, parallel only)
 #   E2E_GATEWAY_ENFORCED_TIMEOUT  seconds (default: 240, parallel only)
@@ -265,7 +269,7 @@ run_serial_pass() {
     echo "Running E2E pass 2/${_pass_total}: serial cluster mutators (-m '${_serial_marker}', single worker)"
     if ! run_pytest_pass "pass 2 (serial)" \
         env E2E_PYTEST_PASS=serial PYTHONPATH="$TEST_DIR:${PYTHONPATH:-}" pytest \
-        --maxfail=5 \
+        --maxfail="${E2E_MAXFAIL:-5}" \
         --junitxml="$xml_serial" \
         --html="${html%.html}-serial.html" --self-contained-html \
         "${pytest_common_args[@]}" \
@@ -281,7 +285,7 @@ run_nightly_pass() {
     echo "Running E2E pass 3/${_pass_total}: nightly (-m ${_nightly_marker}, EXTERNAL_OIDC=${EXTERNAL_OIDC:-false})"
     if ! run_pytest_pass "pass 3 (nightly)" \
         env E2E_PYTEST_PASS=nightly PYTHONPATH="$TEST_DIR:${PYTHONPATH:-}" pytest \
-        --maxfail=5 \
+        --maxfail="${E2E_MAXFAIL:-5}" \
         --junitxml="$xml_nightly" \
         --html="${html%.html}-nightly.html" --self-contained-html \
         "${pytest_common_args[@]}" \
@@ -318,7 +322,7 @@ elif [[ "$E2E_PARALLEL_WORKERS" -le 1 ]]; then
     echo "Running E2E pass 1/${_pass_total}: non-serial (E2E_PARALLEL_WORKERS=${E2E_PARALLEL_WORKERS}, -m '${_parallel_marker}')"
     if ! run_pytest_pass "pass 1 (non-serial)" \
         env E2E_PYTEST_PASS=parallel PYTHONPATH="$TEST_DIR:${PYTHONPATH:-}" pytest \
-        --maxfail=5 \
+        --maxfail="${E2E_MAXFAIL:-5}" \
         --junitxml="$xml" \
         --html="$html" --self-contained-html \
         "${pytest_common_args[@]}" \
@@ -332,7 +336,7 @@ else
     echo "Running E2E pass 1/${_pass_total}: parallel (E2E_PARALLEL_WORKERS=${E2E_PARALLEL_WORKERS}, --dist=loadgroup, -m '${_parallel_marker}')"
     if ! run_pytest_pass "pass 1 (non-serial)" \
         env E2E_PYTEST_PASS=parallel PYTHONPATH="$TEST_DIR:${PYTHONPATH:-}" pytest \
-        --maxfail=5 \
+        --maxfail="${E2E_MAXFAIL:-5}" \
         -n "$E2E_PARALLEL_WORKERS" --dist=loadgroup \
         --junitxml="$xml" \
         --html="$html" --self-contained-html \
