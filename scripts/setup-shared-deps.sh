@@ -264,19 +264,82 @@ EOF
   esac
 }
 
-# evict_stale_olm_install — delegates to scripts/refresh-olm-install.sh
-#   See that script's header for the full rationale.  The standalone script
-#   can also be called directly from external pipelines (e.g. Shepard).
+# evict_stale_olm_install
+#   When the catalog bundle version hasn't changed but its content has (e.g.
+#   updated relatedImages), OLM won't create a new InstallPlan because the
+#   CSV version already matches.  Deleting the existing CSV and InstallPlan
+#   forces OLM to re-resolve from the current CatalogSource on the next
+#   Subscription reconciliation, picking up the refreshed bundle content.
+#
+#   This is a no-op when no operator CSV is installed yet (fresh cluster).
 evict_stale_olm_install() {
-  local script_dir
-  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   local operator_ns
   operator_ns="$(operator_olm_namespace)" || return 1
+  local csv_prefix
+  csv_prefix="$(operator_csv_prefix)" || return 1
 
-  # Source to get the refresh_olm_install function, then call it.
-  # shellcheck source=scripts/refresh-olm-install.sh
-  source "$script_dir/refresh-olm-install.sh"
-  refresh_olm_install --namespace "$operator_ns"
+  local csv_name=""
+  csv_name=$(kubectl get csv -n "$operator_ns" --no-headers 2>/dev/null \
+    | grep "^${csv_prefix}" | head -n1 | awk '{print $1}') || true
+
+  if [[ -z "$csv_name" ]]; then
+    log_info "No existing operator CSV found — fresh install, skipping eviction"
+    return 0
+  fi
+
+  log_info "Evicting stale OLM install to pick up refreshed catalog content..."
+
+  # Find the CSV's install namespace (may differ from the subscription namespace).
+  local csv_ns="$operator_ns"
+  # The CSV can also be copied into the operand namespace by OLM; search broadly.
+  local all_csv_ns
+  all_csv_ns=$(kubectl get csv --all-namespaces --no-headers 2>/dev/null \
+    | awk -v name="$csv_name" '$2 == name {print $1}') || true
+
+  # Delete InstallPlans that reference this CSV.
+  local ip_names
+  ip_names=$(kubectl get installplan -n "$operator_ns" -o json 2>/dev/null \
+    | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+for ip in d.get('items', []):
+    csvs = ip.get('spec', {}).get('clusterServiceVersionNames', [])
+    if '$csv_name' in csvs:
+        print(ip['metadata']['name'])
+" 2>/dev/null) || true
+
+  if [[ -n "$ip_names" ]]; then
+    for ip in $ip_names; do
+      log_info "  Deleting InstallPlan $ip"
+      kubectl delete installplan "$ip" -n "$operator_ns" --ignore-not-found 2>/dev/null || true
+    done
+  fi
+
+  # Delete the CSV from every namespace where OLM copied it.
+  for ns in $all_csv_ns; do
+    log_info "  Deleting CSV $csv_name in $ns"
+    kubectl delete csv "$csv_name" -n "$ns" --ignore-not-found 2>/dev/null || true
+  done
+
+  # Brief pause for OLM's Subscription controller to notice and re-resolve.
+  sleep 10
+
+  log_info "  Waiting for OLM to re-create CSV from catalog..."
+  local timeout=180
+  local elapsed=0
+  while [[ $elapsed -lt $timeout ]]; do
+    local phase
+    phase=$(kubectl get csv "$csv_name" -n "$operator_ns" \
+      -o jsonpath='{.status.phase}' 2>/dev/null) || true
+    if [[ "$phase" == "Succeeded" ]]; then
+      log_info "  CSV $csv_name re-installed successfully"
+      return 0
+    fi
+    sleep 10
+    elapsed=$((elapsed + 10))
+  done
+  log_warn "  CSV $csv_name not yet Succeeded after ${timeout}s — continuing (Helm install may fix it)"
+  return 0
 }
 
 operator_olm_namespace() {
