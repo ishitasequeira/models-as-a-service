@@ -545,11 +545,14 @@ def _is_transient_gateway_response(response) -> bool:
       "Service Unavailable", "Application is not available"): Envoy/router
       failure while upstream or auth filters are mid-reload. Distinct from
       maas-api JSON errors like {"error":"Failed to create API key"}.
+    - Envoy/Istio route failure text ("upstream connect error", "no healthy
+      upstream"): the dataplane has no ready endpoint yet. Always a reload or
+      rollout artifact, never a maas-api response.
     """
     body = (response.text or "").strip()
     if response.status_code in (401, 403) and not body:
         return True
-    if response.status_code not in (500, 503):
+    if response.status_code not in (500, 502, 503):
         return False
     if "AUTH_FAILURE" in body:
         return True
@@ -558,6 +561,8 @@ def _is_transient_gateway_response(response) -> bool:
         "Internal Server Error.",
         "Service Unavailable",
         "Service Unavailable.",
+        "Bad Gateway",
+        "Bad Gateway.",
     ):
         return True
     if body.startswith("<") and any(
@@ -565,11 +570,46 @@ def _is_transient_gateway_response(response) -> bool:
         for marker in (
             "Internal Server Error",
             "Service Unavailable",
+            "Bad Gateway",
             "Application is not available",
         )
     ):
         return True
+    if body.startswith("upstream connect error") or body.startswith("no healthy upstream"):
+        return True
     return False
+
+
+# One JSONL line per transient retry, written by whichever xdist worker hit it.
+# The session report (conftest.pytest_terminal_summary) aggregates them so each
+# CI run yields a flake rate instead of an anecdote.
+_TRANSIENT_RETRY_LOG_ENV = "ARTIFACTS_DIR"
+
+
+def _record_transient_retry(response, attempt: int, retries: int) -> None:
+    """Account for a retried transient response, per running test."""
+    nodeid = (os.environ.get("PYTEST_CURRENT_TEST") or "<session>").split(" ")[0]
+    entry = {
+        "test": nodeid,
+        "status": getattr(response, "status_code", 0),
+        "body": (getattr(response, "text", "") or "").strip()[:200],
+        "attempt": attempt,
+        "retries": retries,
+        "ts": time.time(),
+    }
+    log.warning(
+        "transient gateway response retried for %s: %s", nodeid, entry["status"]
+    )
+    artifacts_dir = os.environ.get(_TRANSIENT_RETRY_LOG_ENV)
+    if not artifacts_dir:
+        return
+    worker = os.environ.get("PYTEST_XDIST_WORKER", "master")
+    path = os.path.join(artifacts_dir, f"transient-retries-{worker}.jsonl")
+    try:
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(entry) + "\n")
+    except OSError as exc:  # telemetry must never fail a test
+        log.debug("could not write transient retry log %s: %s", path, exc)
 
 
 def _is_connect_failure(exc: requests.exceptions.ConnectionError) -> bool:
@@ -636,6 +676,7 @@ def _request_with_gateway_retry(method, url, retries=None, delay=None, deadline=
                 time.sleep(retry_delay)
             continue
         if _is_transient_gateway_response(r) and attempt < retries:
+            _record_transient_retry(r, attempt, retries)
             log.info(
                 "Gateway returned %d (attempt %d/%d, body=%.80r), retrying in %ds...",
                 r.status_code,
@@ -646,7 +687,7 @@ def _request_with_gateway_retry(method, url, retries=None, delay=None, deadline=
             )
             # After the first proxy-style 500/503, re-check AuthPolicy Enforced
             # so remaining attempts are less likely to hit a mid-reload window.
-            if r.status_code in (500, 503) and attempt == 1:
+            if r.status_code in (500, 502, 503) and attempt == 1:
                 enforcement_timeout = min(60, GATEWAY_ENFORCED_TIMEOUT)
                 if deadline is not None:
                     enforcement_timeout = min(

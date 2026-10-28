@@ -395,6 +395,7 @@ def infer_external_chat(
     content: str = "multi-tenant external model e2e",
     retries: int = 6,
     delay: int = 5,
+    readiness_timeout: int | None = None,
 ) -> requests.Response:
     """POST a chat completion through a specific gateway, retrying route
     propagation (404) and transient gateway/auth responses.
@@ -404,6 +405,12 @@ def infer_external_chat(
     model-name prefix. ``provider_path`` overrides it for bindings whose
     provider serves a different path (e.g. an OpenAI-style simulator behind
     another gateway, whose model path must reach it verbatim).
+
+    ``readiness_timeout`` keeps retrying transient responses until that many
+    seconds have passed, instead of stopping after ``retries`` attempts. Use it
+    for the first inference after creating a route: the per-tenant ExtProc and
+    route are still programming, and an empty 5xx there says nothing about the
+    behavior under test.
     """
     if provider_path is None:
         provider_path = echo_provider_path(path_tag) if path_tag else "/v1/chat/completions"
@@ -416,28 +423,38 @@ def infer_external_chat(
         "messages": [{"role": "user", "content": content}],
         "max_tokens": 8,
     }
+    deadline = time.time() + readiness_timeout if readiness_timeout else None
     response = None
-    for attempt in range(1, retries + 1):
+    attempt = 0
+    while True:
+        attempt += 1
         # The caller's budget bounds transient gateway/auth retries too —
         # negative tests pass retries=1 to get the refusal verdict from a
         # single attempt instead of riding out propagation windows.
         response = _request_with_gateway_retry(
-            requests.post, url, headers=headers, json=body, retries=retries, delay=delay
+            requests.post,
+            url,
+            headers=headers,
+            json=body,
+            retries=retries,
+            delay=delay,
+            deadline=deadline,
         )
         if response.status_code == 200:
             return response
-        if response.status_code == 404 and attempt < retries:
-            log.info(
-                "%s got 404 (attempt %d/%d), retrying in %ds (route propagation)",
-                url,
-                attempt,
-                retries,
-                delay,
-            )
-            time.sleep(delay)
-            continue
-        return response
-    return response
+        # Without a readiness budget the caller's attempt count decides when to
+        # stop sampling; with one, keep going until the effect has had time to
+        # land, whatever attempt we are on.
+        exhausted = attempt >= retries if deadline is None else time.time() + delay > deadline
+        if response.status_code != 404 or exhausted:
+            return response
+        log.info(
+            "%s got 404 (attempt %d), retrying in %ds (route propagation)",
+            url,
+            attempt,
+            delay,
+        )
+        time.sleep(delay)
 
 
 # ─── Attribution assertions ─────────────────────────────────────────────────
