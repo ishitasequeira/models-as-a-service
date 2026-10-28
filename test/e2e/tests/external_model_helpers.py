@@ -31,7 +31,12 @@ from typing import Any
 
 import requests
 from multitenancy_helpers import redact_sensitive
-from test_helper import _apply_cr, _request_with_gateway_retry, _run_oc
+from test_helper import (
+    _apply_cr,
+    _is_transient_gateway_response,
+    _request_with_gateway_retry,
+    _run_oc,
+)
 
 log = logging.getLogger(__name__)
 
@@ -431,26 +436,44 @@ def infer_external_chat(
         # The caller's budget bounds transient gateway/auth retries too —
         # negative tests pass retries=1 to get the refusal verdict from a
         # single attempt instead of riding out propagation windows.
-        response = _request_with_gateway_retry(
-            requests.post,
-            url,
-            headers=headers,
-            json=body,
-            retries=retries,
-            delay=delay,
-            deadline=deadline,
-        )
+        try:
+            response = _request_with_gateway_retry(
+                requests.post,
+                url,
+                headers=headers,
+                json=body,
+                retries=retries,
+                delay=delay,
+                deadline=deadline,
+            )
+        except TimeoutError:
+            # The readiness budget can lapse between probes. Report what the
+            # gateway last said instead of turning a propagation wait into an
+            # error the caller would read as a harness failure.
+            if response is None:
+                raise
+            log.info("%s still %d at deadline, giving up", url, response.status_code)
+            return response
         if response.status_code == 200:
             return response
-        # Without a readiness budget the caller's attempt count decides when to
-        # stop sampling; with one, keep going until the effect has had time to
-        # land, whatever attempt we are on.
-        exhausted = attempt >= retries if deadline is None else time.time() + delay > deadline
-        if response.status_code != 404 or exhausted:
+        # One classifier for the whole suite: a second copy here drifted from
+        # test_helper's list of proxy 5xx bodies.
+        transient = response.status_code == 404 or _is_transient_gateway_response(response)
+        if not transient:
+            return response
+        if deadline is not None:
+            # The deadline is the contract: stop on it, not on ``retries``, or
+            # a caller asking for 120s of readiness would still give up after
+            # six 5s attempts and report a half-programmed route as a failure.
+            if time.time() + delay > deadline:
+                log.info("%s still %d at deadline, giving up", url, response.status_code)
+                return response
+        elif attempt >= retries:
             return response
         log.info(
-            "%s got 404 (attempt %d), retrying in %ds (route propagation)",
+            "%s got %d (attempt %d), retrying in %ds",
             url,
+            response.status_code,
             attempt,
             delay,
         )

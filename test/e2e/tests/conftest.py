@@ -4,11 +4,17 @@ import logging
 import os
 import socket
 import subprocess
+import time
+import uuid
 from urllib.parse import urlparse
 import pytest
 import requests
 
-from test_helper import MAAS_API_DEPLOYMENT_NAMESPACE, _request_with_gateway_retry
+from test_helper import (
+    MAAS_API_DEPLOYMENT_NAMESPACE,
+    _is_transient_gateway_response,
+    _request_with_gateway_retry,
+)
 
 
 log = logging.getLogger(__name__)
@@ -290,6 +296,34 @@ def token() -> str:
 def headers(token: str):
     return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
+def _create_api_key(url: str, headers: dict, payload: dict, name_prefix: str) -> requests.Response:
+    """POST an API-key creation, retrying transient gateway responses.
+
+    Creation is not idempotent and the key is show-once: a 5xx can arrive after
+    the server already minted the key, and a retry under the same name would
+    collide with (or duplicate) a key whose plaintext was lost with the
+    response. Each attempt therefore gets a fresh name, so a retry can only
+    ever create a key the test goes on to use.
+    """
+    response = None
+    for attempt in range(1, FIXTURE_GATEWAY_RETRIES + 1):
+        body = dict(payload, name=f"{name_prefix}-{uuid.uuid4().hex[:6]}")
+        response = requests.post(url, headers=headers, json=body, timeout=30, verify=TLS_VERIFY)
+        if response.status_code in (200, 201):
+            return response
+        # A non-transient error is the answer, not a flake.
+        if not _is_transient_gateway_response(response) or attempt == FIXTURE_GATEWAY_RETRIES:
+            return response
+        log.info(
+            "API key creation returned %d (attempt %d/%d), retrying under a new name",
+            response.status_code,
+            attempt,
+            FIXTURE_GATEWAY_RETRIES,
+        )
+        time.sleep(min(2 * attempt, 10))
+    return response
+
+
 @pytest.fixture(scope="session")
 def model_catalog(maas_api_base_url: str, headers: dict):
     # Session-scoped: a single transient 5xx here would error every test that
@@ -389,14 +423,11 @@ def api_key(api_keys_base_url: str, headers: dict) -> str:
     sim_sub = os.environ.get("E2E_SIMULATOR_SUBSCRIPTION", "simulator-subscription")
     key_name = f"e2e-test-inference-key-{_xdist_worker_suffix()}"
     print(f"[api_key] Creating API key for inference tests ({key_name})...")
-    r = _request_with_gateway_retry(
-        requests.post,
+    r = _create_api_key(
         api_keys_base_url,
-        headers=headers,
-        json={"name": key_name, "subscription": sim_sub},
-        timeout=30,
-        verify=TLS_VERIFY,
-        retries=FIXTURE_GATEWAY_RETRIES,
+        headers,
+        {"subscription": sim_sub},
+        key_name,
     )
     # Accept both 200 and 201 as success
     if r.status_code not in (200, 201):
@@ -417,17 +448,11 @@ def worker_api_key(worker_tenant_context, headers: dict) -> str:
     from multitenancy_helpers import response_summary
 
     key_name = f"e2e-worker-inference-key-{_xdist_worker_suffix()}"
-    r = _request_with_gateway_retry(
-        requests.post,
+    r = _create_api_key(
         f"{worker_tenant_context.api_base_url}/v1/api-keys",
-        headers=headers,
-        json={
-            "name": key_name,
-            "subscription": worker_tenant_context.subscription_name,
-        },
-        timeout=30,
-        verify=TLS_VERIFY,
-        retries=FIXTURE_GATEWAY_RETRIES,
+        headers,
+        {"subscription": worker_tenant_context.subscription_name},
+        key_name,
     )
     if r.status_code not in (200, 201):
         raise RuntimeError(f"Failed to create worker API key: {response_summary(r)}")

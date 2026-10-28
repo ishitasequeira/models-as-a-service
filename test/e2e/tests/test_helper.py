@@ -586,19 +586,45 @@ def _is_transient_gateway_response(response) -> bool:
 _TRANSIENT_RETRY_LOG_ENV = "ARTIFACTS_DIR"
 
 
+def _transient_body_kind(response) -> str:
+    """Classify a transient body without recording it.
+
+    These artifacts are uploaded from CI, so the report carries the category
+    and never the body: an error page is not where a leaked header or token
+    should surface. The categories are the ones the classifier accepts.
+    """
+    body = (getattr(response, "text", "") or "").strip()
+    if not body:
+        return "empty"
+    if "AUTH_FAILURE" in body:
+        return "auth_failure"
+    if body.startswith("upstream connect error"):
+        return "upstream_connect_error"
+    if body.startswith("no healthy upstream"):
+        return "no_healthy_upstream"
+    if body.startswith("<"):
+        return "html_error_page"
+    if "\n" not in body and len(body) <= 64:
+        return "plaintext"
+    return "other"
+
+
 def _record_transient_retry(response, attempt: int, retries: int) -> None:
     """Account for a retried transient response, per running test."""
     nodeid = (os.environ.get("PYTEST_CURRENT_TEST") or "<session>").split(" ")[0]
     entry = {
         "test": nodeid,
         "status": getattr(response, "status_code", 0),
-        "body": (getattr(response, "text", "") or "").strip()[:200],
+        "body_kind": _transient_body_kind(response),
         "attempt": attempt,
         "retries": retries,
         "ts": time.time(),
     }
     log.warning(
-        "transient gateway response retried for %s: %s", nodeid, entry["status"]
+        "transient gateway response retried for %s: %s (%s)",
+        nodeid,
+        entry["status"],
+        entry["body_kind"],
     )
     artifacts_dir = os.environ.get(_TRANSIENT_RETRY_LOG_ENV)
     if not artifacts_dir:
@@ -678,11 +704,11 @@ def _request_with_gateway_retry(method, url, retries=None, delay=None, deadline=
         if _is_transient_gateway_response(r) and attempt < retries:
             _record_transient_retry(r, attempt, retries)
             log.info(
-                "Gateway returned %d (attempt %d/%d, body=%.80r), retrying in %ds...",
+                "Gateway returned %d (attempt %d/%d, body_kind=%s), retrying in %ds...",
                 r.status_code,
                 attempt,
                 retries,
-                (r.text or "").strip(),
+                _transient_body_kind(r),
                 delay,
             )
             # After the first proxy-style 500/503, re-check AuthPolicy Enforced
