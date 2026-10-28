@@ -534,12 +534,15 @@ def _get_cluster_token():
 # API Key Management
 # ---------------------------------------------------------------------------
 
-def _is_transient_gateway_response(response) -> bool:
+def _is_transient_gateway_response(response, *, auth_denial_is_transient=True) -> bool:
     """True when the gateway/Authorino response is a known propagation flake.
 
     Retryable signals:
     - Empty 401/403: Envoy has not loaded the AuthPolicy yet (common after
-      MaaSAuthPolicy churn; some gateways return 401 instead of 403).
+      MaaSAuthPolicy churn; some gateways return 401 instead of 403). Pass
+      ``auth_denial_is_transient=False`` for negative tests where a denial is
+      the expected answer: retrying there only burns the retry budget and
+      pollutes the flake report with denials that were never flaky.
     - 500 with AUTH_FAILURE: Authorino race while AuthConfig is updating.
     - Empty, plain-text, or HTML proxy 500/503 ("Internal Server Error",
       "Service Unavailable", "Application is not available"): Envoy/router
@@ -551,7 +554,7 @@ def _is_transient_gateway_response(response) -> bool:
     """
     body = (response.text or "").strip()
     if response.status_code in (401, 403) and not body:
-        return True
+        return auth_denial_is_transient
     if response.status_code not in (500, 502, 503):
         return False
     if "AUTH_FAILURE" in body:
@@ -658,6 +661,9 @@ def _request_with_gateway_retry(method, url, retries=None, delay=None, deadline=
     Connection errors are retried only when the request was never sent
     (``_is_connect_failure``), which is safe for POST.
 
+    Pass ``auth_denial_is_transient=False`` (keyword) for negative tests that
+    expect a 401/403: an empty denial is then the answer rather than a flake.
+
     When ``deadline`` is set (Unix timestamp), each request timeout, retry delay,
     and gateway-enforcement wait is clamped to the remaining time so polling loops
     cannot exceed their outer deadline.
@@ -670,6 +676,7 @@ def _request_with_gateway_retry(method, url, retries=None, delay=None, deadline=
     delay = GATEWAY_PROPAGATION_DELAY if delay is None else delay
     timeout = kwargs.pop("timeout", TIMEOUT)
     verify = kwargs.pop("verify", TLS_VERIFY)
+    auth_denial_is_transient = kwargs.pop("auth_denial_is_transient", True)
     r = None
     for attempt in range(1, retries + 1):
         if deadline is not None:
@@ -701,7 +708,12 @@ def _request_with_gateway_retry(method, url, retries=None, delay=None, deadline=
             if retry_delay > 0:
                 time.sleep(retry_delay)
             continue
-        if _is_transient_gateway_response(r) and attempt < retries:
+        if (
+            _is_transient_gateway_response(
+                r, auth_denial_is_transient=auth_denial_is_transient
+            )
+            and attempt < retries
+        ):
             _record_transient_retry(r, attempt, retries)
             log.info(
                 "Gateway returned %d (attempt %d/%d, body_kind=%s), retrying in %ds...",
