@@ -1631,11 +1631,47 @@ def auth_can_create_maassubscription(subject: str, namespace: str) -> bool:
     return result.returncode == 0 and result.stdout.strip() == "yes"
 
 
+def wait_for_tenant_model_refs_gone(
+    tenant_name: str, namespace: str, *, timeout: int = 120, interval: int = 2
+) -> bool:
+    """Wait until nothing in ``namespace`` still references AITenant ``tenant_name``.
+
+    Removing the MaaSModelRef finalizer is an UPDATE that the validating webhook
+    re-checks against ``spec.tenantRef``. If the AITenant is deleted first, every
+    such update is denied ("references AITenant that does not exist"), the
+    finalizer never goes away, and the namespace hangs in Terminating while
+    maas-controller retries the denial. Returns False on timeout so callers can
+    report the leak instead of turning it into a teardown error.
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        remaining = [
+            (ref.get("metadata") or {}).get("name")
+            for ref in list_json("maasmodelref", namespace)
+            if ((ref.get("spec") or {}).get("tenantRef") or "") == tenant_name
+        ]
+        if not remaining:
+            return True
+        time.sleep(interval)
+    print(
+        f"[cleanup] MaaSModelRefs in {namespace} still reference AITenant/{tenant_name} "
+        f"after {timeout}s: {remaining}"
+    )
+    return False
+
+
 def cleanup_discovery_case(case: dict[str, str], *, delete_gateway: bool = True) -> None:
-    delete_best_effort(AITENANT_KIND, case["tenant_label_name"], AITENANT_NAMESPACE, timeout="180s")
     delete_maas_auth_policy(case["policy_name"], case["tenant_ns"])
     delete_maas_subscription(case["subscription_name"], case["tenant_ns"])
+    # Tear down the tenant namespace before its AITenant, and only delete the
+    # AITenant once the MaaSModelRefs are gone. Namespace deletion is the force
+    # that removes those refs, but some callers (worker tenant teardown) submit
+    # it with --wait=false, so the drain has to be explicit here. Ordering this
+    # way avoids the finalizer deadlock described on
+    # wait_for_tenant_model_refs_gone and costs nothing when nothing is left.
     delete_namespace_best_effort(case["tenant_ns"])
+    wait_for_tenant_model_refs_gone(case["tenant_label_name"], case["tenant_ns"])
+    delete_best_effort(AITENANT_KIND, case["tenant_label_name"], AITENANT_NAMESPACE, timeout="180s")
     if delete_gateway and case["gateway_name"] != DEFAULT_GATEWAY_NAME:
         delete_best_effort("route", f"{case['gateway_name']}-route", GATEWAY_NAMESPACE)
         delete_best_effort("gateway", case["gateway_name"], GATEWAY_NAMESPACE)
