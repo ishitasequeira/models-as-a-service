@@ -2013,6 +2013,7 @@ class TestE2ESubscriptionFlow:
         log.info("=" * 60)
 
 
+    @pytest.mark.limitador
     def test_e2e_with_both_access_and_subscription_gets_200(self):
         """
         API key with both access and subscription should get 200 OK.
@@ -2212,6 +2213,7 @@ class TestE2ESubscriptionFlow:
             _delete_sa(sa_name, namespace=ns)
             _wait_for_cr_absent("maassubscription", subscription_name, namespace=ns)
 
+    @pytest.mark.limitador
     def test_e2e_multiple_subscriptions_separate_keys_gets_200(self):
         """
         User with two subscriptions for the same model: mint one API key per subscription;
@@ -2335,6 +2337,7 @@ class TestE2ESubscriptionFlow:
             _delete_sa(sa_user, namespace=ns)
             _delete_sa(sa_other, namespace=ns)
 
+    @pytest.mark.limitador
     def test_e2e_group_based_access_gets_200(self):
         """
         E2E test: Group-based auth and subscription (success case).

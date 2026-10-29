@@ -38,12 +38,17 @@
 #                                 OIDC tests); requires EXTERNAL_OIDC=true
 #   E2E_RUN_ONLY_GRID_TESTS       When true, restrict the OIDC-only pass to grid_oidc tests;
 #                                 requires E2E_RUN_ONLY_OIDC_TESTS=true
+#   E2E_LIMITADOR_TRIAGE          When true, run only the Limitador sync subset (-m limitador)
+#                                 plus the serial pass; the broad parallel pass is skipped
+#   E2E_LIMITADOR_WORKERS         xdist worker count for the Limitador triage pass
+#                                 (default: 1; raise it to reproduce load-dependent stalls)
 #
 # Usage:
 #   export GATEWAY_HOST=maas.apps.cluster.example.com TOKEN=$(oc whoami -t) ...
 #   ./run_e2e_tests.sh                       # run all tests
 #   ./run_e2e_tests.sh -- -k test_api_keys   # pass extra pytest args
 #   ./run_e2e_tests.sh --serial-only         # skip parallel pass
+#   ./run_e2e_tests.sh --limitador-triage    # only -m limitador + serial pass
 # =============================================================================
 
 set -euo pipefail
@@ -54,10 +59,15 @@ TEST_DIR="$PROJECT_ROOT/test/e2e"
 
 # ── Parse script flags (before --) vs pytest args (after --) ─────────────
 serial_only=false
+limitador_triage=false
+case "${E2E_LIMITADOR_TRIAGE:-false}" in
+    1 | true | TRUE | yes | YES) limitador_triage=true ;;
+esac
 extra_pytest_args=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --serial-only) serial_only=true; shift ;;
+        --limitador-triage) limitador_triage=true; shift ;;
         --) shift; extra_pytest_args=("$@"); break ;;
         *) extra_pytest_args+=("$1"); shift ;;
     esac
@@ -118,6 +128,7 @@ html="$ARTIFACTS_DIR/e2e-${user}.html"
 xml="$ARTIFACTS_DIR/e2e-${user}.xml"
 xml_serial="${xml%.xml}-serial.xml"
 xml_nightly="${xml%.xml}-nightly.xml"
+xml_limitador="${xml%.xml}-limitador.xml"
 
 # ── Marker tiers ─────────────────────────────────────────────────────────
 # Nightly tests always run in pass 3 only (when enabled), never in passes 1–2.
@@ -146,6 +157,10 @@ if [[ "$_run_only_oidc_tests" == true ]]; then
         echo "ERROR: E2E_RUN_ONLY_OIDC_TESTS=true cannot be combined with --serial-only" >&2
         exit 1
     fi
+    if [[ "$limitador_triage" == "true" ]]; then
+        echo "ERROR: E2E_RUN_ONLY_OIDC_TESTS=true cannot be combined with --limitador-triage" >&2
+        exit 1
+    fi
     _include_nightly_pass=true
 fi
 _nightly_marker="nightly"
@@ -156,8 +171,17 @@ if [[ "$_run_only_grid_tests" == true ]]; then
     fi
     _nightly_marker="nightly and grid_oidc"
 fi
+if [[ "$limitador_triage" == "true" && "$serial_only" == "true" ]]; then
+    echo "ERROR: --limitador-triage already runs the serial pass; drop --serial-only" >&2
+    exit 1
+fi
 _parallel_marker="not serial and not legacy_ipp${_nightly_exclude}"
 _serial_marker="serial and not legacy_ipp${_nightly_exclude}"
+# The Limitador sync subset: tests that wait on a TokenRateLimitPolicy reaching
+# Enforced=True. Only they can see a stalled limiter, and because an unapplied
+# token limit still admits every request, the rest of the suite passes either way.
+# Already-serial limitador tests are left to the serial pass so nothing runs twice.
+_limitador_marker="limitador and not serial and not legacy_ipp${_nightly_exclude}"
 _pass_total=2
 if [[ "$_include_nightly_pass" == true ]]; then
     _pass_total=3
@@ -265,6 +289,32 @@ snapshot_parallel_pass_pods() (
     done
 )
 
+run_limitador_pass() {
+    local workers="${E2E_LIMITADOR_WORKERS:-1}"
+    if ! [[ "$workers" =~ ^[1-9][0-9]*$ ]]; then
+        echo "ERROR: E2E_LIMITADOR_WORKERS must be a positive integer (>= 1), got '$workers'" >&2
+        exit 1
+    fi
+    echo "Running Limitador triage pass: -m '${_limitador_marker}' with ${workers} worker(s)"
+    # The limitador tests are non-serial and worker-tenant scoped, so they report
+    # as the parallel pass even at a single worker; the serial pass that follows
+    # is what E2E_PYTEST_PASS=serial exists for.
+    local xdist_args=()
+    if [[ "$workers" -gt 1 ]]; then
+        xdist_args=(-n "$workers" --dist=loadgroup)
+    fi
+    if ! run_pytest_pass "limitador triage" \
+        env E2E_PYTEST_PASS=parallel PYTHONPATH="$TEST_DIR:${PYTHONPATH:-}" pytest \
+        --maxfail="${E2E_MAXFAIL:-5}" \
+        ${xdist_args[@]+"${xdist_args[@]}"} \
+        --junitxml="$xml_limitador" \
+        --html="${html%.html}-limitador.html" --self-contained-html \
+        "${pytest_common_args[@]}" \
+        -m "${_limitador_marker}"; then
+        parallel_rc=1
+    fi
+}
+
 run_serial_pass() {
     echo "Running E2E pass 2/${_pass_total}: serial cluster mutators (-m '${_serial_marker}', single worker)"
     if ! run_pytest_pass "pass 2 (serial)" \
@@ -313,6 +363,13 @@ maybe_run_nightly_pass() {
 if [[ "$_run_only_oidc_tests" == "true" ]]; then
     echo "Running E2E tests (OIDC tests only, E2E_RUN_ONLY_OIDC_TESTS=true; passes 1–2 skipped)"
     run_nightly_pass
+elif [[ "$limitador_triage" == "true" ]]; then
+    # Deliberately unconditional: a triage run exists to observe these passes, so
+    # neither one is allowed to be skipped because the other failed.
+    echo "Running E2E tests (Limitador triage only: -m '${_limitador_marker}' then -m '${_serial_marker}'; the broad parallel pass is skipped)"
+    run_limitador_pass
+    snapshot_parallel_pass_pods || echo "WARNING: failed to snapshot pods after the triage pass"
+    run_serial_pass
 elif [[ "$serial_only" == "true" ]]; then
     echo "Running E2E tests (serial pass only, -m '${_serial_marker}')"
     run_serial_pass
@@ -363,6 +420,9 @@ echo "✅ E2E tests completed"
 echo " - JUnit XML : ${xml}"
 if [[ -f "$xml_serial" ]]; then
     echo " - JUnit XML (serial pass): ${xml_serial}"
+fi
+if [[ -f "$xml_limitador" ]]; then
+    echo " - JUnit XML (limitador triage): ${xml_limitador}"
 fi
 if [[ -f "$xml_nightly" ]]; then
     echo " - JUnit XML (nightly pass): ${xml_nightly}"
