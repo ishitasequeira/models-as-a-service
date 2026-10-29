@@ -1319,7 +1319,6 @@ func TestLLMISvcRouterStatusChangedPredicate(t *testing.T) {
 	if !p.Update(event.UpdateEvent{ObjectOld: base, ObjectNew: notReady}) {
 		t.Error("Ready change should trigger reconcile")
 	}
-
 }
 
 // --- CRD-established bootstrap ---

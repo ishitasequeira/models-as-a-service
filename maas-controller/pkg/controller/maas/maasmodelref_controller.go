@@ -699,7 +699,6 @@ func crdEstablished(crd *apiextensionsv1.CustomResourceDefinition) bool {
 	return false
 }
 
-
 func (r *MaaSModelRefReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	ctx := context.Background()
 
