@@ -131,6 +131,30 @@ func tenantAssociationIndexer(obj client.Object) []string {
 	return []string{tenantAssociationUnresolved}
 }
 
+// notReadyRequeueInterval is how often a model that is not Ready is re-checked
+// without an event.
+//
+// Watches alone can leave a stale not-Ready phase behind. A backend's Ready
+// transition is delivered as an update event, and a reconcile running at that
+// instant can read the informer cache from just before the transition: it
+// writes "backend is not ready" and nothing re-queues the object afterwards,
+// so the phase stays wrong indefinitely while the backend serves traffic.
+// Waiting on the model then times out against a healthy model.
+//
+// The requeue is short because backends normally become ready within seconds,
+// and it stops as soon as the model is Ready.
+const notReadyRequeueInterval = 10 * time.Second
+
+// requeueWhenNotReady returns the result for a reconcile that left the model
+// short of Ready: a timed re-check, so a missed or racy watch event cannot
+// strand the phase. Ready models wait for the next event only.
+func requeueWhenNotReady(ready bool) ctrl.Result {
+	if ready {
+		return ctrl.Result{}
+	}
+	return ctrl.Result{RequeueAfter: notReadyRequeueInterval}
+}
+
 // Reconcile is part of the main kubernetes reconciliation loop
 func (r *MaaSModelRefReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	ctx = oteljson.IntoContext(ctx)
@@ -180,13 +204,14 @@ func (r *MaaSModelRefReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 		if errors.Is(err, ErrHTTPRouteNotFound) {
 			// HTTPRoute doesn't exist yet - this is normal during startup.
-			// Set status to Pending (not Failed). The HTTPRoute watch will trigger reconciliation when the route is created.
+			// Set status to Pending (not Failed). The HTTPRoute watch triggers
+			// reconciliation when the route is created; the timer is the backstop.
 			model.Status.Endpoint = ""
-			return ctrl.Result{}, r.updateStatus(ctx, model, "Pending", "Waiting for HTTPRoute to be created", statusSnapshot)
+			return requeueWhenNotReady(false), r.updateStatus(ctx, model, "Pending", "Waiting for HTTPRoute to be created", statusSnapshot)
 		}
 		if errors.Is(err, ErrTenantResolutionPending) {
 			model.Status.Endpoint = ""
-			return ctrl.Result{}, r.updateStatus(ctx, model, "Pending", "Waiting for tenant resolution: "+err.Error(), statusSnapshot)
+			return requeueWhenNotReady(false), r.updateStatus(ctx, model, "Pending", "Waiting for tenant resolution: "+err.Error(), statusSnapshot)
 		}
 		log.Error(err, "failed to reconcile HTTPRoute")
 		if statusErr := r.updateStatus(ctx, model, "Failed", fmt.Sprintf("Failed to reconcile HTTPRoute: %v", err), statusSnapshot); statusErr != nil {
@@ -240,7 +265,10 @@ func (r *MaaSModelRefReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	if phase != "Ready" {
 		model.Status.Endpoint = ""
 	}
-	return ctrl.Result{}, r.updateStatus(ctx, model, phase, message, statusSnapshot)
+	if err := r.updateStatus(ctx, model, phase, message, statusSnapshot); err != nil {
+		return ctrl.Result{}, err
+	}
+	return requeueWhenNotReady(phase == "Ready"), nil
 }
 
 // checkGovernanceAttached returns true if there is at least one active
