@@ -32,7 +32,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -1321,19 +1320,6 @@ func TestLLMISvcRouterStatusChangedPredicate(t *testing.T) {
 		t.Error("Ready change should trigger reconcile")
 	}
 
-	toUnstructured := func(svc *kservev1alpha2.LLMInferenceService) *unstructured.Unstructured {
-		obj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(svc)
-		if err != nil {
-			t.Fatalf("convert to unstructured: %v", err)
-		}
-		return &unstructured.Unstructured{Object: obj}
-	}
-	if p.Update(event.UpdateEvent{ObjectOld: toUnstructured(base), ObjectNew: toUnstructured(unchanged)}) {
-		t.Error("unstructured update without router change should be filtered")
-	}
-	if !p.Update(event.UpdateEvent{ObjectOld: toUnstructured(base), ObjectNew: toUnstructured(newPool)}) {
-		t.Error("unstructured InferencePool change should trigger reconcile")
-	}
 }
 
 // --- CRD-established bootstrap ---

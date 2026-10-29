@@ -655,14 +655,15 @@ func TestMaaSModelRefReconciler_HTTPRouteRaceCondition(t *testing.T) {
 	r, c := newTestReconciler(model, llmisvc, sub, auth)
 	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: modelName, Namespace: ns}}
 
-	// --- Phase 1: Reconcile without HTTPRoute -> should enter Pending ---
+	// --- Phase 1: Reconcile without HTTPRoute -> should enter Pending, no timer ---
+	// The HTTPRoute watch re-enqueues this model when the route appears; no polling needed.
 
 	result, err := r.Reconcile(ctx, req)
 	if err != nil {
 		t.Fatalf("Reconcile (no HTTPRoute): %v", err)
 	}
-	if result.RequeueAfter != notReadyRequeueInterval {
-		t.Errorf("expected a timed re-check while the HTTPRoute is missing, got: %v", result)
+	if result.RequeueAfter != 0 {
+		t.Errorf("expected no timed re-check while HTTPRoute is missing (watch handles it), got: %v", result)
 	}
 
 	got := &maasv1alpha1.MaaSModelRef{}
@@ -697,12 +698,12 @@ func TestMaaSModelRefReconciler_HTTPRouteRaceCondition(t *testing.T) {
 }
 
 // TestMaaSModelRefReconciler_RequeuesWhileBackendNotReady verifies that a model whose
-// backend is not ready is re-checked on a timer.
+// backend is not yet ready is re-checked on a timer, and stops polling once ready.
 //
-// The watch path alone can strand the phase: a reconcile that reads the informer cache
-// from just before the backend's Ready transition writes "backend is not ready" and
-// nothing re-queues the object afterwards, so a model whose backend is serving traffic
-// stays Unhealthy until some unrelated event happens to arrive.
+// The LLMInferenceService watch normally delivers the Ready transition. The timer is a
+// backstop for the narrow window during dynamic (late-CRD) watch registration where an
+// event can be missed. The requeue fires only while runtimeReady is false, so models
+// that are intentionally not Ready (no governance, no HTTPRoute) do not get polled.
 func TestMaaSModelRefReconciler_RequeuesWhileBackendNotReady(t *testing.T) {
 	ctx := context.Background()
 	const (
@@ -724,8 +725,8 @@ func TestMaaSModelRefReconciler_RequeuesWhileBackendNotReady(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Reconcile (backend not ready): %v", err)
 	}
-	if result.RequeueAfter != notReadyRequeueInterval {
-		t.Errorf("RequeueAfter = %v, want %v while the backend is not ready", result.RequeueAfter, notReadyRequeueInterval)
+	if result.RequeueAfter != backendNotReadyRequeueInterval {
+		t.Errorf("RequeueAfter = %v, want %v while the backend is not ready", result.RequeueAfter, backendNotReadyRequeueInterval)
 	}
 	notReady := &maasv1alpha1.MaaSModelRef{}
 	if err := c.Get(ctx, req.NamespacedName, notReady); err != nil {
