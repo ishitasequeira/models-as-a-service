@@ -34,9 +34,8 @@
 #     tokenratelimitpolicies.yaml - Full YAML of every TRLP
 #     trlp-conditions.txt        - Compact per-TRLP conditions with generation
 #     pods.txt                   - kuadrant-system pod state
-#     metrics.txt                - Limitador /metrics
-#     status-liveness.txt        - Limitador liveness probe result
-#     status-readiness.txt       - Limitador readiness probe result
+#     metrics.txt                - Limitador /metrics (limitador_up, datastore_partitioned,
+#                                  authorized_hits, limited_calls)
 #
 # Usage:
 #   source test/e2e/scripts/auth_utils.sh
@@ -397,14 +396,16 @@ collect_limitador_state() {
   # Conditions rather than the name/age dump cluster-state.log keeps: the
   # condition message is the only existing signal that names the unsynced
   # component, and generation vs observedGeneration separates "Limitador never
-  # saw the update" from "Limitador saw it and rejected it".
+  # saw the update" from "Limitador saw it and rejected it". The tests compare
+  # the top-level .status.observedGeneration, not the per-condition field, which
+  # this Kuadrant build leaves unset.
   _limitador_timeout 30 kubectl get tokenratelimitpolicies.kuadrant.io -A -o yaml \
     > "$outdir/tokenratelimitpolicies.yaml" 2>&1 || true
   _limitador_timeout 30 kubectl get tokenratelimitpolicies.kuadrant.io -A -o json 2>/dev/null \
     | jq -r '.items[] | .metadata.name as $n | .metadata.namespace as $m
-        | "--- \($n) (\($m)) generation=\(.metadata.generation // "-")",
+        | "--- \($n) (\($m)) generation=\(.metadata.generation // "-") observedGeneration=\(.status.observedGeneration // "-")",
           ((.status.conditions // [])[]
-            | "    \(.type)=\(.status) reason=\(.reason // "-") observedGeneration=\(.observedGeneration // "-") \(.message // "")")' \
+            | "    \(.type)=\(.status) reason=\(.reason // "-") \(.message // "")")' \
     > "$outdir/trlp-conditions.txt" 2>/dev/null || true
 
   _limitador_timeout 30 kubectl get pods -n "$ns" -o wide > "$outdir/pods.txt" 2>&1 || true
@@ -420,12 +421,12 @@ collect_limitador_state() {
   fi
   echo "Limitador pod: $pod" >> "$outdir/pods.txt"
 
-  # /metrics shows whether Limitador is accepting config pushes at all; the
-  # status endpoints show whether it considers itself healthy while doing so.
-  local path
-  for path in metrics status/liveness status/readiness version; do
-    _limitador_fetch "$ns" "$pod" "$path" "$outdir/$(tr '/' '-' <<<"$path").txt"
-  done
+  # /metrics carries the health signals that matter here -- limitador_up and
+  # datastore_partitioned -- plus the counters that show whether the limiter is
+  # accepting config pushes and enforcing them at all. The /status endpoints are
+  # not collected: they answer 200 with an empty body, so a saved file cannot
+  # distinguish "healthy" from "probe failed".
+  _limitador_fetch "$ns" "$pod" metrics "$outdir/metrics.txt"
   echo "  Saved Limitador state to $outdir"
 }
 
