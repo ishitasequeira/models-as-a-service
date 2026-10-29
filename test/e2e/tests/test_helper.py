@@ -52,6 +52,8 @@ Environment variables (all optional unless noted):
   - E2E_MAAS_SUBSCRIPTION_PHASE_TIMEOUT: MaaSSubscription phase wait (default: 120)
   - E2E_SUBSCRIPTION_INFERENCE_READY_TIMEOUT: Discovery + direct/mirrored TRLP wait (default: 300)
   - E2E_SUBSCRIPTION_TRLP_TIMEOUT: MaaSSubscription mirrored TRLP ready wait (default: 180)
+  - E2E_REQUIRE_TRLP_ENFORCED: Gate TRLP waits on Kuadrant Enforced=True (default: false;
+    Limitador can leave it False long after the limit is programmed)
   - E2E_OC_TIMEOUT: Per-attempt `oc` process timeout in seconds (default: 60)
   - E2E_OC_RETRY_BUDGET: Wall-clock budget for retrying transient `oc` failures in seconds (default: 180)
 """
@@ -107,6 +109,11 @@ SUBSCRIPTION_INFERENCE_READY_TIMEOUT = int(
     os.environ.get("E2E_SUBSCRIPTION_INFERENCE_READY_TIMEOUT", "300")
 )
 SUBSCRIPTION_TRLP_STATUS_TIMEOUT = int(os.environ.get("E2E_SUBSCRIPTION_TRLP_TIMEOUT", "180"))
+# Limitador can leave a TokenRateLimitPolicy at Enforced=False ("waiting for
+# [Limitador]") long after the gateway is serving the limit. Gating waits on
+# that condition measures Kuadrant's status writer, not MaaS behaviour, so it is
+# off by default. Set E2E_REQUIRE_TRLP_ENFORCED=true to restore the old gate.
+REQUIRE_TRLP_ENFORCED = os.environ.get("E2E_REQUIRE_TRLP_ENFORCED", "").lower() == "true"
 OC_TIMEOUT = int(os.environ.get("E2E_OC_TIMEOUT", "60"))
 # An API server blip (TLS handshake timeout, admission webhook unreachable while
 # maas-controller restarts) must not fail a test or skip a teardown delete.
@@ -1578,10 +1585,16 @@ def _wait_for_gateway_auth_enforced(
 def _wait_for_token_rate_limit_policy(
     model_ref, model_namespace=MODEL_NAMESPACE, timeout=180, *, subscription_name=None, subscription_namespace=None
 ):
-    """Wait for the current TokenRateLimitPolicy generation to be enforced.
+    """Wait for the current TokenRateLimitPolicy generation to be observed.
 
-    If a subscription is supplied, wait until the policy includes it. This
-    prevents accepting the old policy before the controller updates its spec.
+    Waits until the policy exists, its observedGeneration matches the current
+    generation, and (when a subscription is supplied) its spec includes that
+    subscription. This prevents accepting the old policy before the controller
+    updates its spec.
+
+    The Enforced condition is not required by default: Limitador can leave it
+    at False ("waiting for [Limitador]") long after the limit is programmed.
+    Set E2E_REQUIRE_TRLP_ENFORCED=true to gate on it again once that is fixed.
 
     Args:
         model_ref: Name of the model (e.g., "e2e-distinct-simulated")
@@ -1591,7 +1604,7 @@ def _wait_for_token_rate_limit_policy(
         subscription_namespace: Subscription namespace (defaults to _ns())
 
     Raises:
-        TimeoutError: If TRLP isn't created and enforced within timeout
+        TimeoutError: If TRLP isn't created and observed within timeout
     """
     trlp_name = f"maas-trlp-{model_ref}"
     expected_subscription = (
@@ -1624,16 +1637,23 @@ def _wait_for_token_rate_limit_policy(
                     ).split(",")
                 }
                 includes_subscription = expected_subscription is None or expected_subscription in subscriptions
+                enforced_ok = enforced is not None and enforced.get("status") == "True"
                 last_snapshot = (
                     f"generation={generation}, observedGeneration={observed}, "
                     f"Enforced={enforced}, includes_subscription={includes_subscription}"
                 )
                 if (
-                    enforced and enforced.get("status") == "True"
+                    (enforced_ok or not REQUIRE_TRLP_ENFORCED)
                     and generation is not None and observed == generation
                     and includes_subscription
                 ):
-                    log.info(f"TokenRateLimitPolicy {trlp_name} generation {generation} is enforced")
+                    if enforced_ok:
+                        log.info(f"TokenRateLimitPolicy {trlp_name} generation {generation} is enforced")
+                    else:
+                        log.info(
+                            f"TokenRateLimitPolicy {trlp_name} generation {generation} is observed; "
+                            "not gating on Enforced (known Limitador issue)"
+                        )
                     return
                 log.debug(f"TokenRateLimitPolicy {trlp_name} is not ready: {last_snapshot}")
             except (json.JSONDecodeError, KeyError) as e:
@@ -1891,16 +1911,13 @@ def _wait_for_subscription_inference_ready(
     """Wait for model discovery plus direct and mirrored TRLP enforcement.
 
     Args:
-        require_enforced_trlp: Wait for Kuadrant to report the TRLP as
-            Enforced. Keep True (default) for tests that assert rate-limit
-            behaviour (429s, exemptions, shared limits) — the limit must be
-            programmed on the gateway for those assertions to mean anything.
-            Pass False for access-matrix tests whose assertions are proven by
-            the inference request itself: Kuadrant's TRLP status updater loses
-            optimistic-concurrency races under parallel load and can leave
-            Enforced=False long after the gateway is actually serving, so
-            gating those tests on it measures Kuadrant's status writer rather
-            than the behaviour under test.
+        require_enforced_trlp: Wait for the TRLP to reach the subscription's
+            current generation. The Enforced condition itself is not gated on
+            by default (see REQUIRE_TRLP_ENFORCED): Limitador can leave it
+            False long after the limit is programmed, so waiting on it measures
+            Kuadrant's status writer rather than MaaS behaviour. Pass False for
+            access-matrix tests whose assertions are proven by the inference
+            request itself and do not need to wait for the policy at all.
     """
     namespace = namespace or _ns()
     _wait_for_subscription_discovery_ready(
