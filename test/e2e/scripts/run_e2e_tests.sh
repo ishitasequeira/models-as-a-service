@@ -345,9 +345,13 @@ run_nightly_pass() {
 }
 
 maybe_run_serial_pass() {
+    # Always run the serial pass, even when the parallel pass failed. The serial
+    # tests are the cluster mutators most sensitive to state left behind by
+    # pass 1, and skipping them turns a parallel failure into a silent coverage
+    # gap: the job reports only the parallel error and never learns whether
+    # serial tests would also have failed. Both rc values are reported at exit.
     if [[ "$parallel_rc" -ne 0 ]]; then
-        echo "Skipping E2E pass 2/${_pass_total} (serial): parallel pass failed"
-        return 0
+        echo "E2E pass 1 (parallel) failed; still running pass 2/${_pass_total} (serial) to report its result independently"
     fi
     run_serial_pass
 }
