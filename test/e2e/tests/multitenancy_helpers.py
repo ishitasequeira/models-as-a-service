@@ -237,9 +237,22 @@ def get_json_or_none(kind: str, name: str, namespace: Optional[str] = None) -> O
     raise RuntimeError(f"`oc {' '.join(args)}` failed: {result.stderr.strip() or result.stdout.strip()}")
 
 
-def list_json(kind: str, namespace: Optional[str] = None, *, labels: Optional[str] = None) -> list[dict]:
+def list_json(
+    kind: str,
+    namespace: Optional[str] = None,
+    *,
+    labels: Optional[str] = None,
+    all_namespaces: bool = False,
+) -> list[dict]:
+    """List ``kind`` as parsed JSON.
+
+    Without ``namespace`` this lists the current context's namespace, not the
+    cluster — pass ``all_namespaces=True`` when the objects can live anywhere.
+    """
     args = ["get", kind, "-o", "json"]
-    if namespace:
+    if all_namespaces:
+        args.append("-A")
+    elif namespace:
         args.extend(["-n", namespace])
     if labels:
         args.extend(["-l", labels])
@@ -1650,7 +1663,7 @@ def wait_for_tenant_model_refs_gone(tenant_name: str, *, timeout: int = 120, int
     while time.time() < deadline:
         remaining = [
             f"{(ref.get('metadata') or {}).get('namespace', '')}/{(ref.get('metadata') or {}).get('name')}"
-            for ref in list_json("maasmodelref")
+            for ref in list_json("maasmodelref", all_namespaces=True)
             if ((ref.get("spec") or {}).get("tenantRef") or "") == tenant_name
         ]
         if not remaining:
