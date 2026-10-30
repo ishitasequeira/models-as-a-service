@@ -313,12 +313,18 @@ def kubectl_curl(
     headers: dict = None,
     json_body: dict = None,
     namespace: str = None,
+    attempts: int = 2,
 ) -> tuple[int, str]:
     """Execute an HTTP request from inside the cluster via kubectl exec.
 
     The pod is created without credentials in its spec.  Credentials
     (headers, request body) are passed only via stdin to ``kubectl exec -i``
     so that they never appear in the Pod object stored in the Kubernetes API.
+
+    An infrastructure failure (``status_code == 0``) is retried with a fresh
+    pod: with several workers probing at once the API server sporadically
+    stalls an exec stream past its timeout, and the probes that use this helper
+    are reads (validate a key, resolve a subscription) that are safe to repeat.
 
     Args:
         url: Target URL (must be reachable from within the cluster).
@@ -328,14 +334,44 @@ def kubectl_curl(
             when *method* is still the default ``GET``).
         namespace: Kubernetes namespace for the ephemeral curl pod
             (default: ``E2E_CURL_POD_NAMESPACE``).
+        attempts: How many probe attempts to allow before returning ``0``.
 
     Returns:
-        ``(status_code, response_body)``.  *status_code* is ``0`` on
-        infrastructure failure.
+        ``(status_code, response_body)``.  *status_code* is ``0`` when every
+        attempt failed for infrastructure reasons.
     """
     namespace = namespace or os.environ.get(
         "E2E_CURL_POD_NAMESPACE", E2E_CURL_POD_NAMESPACE,
     )
+    status_code, body = 0, ""
+    for attempt in range(1, attempts + 1):
+        status_code, body = _kubectl_curl_once(
+            url,
+            method=method,
+            headers=headers,
+            json_body=json_body,
+            namespace=namespace,
+        )
+        if status_code:
+            return status_code, body
+        if attempt < attempts:
+            log.warning(
+                "kubectl curl probe of %s failed (attempt %d/%d); retrying with a fresh pod",
+                url, attempt, attempts,
+            )
+            time.sleep(2)
+    return status_code, body
+
+
+def _kubectl_curl_once(
+    url: str,
+    *,
+    method: str,
+    headers: dict | None,
+    json_body: dict | None,
+    namespace: str,
+) -> tuple[int, str]:
+    """One ephemeral-pod probe for :func:`kubectl_curl`; ``0`` on any failure."""
     pod_name = f"test-curl-{os.getpid()}-{uuid.uuid4().hex[:6]}"
     ca_cert_path, ca_bundle_content = get_curl_ca_bundle(namespace)
 
