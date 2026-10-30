@@ -2207,10 +2207,13 @@ class TestModelsEndpoint:
         # Expected: 401 Unauthorized
         log.info("Testing: GET /v1/models without Authorization header")
         url = f"{_maas_api_url()}/v1/models"
-        r = requests.get(
+        # A plain-text proxy 500 ("Internal Server Error.") is Envoy/router
+        # mid-reload, not a maas-api answer; retry it. A 401 is the expected
+        # answer here, so it must not be treated as a transient denial.
+        r = _request_with_gateway_retry(
+            requests.get,
             url,
-            timeout=TIMEOUT,
-            verify=TLS_VERIFY,
+            auth_denial_is_transient=False,
         )
 
         assert r.status_code == 401, f"Expected 401 for unauthenticated request, got {r.status_code}: {r.text}"
