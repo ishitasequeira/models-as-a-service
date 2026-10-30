@@ -96,6 +96,7 @@ from test_helper import (
     _wait_for_gateway_auth_enforced,
     _wait_for_maas_auth_policy_phase,
     _wait_for_maas_subscription_phase,
+    _wait_for_model_ready,
     _scale_kuadrant_controller_down,
     _scale_kuadrant_controller_up,
     _wait_for_subscription_trlp_status,
@@ -113,13 +114,23 @@ pytestmark = [pytest.mark.xdist_group("api_keys"), pytest.mark.worker_tenant]
 @pytest.fixture(scope="module", autouse=True)
 def _worker_subscription_context(request):
     """Point non-serial subscription tests at worker-owned tenant resources."""
-    from worker_tenant_fixtures import activate_worker_tenant, serial_only_selection
+    from worker_tenant_fixtures import (
+        activate_worker_tenant,
+        ensure_worker_models,
+        serial_only_selection,
+    )
 
     if serial_only_selection(request):
         yield
         return
 
     context = request.getfixturevalue("worker_tenant_context")
+    # The baseline models are bootstrapped once per worker session; re-ensure
+    # them here so a backend that drifted Unhealthy during the run is healed,
+    # then wait the way every other module does before its Ready prerequisite.
+    ensure_worker_models(context, (context.model_ref, context.premium_model_ref))
+    for model_ref in (context.model_ref, context.premium_model_ref):
+        _wait_for_model_ready(model_ref, namespace=context.model_namespace)
     names = (
         "MODEL_NAME", "MODEL_NAMESPACE", "MODEL_PATH", "MODEL_REF",
         "PREMIUM_MODEL_PATH", "PREMIUM_MODEL_REF", "SIMULATOR_ACCESS_POLICY",
