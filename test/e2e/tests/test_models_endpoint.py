@@ -38,6 +38,7 @@ from test_helper import (
     MODEL_NAMESPACE,
     MODEL_REF,
     PREMIUM_SIMULATOR_SUBSCRIPTION,
+    RATE_LIMIT_ENFORCEMENT_TIMEOUT,
     SIMULATOR_ACCESS_POLICY,
     SIMULATOR_SUBSCRIPTION,
     TIMEOUT,
@@ -2301,7 +2302,12 @@ class TestModelsEndpoint:
 
             success_count = 0
             rate_limited = False
-            for request_num in range(1, max_requests + 1):
+            # Past the planned count keep going until the enforcement deadline:
+            # the limiter can trail the policy status, and this asserts a 429.
+            deadline = time.time() + RATE_LIMIT_ENFORCEMENT_TIMEOUT
+            request_num = 0
+            while request_num < max_requests or time.time() < deadline:
+                request_num += 1
                 response = _inference(api_key, path=model_path, max_tokens=1)
                 log.info("Inference request %d: %d", request_num, response.status_code)
                 if response.status_code == 200:

@@ -62,6 +62,7 @@ from test_helper import (
     MODEL_REF,
     PREMIUM_MODEL_PATH,
     PREMIUM_MODEL_REF,
+    RATE_LIMIT_ENFORCEMENT_TIMEOUT,
     SIMULATOR_ACCESS_POLICY,
     SIMULATOR_SUBSCRIPTION,
     TIMEOUT,
@@ -672,13 +673,17 @@ class TestSubscriptionEnforcement:
                 subscription=subscription_name,
             )
 
-            # 4. Send requests to exhaust the limit
+            # 4. Send requests to exhaust the limit. Past the planned count keep
+            # going until the enforcement deadline: the limiter can trail the
+            # policy status, and this test asserts a 429, not a status field.
             rate_limited = False
             success_count = 0
+            deadline = time.time() + RATE_LIMIT_ENFORCEMENT_TIMEOUT
 
-            for i in range(total_requests):
+            request_num = 0
+            while request_num < total_requests or time.time() < deadline:
+                request_num += 1
                 r = _inference(api_key, path=model_path, max_tokens=1)
-                request_num = i + 1
                 log.info(f"Request {request_num}/{total_requests}: {r.status_code}")
 
                 if r.status_code == 200:
@@ -800,9 +805,13 @@ class TestSubscriptionEnforcement:
             rate_limited = False
 
             log.info(f"Exhausting token quota: sending up to {max_requests} requests")
-            for i in range(max_requests):
+            # Keep sending past the planned count until the enforcement deadline
+            # so a limiter that trails the policy status does not fail the test.
+            deadline = time.time() + RATE_LIMIT_ENFORCEMENT_TIMEOUT
+            request_num = 0
+            while request_num < max_requests or time.time() < deadline:
+                request_num += 1
                 r = _inference(api_key, path=model_path)
-                request_num = i + 1
                 log.info(f"Request {request_num}: status {r.status_code}")
 
                 if r.status_code == 200:

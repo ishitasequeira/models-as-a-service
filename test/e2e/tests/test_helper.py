@@ -114,6 +114,11 @@ SUBSCRIPTION_TRLP_STATUS_TIMEOUT = int(os.environ.get("E2E_SUBSCRIPTION_TRLP_TIM
 # that condition measures Kuadrant's status writer, not MaaS behaviour, so it is
 # off by default. Set E2E_REQUIRE_TRLP_ENFORCED=true to restore the old gate.
 REQUIRE_TRLP_ENFORCED = os.environ.get("E2E_REQUIRE_TRLP_ENFORCED", "").lower() == "true"
+# Rate-limit tests cannot lean on the Enforced gate above, so they wait for the
+# effect instead: keep sending past the planned request count until the limiter
+# refuses a request, and only then call it a failure. Covers Limitador lagging
+# the policy status by a few seconds.
+RATE_LIMIT_ENFORCEMENT_TIMEOUT = int(os.environ.get("E2E_RATE_LIMIT_ENFORCEMENT_TIMEOUT", "60"))
 OC_TIMEOUT = int(os.environ.get("E2E_OC_TIMEOUT", "60"))
 # An API server blip (TLS handshake timeout, admission webhook unreachable while
 # maas-controller restarts) must not fail a test or skip a teardown delete.
