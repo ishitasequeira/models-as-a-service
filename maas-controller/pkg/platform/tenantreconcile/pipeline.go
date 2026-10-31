@@ -18,6 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/util/retry"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	gwapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
@@ -61,6 +62,33 @@ func RunPlatform(
 	monitoringNamespace string,
 	mcfg *maasv1alpha1.Config,
 ) (*RunResult, error) {
+	return RunPlatformWithReader(ctx, log, c, c, scheme, tenant, platformContext, manifestPath,
+		appNs, controllerNs, clusterAudience, monitoringNamespace, mcfg)
+}
+
+// RunPlatformWithReader is RunPlatform with an uncached API reader for safety-
+// critical migration decisions. The controller's cached client can lag an
+// ExternalModel or IPP ConfigMap update when the one-shot cleanup reconcile is
+// triggered. A stale read must never authorize deletion of legacy translation
+// state.
+func RunPlatformWithReader(
+	ctx context.Context,
+	log logr.Logger,
+	c client.Client,
+	apiReader client.Reader,
+	scheme *runtime.Scheme,
+	tenant client.Object,
+	platformContext PlatformContext,
+	manifestPath string,
+	appNs string,
+	controllerNs string,
+	clusterAudience string,
+	monitoringNamespace string,
+	mcfg *maasv1alpha1.Config,
+) (*RunResult, error) {
+	if apiReader == nil {
+		apiReader = c
+	}
 	manifestPath, err := filepath.Abs(manifestPath)
 	if err != nil {
 		return nil, fmt.Errorf("manifest path: %w", err)
@@ -128,7 +156,7 @@ func RunPlatform(
 	// payload-processing names — ai-gateway-controller owns them for praxis tenants.
 	// A blocked plugins ConfigMap gate skips only that cleanup; apply/sync/readiness
 	// for non-IPP resources still run so the rest of the tenant stays current.
-	switchOutcome, err := reconcilePayloadProcessingSwitch(ctx, c, tenant, &params, mcfg, log)
+	switchOutcome, err := reconcilePayloadProcessingSwitch(ctx, c, apiReader, tenant, &params, mcfg, log)
 	if err != nil {
 		return nil, err
 	}
@@ -165,15 +193,17 @@ func RunPlatform(
 		return &RunResult{DeploymentPending: true, Detail: withMigrationBlockedDetail(detail, switchOutcome.blockedReason), Warnings: params.Warnings,
 			KuadrantDetectionWarning: params.KuadrantDetectionWarning}, nil
 	}
-	if !params.SkipIPP {
-		ready, detail, err = PayloadProcessingEnvoyFilterReady(ctx, c, params.GatewayNamespace, params.GatewayName, tenantID)
-		if err != nil {
-			return nil, fmt.Errorf("payload-processing EnvoyFilter status: %w", err)
-		}
-		if !ready {
-			return &RunResult{DeploymentPending: true, Detail: withMigrationBlockedDetail(detail, switchOutcome.blockedReason), Warnings: params.Warnings,
-				KuadrantDetectionWarning: params.KuadrantDetectionWarning}, nil
-		}
+	// Shared EnvoyFilter shape check for both legacy IPP and praxis (AGC).
+	// Praxis tenants skip *applying* IPP resources (SkipIPP) but still wait on
+	// the same gateway-namespace EnvoyFilter AGC owns — do not gate this on
+	// SkipIPP or Ready deadlocks with AGC's former Active requirement.
+	ready, detail, err = PayloadProcessingEnvoyFilterReady(ctx, c, params.GatewayNamespace, params.GatewayName, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("payload-processing EnvoyFilter status: %w", err)
+	}
+	if !ready {
+		return &RunResult{DeploymentPending: true, Detail: withMigrationBlockedDetail(detail, switchOutcome.blockedReason), Warnings: params.Warnings,
+			KuadrantDetectionWarning: params.KuadrantDetectionWarning}, nil
 	}
 	if switchOutcome.blockedReason != "" {
 		return &RunResult{DeploymentPending: true, Detail: switchOutcome.blockedReason, Warnings: params.Warnings,
@@ -204,6 +234,7 @@ func withMigrationBlockedDetail(detail, blockedReason string) string {
 func reconcilePayloadProcessingSwitch(
 	ctx context.Context,
 	c client.Client,
+	apiReader client.Reader,
 	tenant client.Object,
 	params *PlatformParams,
 	mcfg *maasv1alpha1.Config,
@@ -221,8 +252,15 @@ func reconcilePayloadProcessingSwitch(
 					return payloadProcessingSwitchOutcome{}, fmt.Errorf("clear payload-processing migration annotation: %w", err)
 				}
 			}
+			if err := appendAcceptedAPITranslationMigrationRiskWarning(ctx, apiReader, tenant, params); err != nil {
+				return payloadProcessingSwitchOutcome{}, err
+			}
+		case PayloadProcessingStatusSteady:
+			if err := appendAcceptedAPITranslationMigrationRiskWarning(ctx, apiReader, tenant, params); err != nil {
+				return payloadProcessingSwitchOutcome{}, err
+			}
 		case "":
-			gate, gateErr := evaluatePluginsConfigMapMigration(ctx, c, *params, tenant)
+			gate, gateErr := evaluatePluginsConfigMapMigration(ctx, apiReader, *params, tenant)
 			if gateErr != nil {
 				return payloadProcessingSwitchOutcome{}, fmt.Errorf("evaluate plugins ConfigMap migration: %w", gateErr)
 			}
@@ -237,6 +275,64 @@ func reconcilePayloadProcessingSwitch(
 				return payloadProcessingSwitchOutcome{blockedReason: gate.Reason}, nil
 			}
 			log.Info("plugins ConfigMap migration gate allow", "baseline", gate.Baseline, "reason", gate.Reason)
+			intent, err := persistAPITranslationMigrationIntent(
+				ctx, c, apiReader, tenant, ippBaselineTranslatesRequests(gate.Baseline),
+			)
+			if err != nil {
+				return payloadProcessingSwitchOutcome{}, fmt.Errorf("prepare API translation migration intent before IPP cleanup: %w", err)
+			}
+			affectedModels, err := legacyIPPTranslationModels(ctx, apiReader, *params, tenant)
+			if err != nil {
+				blockedReason := fmt.Sprintf("cannot assess legacy IPP translation compatibility (%v); keeping the IPP ConfigMap and resources", err)
+				if err := setPayloadProcessingMigrationAnnotation(ctx, c, tenant, PayloadProcessingMigrationBlocked); err != nil {
+					return payloadProcessingSwitchOutcome{}, fmt.Errorf("mark API translation compatibility migration blocked: %w", err)
+				}
+				params.Warnings = append(params.Warnings, blockedReason)
+				return payloadProcessingSwitchOutcome{blockedReason: blockedReason}, nil
+			}
+			if len(affectedModels) > 0 {
+				compatibilityRisk := apiTranslationCompatibilityRisk(affectedModels)
+				switch {
+				case gate.Forced:
+					params.Warnings = append(params.Warnings, forcedMigrationReason(compatibilityRisk, true))
+				case intent.Explicit && !intent.Enabled:
+					params.Warnings = append(params.Warnings, compatibilityRisk+"; explicit spec.apiTranslation.enabled=false accepts this compatibility loss")
+				default:
+					blockedReason := fmt.Sprintf(
+						"%s; keeping the IPP ConfigMap and resources. Set spec.apiTranslation.enabled=false to explicitly accept the loss or set %s=true after reviewing the risk. This does not establish parity.",
+						compatibilityRisk,
+						AnnotationForcePayloadProcessingMigration,
+					)
+					log.Info("blocking IPP→Praxis migration because provider translation is not available", "reason", blockedReason)
+					if err := setPayloadProcessingMigrationAnnotation(ctx, c, tenant, PayloadProcessingMigrationBlocked); err != nil {
+						return payloadProcessingSwitchOutcome{}, fmt.Errorf("mark API translation compatibility migration blocked: %w", err)
+					}
+					params.Warnings = append(params.Warnings, blockedReason)
+					return payloadProcessingSwitchOutcome{blockedReason: blockedReason}, nil
+				}
+			}
+			acceptedRisk := ""
+			if len(affectedModels) > 0 {
+				switch {
+				case gate.Forced:
+					acceptedRisk = APITranslationMigrationRiskForced
+				case intent.Explicit && !intent.Enabled:
+					acceptedRisk = APITranslationMigrationRiskExplicitFalse
+				}
+			} else if gate.Baseline == "force" {
+				// A force migration of a customized IPP ConfigMap is a durable
+				// compatibility choice even when no current ExternalModel needs
+				// provider-format translation.
+				acceptedRisk = APITranslationMigrationRiskForced
+			}
+			if acceptedRisk != "" {
+				if err := persistAPITranslationMigrationRisk(ctx, c, tenant, acceptedRisk); err != nil {
+					return payloadProcessingSwitchOutcome{}, fmt.Errorf("persist accepted API translation migration risk before IPP cleanup: %w", err)
+				}
+			}
+			if gate.Forced {
+				params.Warnings = append(params.Warnings, gate.Reason)
+			}
 			if err := cleanupIPPResources(ctx, c, *params, mcfg.UID, log); err != nil {
 				return payloadProcessingSwitchOutcome{}, fmt.Errorf("cleanup IPP resources: %w", err)
 			}
@@ -303,7 +399,13 @@ func Run(
 		return nil, fmt.Errorf("invalid application namespace %q: %v", appNs, errs)
 	}
 
-	if err := ValidatePrerequisites(ctx, c, appNs); err != nil {
+	usageMetricsDashboard := false
+	usageLogging := false
+	if mcfg != nil {
+		usageMetricsDashboard = ptr.Deref(mcfg.Spec.UsageMetricsDashboard, false)
+		usageLogging = ptr.Deref(mcfg.Spec.UsageLogging, false)
+	}
+	if err := ValidatePrerequisites(ctx, c, appNs, usageMetricsDashboard, usageLogging, IsTelemetryEnabled(telemetryConfigFor(tenant))); err != nil {
 		return nil, fmt.Errorf("prerequisites: %w", err)
 	}
 
@@ -435,6 +537,15 @@ func PayloadProcessingEnvoyFilterReady(ctx context.Context, c client.Client, gat
 const aiGatewayControllerFieldOwner = "ai-gateway-controller"
 
 const ippExternalModelManagedBy = "ipp-external-model-reconciler"
+
+// The IPP ExternalProvider reconciler labels the transport it creates for a
+// provider with these values.
+const (
+	ippExternalProviderManagedBy = "ipp-external-provider-reconciler"
+	ippExternalProviderLabel     = "inference.opendatahub.io/external-provider"
+)
+
+var inferenceExternalProviderOwnerGVK = schema.GroupVersionKind{Group: "inference.opendatahub.io", Version: "v1alpha1", Kind: "ExternalProvider"}
 
 const ippExternalModelLabel = "inference.opendatahub.io/external-model"
 
@@ -660,6 +771,9 @@ func cleanupIPPResources(ctx context.Context, c client.Client, params PlatformPa
 	if err := cleanupIPPExternalModelRoutes(ctx, c, params, log); err != nil {
 		return err
 	}
+	if err := cleanupIPPExternalProviderTransport(ctx, c, params, log); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -712,8 +826,11 @@ func ensureIPPWritersStopped(ctx context.Context, c client.Client, params Platfo
 
 // cleanupIPPExternalModelRoutes removes only routes created by the IPP ExternalModel
 // reconciler. Route names alone do not prove ownership. ModelNamespace is the
-// tenant namespace containing ExternalModels and their routes; AppNamespace may
-// be shared infrastructure and must not be searched by this cleanup. Foreground
+// tenant namespace containing ExternalModels and their routes. The default
+// tenant's IPP also served the namespaces of no tenant, whose models
+// ai-gateway-controller now attaches to the default tenant's Gateway (see
+// tenantNamespaces), so its cleanup searches those too. AppNamespace may be
+// shared infrastructure and must not be searched by this cleanup. Foreground
 // deletion of the IPP Deployments completes before this runs, ensuring their
 // in-process route writer has stopped.
 func cleanupIPPExternalModelRoutes(ctx context.Context, c client.Client, params PlatformParams, log logr.Logger) error {
@@ -722,16 +839,21 @@ func cleanupIPPExternalModelRoutes(ctx context.Context, c client.Client, params 
 	}
 	routes := &unstructured.UnstructuredList{}
 	routes.SetGroupVersionKind(GVKHTTPRoute.GroupVersion().WithKind("HTTPRouteList"))
-	if err := c.List(ctx, routes, client.InNamespace(params.ModelNamespace)); err != nil {
-		return fmt.Errorf("list existing IPP HTTPRoutes in %s: %w", params.ModelNamespace, err)
+	listOpts, inScope, scope, err := ippModelNamespaceScope(ctx, c, params)
+	if err != nil {
+		return fmt.Errorf("clean up IPP-owned HTTPRoutes: %w", err)
+	}
+	listOpts = append(listOpts, client.MatchingLabels{"app.kubernetes.io/managed-by": ippExternalModelManagedBy})
+	if err := c.List(ctx, routes, listOpts...); err != nil {
+		return fmt.Errorf("list existing IPP HTTPRoutes %s: %w", scope, err)
 	}
 	for i := range routes.Items {
 		route := &routes.Items[i]
-		labels := route.GetLabels()
-		if labels["app.kubernetes.io/managed-by"] != ippExternalModelManagedBy {
+		namespace := route.GetNamespace()
+		if !inScope(namespace) {
 			continue
 		}
-		modelName := labels[ippExternalModelLabel]
+		modelName := route.GetLabels()[ippExternalModelLabel]
 		if modelName == "" || hasSSAFieldManager(route, aiGatewayControllerFieldOwner) {
 			continue
 		}
@@ -742,11 +864,11 @@ func cleanupIPPExternalModelRoutes(ctx context.Context, c client.Client, params 
 		}
 		inference := &unstructured.Unstructured{}
 		inference.SetGroupVersionKind(inferenceExternalModelRouteOwnerGVK)
-		if err := c.Get(ctx, client.ObjectKey{Namespace: params.ModelNamespace, Name: modelName}, inference); err != nil {
+		if err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: modelName}, inference); err != nil {
 			if apierrors.IsNotFound(err) {
 				continue
 			}
-			return fmt.Errorf("get inference ExternalModel %s/%s for IPP-owned route %s: %w", params.ModelNamespace, modelName, route.GetName(), err)
+			return fmt.Errorf("get inference ExternalModel %s/%s for IPP-owned route %s: %w", namespace, modelName, route.GetName(), err)
 		}
 		if inference.GetUID() != owner.UID {
 			continue
@@ -758,6 +880,84 @@ func cleanupIPPExternalModelRoutes(ctx context.Context, c client.Client, params 
 		}
 		if err := c.Delete(ctx, route, deleteOptions...); err != nil && !apierrors.IsNotFound(err) {
 			return fmt.Errorf("delete stale IPP HTTPRoute %s/%s: %w", route.GetNamespace(), route.GetName(), err)
+		}
+	}
+	return nil
+}
+
+// ippModelNamespaceScope returns where IPP served the tenant's models: its
+// model namespace or, for the default tenant, also every namespace of no
+// tenant (see cleanupIPPExternalModelRoutes).
+func ippModelNamespaceScope(ctx context.Context, c client.Client, params PlatformParams) (
+	listOpts []client.ListOption, inScope func(namespace string) bool, scope string, err error) {
+	if params.TenantIdentifier != "" {
+		return []client.ListOption{client.InNamespace(params.ModelNamespace)},
+			func(namespace string) bool { return namespace == params.ModelNamespace },
+			"in " + params.ModelNamespace, nil
+	}
+	tenantNS, err := tenantNamespaces(ctx, c)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	return nil, func(namespace string) bool {
+		return namespace == params.ModelNamespace || namespace != params.AppNamespace && !tenantNS.Has(namespace)
+	}, "cluster-wide", nil
+}
+
+// cleanupIPPExternalProviderTransport removes the Service, ServiceEntry and
+// DestinationRule the IPP ExternalProvider reconciler created next to each
+// provider, in the namespaces cleanupIPPExternalModelRoutes searches.
+// ai-gateway-controller applies its own transport under other names, so these
+// would otherwise remain until their provider is deleted, with two
+// ServiceEntries and DestinationRules for each provider host. Only an object
+// whose controller is the ExternalProvider it names is deleted; the IPP
+// writers have stopped before this runs.
+func cleanupIPPExternalProviderTransport(ctx context.Context, c client.Client, params PlatformParams, log logr.Logger) error {
+	if params.ModelNamespace == "" {
+		return errors.New("model namespace is required for IPP-owned provider transport cleanup")
+	}
+	listOpts, inScope, scope, err := ippModelNamespaceScope(ctx, c, params)
+	if err != nil {
+		return fmt.Errorf("clean up IPP-owned provider transport: %w", err)
+	}
+	listOpts = append(listOpts, client.MatchingLabels{"app.kubernetes.io/managed-by": ippExternalProviderManagedBy})
+	for _, gvk := range []schema.GroupVersionKind{GVKService, GVKServiceEntry, GVKDestinationRule} {
+		objects := &unstructured.UnstructuredList{}
+		objects.SetGroupVersionKind(gvk.GroupVersion().WithKind(gvk.Kind + "List"))
+		if err := c.List(ctx, objects, listOpts...); err != nil {
+			return fmt.Errorf("list IPP provider %ss %s: %w", gvk.Kind, scope, err)
+		}
+		for i := range objects.Items {
+			obj := &objects.Items[i]
+			namespace := obj.GetNamespace()
+			providerName := obj.GetLabels()[ippExternalProviderLabel]
+			if !inScope(namespace) || providerName == "" || hasSSAFieldManager(obj, aiGatewayControllerFieldOwner) {
+				continue
+			}
+			owner := controllerOwner(obj, inferenceExternalProviderOwnerGVK, providerName)
+			if owner == nil || owner.UID == "" {
+				log.Info("Skipping ambiguous IPP provider transport cleanup", "kind", gvk.Kind, "name", obj.GetName(), "namespace", namespace)
+				continue
+			}
+			provider := &unstructured.Unstructured{}
+			provider.SetGroupVersionKind(inferenceExternalProviderOwnerGVK)
+			if err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: providerName}, provider); err != nil {
+				if apierrors.IsNotFound(err) {
+					continue
+				}
+				return fmt.Errorf("get inference ExternalProvider %s/%s for IPP-owned %s %s: %w", namespace, providerName, gvk.Kind, obj.GetName(), err)
+			}
+			if provider.GetUID() != owner.UID {
+				continue
+			}
+			log.Info("Deleting IPP-owned provider transport while enabling Praxis", "kind", gvk.Kind, "name", obj.GetName(), "namespace", namespace, "provider", providerName)
+			deleteOptions, err := validatedDeleteOptions(obj)
+			if err != nil {
+				return fmt.Errorf("prepare IPP-owned %s %s/%s deletion: %w", gvk.Kind, namespace, obj.GetName(), err)
+			}
+			if err := c.Delete(ctx, obj, deleteOptions...); err != nil && !apierrors.IsNotFound(err) {
+				return fmt.Errorf("delete stale IPP %s %s/%s: %w", gvk.Kind, namespace, obj.GetName(), err)
+			}
 		}
 	}
 	return nil
@@ -998,6 +1198,46 @@ func cleanupLegacyMaaSAPIGatewayNetworkPolicy(
 		log.V(1).Info("Skipping legacy maas-api gateway NetworkPolicy cleanup; not managed by maas-controller",
 			"name", baseMaaSAPIGatewayNetworkPolicyName, "namespace", appNs)
 		return nil
+	}
+
+	tenantConfigs := &maasv1alpha1.MaasTenantConfigList{}
+	if err := c.List(ctx, tenantConfigs); err != nil {
+		return fmt.Errorf("list MaasTenantConfigs before gateway NetworkPolicy cleanup: %w", err)
+	}
+	for i := range tenantConfigs.Items {
+		tenantConfig := &tenantConfigs.Items[i]
+		if !tenantConfig.DeletionTimestamp.IsZero() {
+			continue
+		}
+		tenantID, err := TenantIdentifierFor(tenantConfig)
+		if err != nil {
+			return fmt.Errorf("resolve tenant identifier for %s/%s before gateway NetworkPolicy cleanup: %w",
+				tenantConfig.Namespace, tenantConfig.Name, err)
+		}
+		scopedName := MaaSAPIGatewayNetworkPolicyName(tenantID)
+		scopedPolicy := &unstructured.Unstructured{}
+		scopedPolicy.SetGroupVersionKind(GVKNetworkPolicy)
+		if err := c.Get(ctx, types.NamespacedName{Namespace: appNs, Name: scopedName}, scopedPolicy); err != nil {
+			if apierrors.IsNotFound(err) {
+				log.Info("Deferring legacy maas-api gateway NetworkPolicy cleanup; tenant scoped policy is missing",
+					"sharedName", baseMaaSAPIGatewayNetworkPolicyName,
+					"scopedName", scopedName,
+					"namespace", appNs,
+					"tenantNamespace", tenantConfig.Namespace,
+					"tenantName", tenantConfig.Name)
+				return nil
+			}
+			return fmt.Errorf("get tenant scoped NetworkPolicy %s/%s: %w", appNs, scopedName, err)
+		}
+		if !isMaaSManagedNetworkPolicy(scopedPolicy, configUID) {
+			log.Info("Deferring legacy maas-api gateway NetworkPolicy cleanup; tenant scoped policy is not managed by maas-controller",
+				"sharedName", baseMaaSAPIGatewayNetworkPolicyName,
+				"scopedName", scopedName,
+				"namespace", appNs,
+				"tenantNamespace", tenantConfig.Namespace,
+				"tenantName", tenantConfig.Name)
+			return nil
+		}
 	}
 
 	log.Info("Deleting legacy shared maas-api gateway NetworkPolicy",

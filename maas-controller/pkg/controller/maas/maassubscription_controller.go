@@ -42,6 +42,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -202,7 +203,8 @@ func modelRefTokenRates(mRef maasv1alpha1.ModelSubscriptionRef) (rates []any, un
 const unlimitedLimitName = "tokens-unlimited"
 
 // unlimitedTokenLimit returns the TRLP limit matching the given
-// selected_subscription_id values of unlimited subscriptions.
+// subscriptions' rate-limit identities (short selected_subscription_id for
+// new CRs, selected_subscription_key for legacy ones).
 //
 // Without rates, Limitador enforces nothing and keeps no counters, but the
 // wasm-shim still sends check and report calls for matching requests, and
@@ -213,14 +215,17 @@ const unlimitedLimitName = "tokens-unlimited"
 // on the model is unlimited: Kuadrant rejects a TRLP without limits, and a
 // route without one falls back to gateway-default-deny.
 //
+// Mixed legacy/short members share this limit: there are no counters to
+// preserve, so splitting would only grow the wasm config.
+//
 // rates and counters stay unset: a nil slice is written as null, which the API
 // server drops, so the no-op update check would never match.
-func unlimitedTokenLimit(rateLimitIDs []string) map[string]any {
-	sort.Strings(rateLimitIDs)
-	matches := make([]string, 0, len(rateLimitIDs))
-	for _, id := range rateLimitIDs {
-		matches = append(matches, fmt.Sprintf(`auth.identity.selected_subscription_id == "%s"`, id))
+func unlimitedTokenLimit(members []subInfo) map[string]any {
+	matches := make([]string, 0, len(members))
+	for _, si := range members {
+		matches = append(matches, subscriptionSelectClause(si))
 	}
+	sort.Strings(matches)
 	return map[string]any{
 		"when": []any{
 			map[string]any{
@@ -508,11 +513,21 @@ func (r *MaaSSubscriptionReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return ctrl.Result{}, r.updateStatus(ctx, subscription, maasv1alpha1.PhaseInvalid, "spec is required", statusSnapshot)
 	}
 
-	// Add finalizer if not present
+	// Classify sticky rate-limit identity before AddFinalizer so a brand-new
+	// CR is not mistaken for an upgrade survivor. Persist the result on
+	// status (GitOps-safe) before TRLP work so maas-api and peer reconciles
+	// see the same scheme.
+	wantIdentity := classifiedRateLimitIdentity(subscription)
 	if !controllerutil.ContainsFinalizer(subscription, maasSubscriptionFinalizer) {
 		controllerutil.AddFinalizer(subscription, maasSubscriptionFinalizer)
 		if err := r.Update(ctx, subscription); err != nil {
 			return ctrl.Result{}, err
+		}
+	}
+	if subscription.Status.RateLimitIdentity != wantIdentity {
+		subscription.Status.RateLimitIdentity = wantIdentity
+		if err := r.Status().Update(ctx, subscription); err != nil {
+			return ctrl.Result{}, fmt.Errorf("failed to persist rateLimitIdentity: %w", err)
 		}
 	}
 
@@ -733,6 +748,7 @@ func (r *MaaSSubscriptionReconciler) reconcileTRLPForModel(ctx context.Context, 
 				unlimited:    unlimited,
 				modelScoped:  fmt.Sprintf("%s/%s@%s/%s", sub.Namespace, sub.Name, mRef.Namespace, mRef.Name),
 				groupKey:     rateGroupKey(rates),
+				legacy:       classifiedRateLimitIdentity(&sub) == RateLimitIdentityLegacy,
 			})
 			break
 		}
@@ -746,18 +762,18 @@ func (r *MaaSSubscriptionReconciler) reconcileTRLPForModel(ctx context.Context, 
 		return r.deleteModelTRLP(ctx, log, modelNamespace, modelName)
 	}
 
-	// Trust auth.identity.selected_subscription_id from AuthPolicy (16-hex SHA-256 of
-	// {subNS}/{subName}@{modelNS}/{modelName}). The long selected_subscription_key
-	// stays on the identity for telemetry; TRLP matches the short ID so the Kuadrant
-	// WASM shim stays compact.
+	// New subscriptions match auth.identity.selected_subscription_id (16-hex
+	// SHA-256 of {subNS}/{subName}@{modelNS}/{modelName}). Subscriptions that
+	// already existed at upgrade keep selected_subscription_key matching and
+	// counters so Limitador quotas are not reset. The long key stays on the
+	// identity for telemetry either way.
 	//
 	// Subscriptions sharing identical rates share one limit instead of one each, so the TRLP
 	// (and the EnvoyFilter/WasmPlugin Kuadrant renders from it, which repeats every limit per
 	// route match) grows with the number of distinct rate sets, not with the number of
-	// subscriptions behind them (RHOAIENG-95277). The predicate lists every subscription in
-	// the group by short ID; counters key on selected_subscription_id as well as userid so
-	// subscriptions sharing a limit still get independent budgets. Unlimited subscriptions
-	// share the rate-less unlimitedLimitName limit the same way. See buildGroupedLimits.
+	// subscriptions behind them (RHOAIENG-95277) — except a mixed legacy/short group of the
+	// same rate splits into two limits because the counter expressions differ. See
+	// buildGroupedLimits.
 	limitsMap, subNames := buildGroupedLimits(subs)
 
 	// Build the aggregated TokenRateLimitPolicy (one per model, covering all subscriptions)
@@ -813,47 +829,87 @@ func (r *MaaSSubscriptionReconciler) reconcileTRLPForModel(ctx context.Context, 
 	} else {
 		// Double-check managed status as a safety check for races (TRLP could have been
 		// opted-out between the early check and now).
+		if err := r.updateExistingTRLP(ctx, log, route, policy, spec, policyName, modelNamespace, modelName, subNames); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// updateExistingTRLP merges the desired spec and metadata into the existing managed
+// TokenRateLimitPolicy.
+//
+// The Kuadrant operator writes the TRLP's status (Enforced conditions) on this same
+// object while we write spec/metadata, so a plain Update can lose the resourceVersion
+// race and 409. Failing the whole reconcile here requeues with backoff and delays the
+// rebuild; instead re-read and retry the merge so subscription churn converges promptly.
+func (r *MaaSSubscriptionReconciler) updateExistingTRLP(
+	ctx context.Context,
+	log logr.Logger,
+	route *gatewayapiv1.HTTPRoute,
+	policy *unstructured.Unstructured,
+	spec map[string]any,
+	policyName, modelNamespace, modelName string,
+	subNames []string,
+) error {
+	updateErr := retry.OnError(retry.DefaultBackoff, apierrors.IsConflict, func() error {
+		existing := &unstructured.Unstructured{}
+		existing.SetGroupVersionKind(policy.GroupVersionKind())
+		// Read through the APIReader: after a conflict the informer cache can
+		// still serve the stale resourceVersion that just lost the race, which
+		// would make every retry conflict again.
+		reader := r.APIReader
+		if reader == nil {
+			reader = r.Client
+		}
+		if err := reader.Get(ctx, client.ObjectKeyFromObject(policy), existing); err != nil {
+			return err
+		}
 		if !isManaged(existing) {
 			log.Info("TokenRateLimitPolicy opted out during reconciliation, skipping update", "name", policyName)
-		} else {
-			// Snapshot before any mutation (including owner updates), so owner-only
-			// transitions are persisted.
-			snapshot := existing.DeepCopy()
-			// Ensure owner reference is set on managed existing policy.
-			if err := setHTTPRouteControllerOwner(route, existing, r.Scheme); err != nil {
-				return fmt.Errorf("failed to set owner reference on existing TokenRateLimitPolicy %s/%s: %w", existing.GetNamespace(), existing.GetName(), err)
-			}
-
-			mergedAnnotations := existing.GetAnnotations()
-			if mergedAnnotations == nil {
-				mergedAnnotations = make(map[string]string)
-			}
-			for k, v := range policy.GetAnnotations() {
-				mergedAnnotations[k] = v
-			}
-			existing.SetAnnotations(mergedAnnotations)
-
-			mergedLabels := existing.GetLabels()
-			if mergedLabels == nil {
-				mergedLabels = make(map[string]string)
-			}
-			for k, v := range policy.GetLabels() {
-				mergedLabels[k] = v
-			}
-			existing.SetLabels(mergedLabels)
-			if err := unstructured.SetNestedMap(existing.Object, spec, "spec"); err != nil {
-				return fmt.Errorf("failed to update spec: %w", err)
-			}
-
-			if equality.Semantic.DeepEqual(snapshot.Object, existing.Object) {
-				log.Info("TokenRateLimitPolicy unchanged, skipping update", "name", policyName, "model", modelNamespace+"/"+modelName, "subscriptionCount", len(subNames))
-			} else {
-				if err := r.Update(ctx, existing); err != nil {
-					return fmt.Errorf("failed to update TokenRateLimitPolicy for model %s/%s: %w", modelNamespace, modelName, err)
-				}
-				log.Info("TokenRateLimitPolicy updated", "name", policyName, "model", modelNamespace+"/"+modelName, "subscriptionCount", len(subNames), "subscriptions", subNames)
-			}
+			return nil
 		}
+		// Snapshot before any mutation (including owner updates), so owner-only
+		// transitions are persisted.
+		snapshot := existing.DeepCopy()
+		// Ensure owner reference is set on managed existing policy.
+		if err := setHTTPRouteControllerOwner(route, existing, r.Scheme); err != nil {
+			return fmt.Errorf("failed to set owner reference on existing TokenRateLimitPolicy %s/%s: %w", existing.GetNamespace(), existing.GetName(), err)
+		}
+
+		mergedAnnotations := existing.GetAnnotations()
+		if mergedAnnotations == nil {
+			mergedAnnotations = make(map[string]string)
+		}
+		for k, v := range policy.GetAnnotations() {
+			mergedAnnotations[k] = v
+		}
+		existing.SetAnnotations(mergedAnnotations)
+
+		mergedLabels := existing.GetLabels()
+		if mergedLabels == nil {
+			mergedLabels = make(map[string]string)
+		}
+		for k, v := range policy.GetLabels() {
+			mergedLabels[k] = v
+		}
+		existing.SetLabels(mergedLabels)
+		if err := unstructured.SetNestedMap(existing.Object, spec, "spec"); err != nil {
+			return fmt.Errorf("failed to update spec: %w", err)
+		}
+
+		if equality.Semantic.DeepEqual(snapshot.Object, existing.Object) {
+			log.Info("TokenRateLimitPolicy unchanged, skipping update", "name", policyName, "model", modelNamespace+"/"+modelName, "subscriptionCount", len(subNames))
+			return nil
+		}
+		if err := r.Update(ctx, existing); err != nil {
+			return err
+		}
+		log.Info("TokenRateLimitPolicy updated", "name", policyName, "model", modelNamespace+"/"+modelName, "subscriptionCount", len(subNames), "subscriptions", subNames)
+		return nil
+	})
+	if updateErr != nil {
+		return fmt.Errorf("failed to update TokenRateLimitPolicy for model %s/%s: %w", modelNamespace, modelName, updateErr)
 	}
 	return nil
 }
@@ -1521,9 +1577,11 @@ func (r *MaaSSubscriptionReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 	if !llmisvcExists {
 		if err := registerWatchWhenCRDAppears(c, mgr, llmisvcCRD, func() source.Source {
-			llmisvc := &unstructured.Unstructured{}
-			llmisvc.SetGroupVersionKind(kservev1alpha2.SchemeGroupVersion.WithKind("LLMInferenceService"))
-			return source.Kind(mgr.GetCache(), client.Object(llmisvc),
+			// Typed, matching the static path and the InferenceObjective watch below.
+			// See the equivalent comment in maasmodelref_controller.go for the full
+			// explanation: an unstructured watch and typed reads use separate informers,
+			// so events and reads have independent lag.
+			return source.Kind(mgr.GetCache(), client.Object(&kservev1alpha2.LLMInferenceService{}),
 				handler.EnqueueRequestsFromMapFunc(r.mapLLMISvcToMaaSSubscriptions),
 				llmisvcRouterStatusChangedPredicate{},
 			)

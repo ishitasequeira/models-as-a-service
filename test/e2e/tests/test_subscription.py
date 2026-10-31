@@ -62,6 +62,7 @@ from test_helper import (
     MODEL_REF,
     PREMIUM_MODEL_PATH,
     PREMIUM_MODEL_REF,
+    RATE_LIMIT_ENFORCEMENT_TIMEOUT,
     SIMULATOR_ACCESS_POLICY,
     SIMULATOR_SUBSCRIPTION,
     TIMEOUT,
@@ -96,6 +97,7 @@ from test_helper import (
     _wait_for_gateway_auth_enforced,
     _wait_for_maas_auth_policy_phase,
     _wait_for_maas_subscription_phase,
+    _wait_for_model_ready,
     _scale_kuadrant_controller_down,
     _scale_kuadrant_controller_up,
     _wait_for_subscription_trlp_status,
@@ -113,13 +115,23 @@ pytestmark = [pytest.mark.xdist_group("api_keys"), pytest.mark.worker_tenant]
 @pytest.fixture(scope="module", autouse=True)
 def _worker_subscription_context(request):
     """Point non-serial subscription tests at worker-owned tenant resources."""
-    from worker_tenant_fixtures import activate_worker_tenant, serial_only_selection
+    from worker_tenant_fixtures import (
+        activate_worker_tenant,
+        ensure_worker_models,
+        serial_only_selection,
+    )
 
     if serial_only_selection(request):
         yield
         return
 
     context = request.getfixturevalue("worker_tenant_context")
+    # The baseline models are bootstrapped once per worker session; re-ensure
+    # them here so a backend that drifted Unhealthy during the run is healed,
+    # then wait the way every other module does before its Ready prerequisite.
+    ensure_worker_models(context, (context.model_ref, context.premium_model_ref))
+    for model_ref in (context.model_ref, context.premium_model_ref):
+        _wait_for_model_ready(model_ref, namespace=context.model_namespace)
     names = (
         "MODEL_NAME", "MODEL_NAMESPACE", "MODEL_PATH", "MODEL_REF",
         "PREMIUM_MODEL_PATH", "PREMIUM_MODEL_REF", "SIMULATOR_ACCESS_POLICY",
@@ -353,16 +365,49 @@ def _wait_for_maas_model_ready(name, namespace=None, timeout=120):
     )
 
 
-def _trlp_limits_matching(limits, rate_limit_id):
-    """Names of the TRLP limits whose predicate matches rate_limit_id.
+def _trlp_limits_matching(limits, subscription_name, model_ref=None):
+    """Names of the TRLP limits whose predicate matches this subscription.
 
-    Limits are grouped by rate and named after it (tokens-<limit>-per-<window>),
-    so a subscription is found by its selected_subscription_id clause.
+    New subscriptions match auth.identity.selected_subscription_id (short SHA);
+    upgrade-surviving (legacy) subscriptions match selected_subscription_key.
+    Either clause is accepted so mixed-generation TRLPs stay testable.
     """
-    clause = f'auth.identity.selected_subscription_id == "{rate_limit_id}"'
+    model_ref = model_ref or MODEL_REF
+    short_id = _subscription_rate_limit_id(subscription_name, model_ref)
+    key = _subscription_key(subscription_name, model_ref)
+    short_clause = f'auth.identity.selected_subscription_id == "{short_id}"'
+    key_clause = f'auth.identity.selected_subscription_key == "{key}"'
     return sorted(
         name for name, limit in limits.items()
-        if any(clause in (w.get("predicate") or "") for w in limit.get("when") or [])
+        if any(
+            short_clause in (w.get("predicate") or "") or key_clause in (w.get("predicate") or "")
+            for w in limit.get("when") or []
+        )
+    )
+
+
+def _trlp_uses_legacy_key(limits, subscription_name, model_ref=None):
+    """True when any TRLP limit matches the subscription via selected_subscription_key."""
+    model_ref = model_ref or MODEL_REF
+    key_clause = f'auth.identity.selected_subscription_key == "{_subscription_key(subscription_name, model_ref)}"'
+    return any(
+        key_clause in (w.get("predicate") or "")
+        for limit in limits.values()
+        for w in limit.get("when") or []
+    )
+
+
+def _trlp_uses_short_id(limits, subscription_name, model_ref=None):
+    """True when any TRLP limit matches the subscription via selected_subscription_id."""
+    model_ref = model_ref or MODEL_REF
+    short_clause = (
+        f'auth.identity.selected_subscription_id == '
+        f'"{_subscription_rate_limit_id(subscription_name, model_ref)}"'
+    )
+    return any(
+        short_clause in (w.get("predicate") or "")
+        for limit in limits.values()
+        for w in limit.get("when") or []
     )
 
 
@@ -431,7 +476,7 @@ def high_priority_subscription_name_for_api_key_binding():
             groups=["system:authenticated"],
             priority=_E2E_API_KEY_BINDING_HIGH_PRIORITY,
         )
-        _wait_for_subscription_discovery_ready(name, namespace=ns, timeout=90)
+        _wait_for_subscription_discovery_ready(name, namespace=ns)
         yield name
     finally:
         _delete_cr("maassubscription", name)
@@ -618,7 +663,6 @@ class TestSubscriptionEnforcement:
                 subscription_name,
                 model_ref,
                 model_namespace=MODEL_NAMESPACE,
-                timeout=180,
             )
 
             # 3. API key must be minted for this subscription
@@ -629,13 +673,17 @@ class TestSubscriptionEnforcement:
                 subscription=subscription_name,
             )
 
-            # 4. Send requests to exhaust the limit
+            # 4. Send requests to exhaust the limit. Past the planned count keep
+            # going until the enforcement deadline: the limiter can trail the
+            # policy status, and this test asserts a 429, not a status field.
             rate_limited = False
             success_count = 0
+            deadline = time.time() + RATE_LIMIT_ENFORCEMENT_TIMEOUT
 
-            for i in range(total_requests):
+            request_num = 0
+            while request_num < total_requests or time.time() < deadline:
+                request_num += 1
                 r = _inference(api_key, path=model_path, max_tokens=1)
-                request_num = i + 1
                 log.info(f"Request {request_num}/{total_requests}: {r.status_code}")
 
                 if r.status_code == 200:
@@ -725,7 +773,7 @@ class TestSubscriptionEnforcement:
                 model_refs=[model_ref],
                 groups=["system:authenticated"]
             )
-            _wait_for_maas_auth_policy_phase(auth_policy_name, timeout=90, require_auth_policies=False)
+            _wait_for_maas_auth_policy_phase(auth_policy_name, require_auth_policies=False)
 
             # 2. Create subscription with low token limit
             _create_test_subscription(
@@ -739,7 +787,6 @@ class TestSubscriptionEnforcement:
                 subscription_name,
                 model_ref,
                 model_namespace=MODEL_NAMESPACE,
-                timeout=180,
             )
 
             # 3. Create API key for this subscription
@@ -758,9 +805,13 @@ class TestSubscriptionEnforcement:
             rate_limited = False
 
             log.info(f"Exhausting token quota: sending up to {max_requests} requests")
-            for i in range(max_requests):
+            # Keep sending past the planned count until the enforcement deadline
+            # so a limiter that trails the policy status does not fail the test.
+            deadline = time.time() + RATE_LIMIT_ENFORCEMENT_TIMEOUT
+            request_num = 0
+            while request_num < max_requests or time.time() < deadline:
+                request_num += 1
                 r = _inference(api_key, path=model_path)
-                request_num = i + 1
                 log.info(f"Request {request_num}: status {r.status_code}")
 
                 if r.status_code == 200:
@@ -982,19 +1033,16 @@ class TestUnlimitedSubscription:
                 self.LIMITED_SUB,
                 model_ref,
                 model_namespace=MODEL_NAMESPACE,
-                timeout=180,
             )
             _wait_for_subscription_inference_ready(
                 self.UNLIMITED_SUB,
                 model_ref,
                 model_namespace=MODEL_NAMESPACE,
-                timeout=180,
             )
 
-            unlimited_id = _subscription_rate_limit_id(self.UNLIMITED_SUB, model_ref)
             _wait_for_trlp_limits(
                 model_ref,
-                lambda limits: unlimited_id in limits.get(UNLIMITED_LIMIT_NAME, {}).get("when", [{}])[0].get("predicate", ""),
+                lambda limits: bool(_trlp_limits_matching(limits, self.UNLIMITED_SUB, model_ref)),
             )
 
             oc_token = _get_cluster_token()
@@ -1075,7 +1123,6 @@ class TestUnlimitedSubscription:
             self.SECOND_UNLIMITED_SUB,
             model_ref,
             model_namespace=MODEL_NAMESPACE,
-            timeout=180,
         )
         plugin_config = _wait_for_wasm_plugin_config_containing(second_id)
 
@@ -1121,7 +1168,6 @@ class TestAllUnlimitedModel:
                 sub,
                 model_ref,
                 model_namespace=MODEL_NAMESPACE,
-                timeout=180,
             )
 
             limits = _wait_for_trlp_limits(model_ref, lambda limits: list(limits) == [UNLIMITED_LIMIT_NAME])
@@ -1171,7 +1217,6 @@ class TestMultipleAuthPoliciesPerModel:
                 "e2e-premium-sa-sub",
                 PREMIUM_MODEL_REF,
                 model_namespace=MODEL_NAMESPACE,
-                timeout=180,
             )
 
             # Key must be minted for the premium subscription
@@ -1238,7 +1283,6 @@ class TestCascadeDeletion:
                 "e2e-temp-sub",
                 MODEL_REF,
                 model_namespace=MODEL_NAMESPACE,
-                timeout=180,
             )
 
             _delete_cr("maassubscription", "e2e-temp-sub")
@@ -1292,7 +1336,6 @@ class TestCascadeDeletion:
                 "e2e-second-sub",
                 MODEL_REF,
                 model_namespace=MODEL_NAMESPACE,
-                timeout=180,
             )
 
             # Step 2: Verify TRLP exists and contains both subscriptions
@@ -1304,14 +1347,15 @@ class TestCascadeDeletion:
             limits = trlp_with_both.get("spec", {}).get("limits", {})
             assert limits, f"TRLP {trlp_name} has no limits defined"
 
-            # Look for both subscriptions in the TRLP limit predicates (short IDs)
-            simulator_sub_id = _subscription_rate_limit_id(SIMULATOR_SUBSCRIPTION, MODEL_REF)
-            second_sub_id = _subscription_rate_limit_id("e2e-second-sub", MODEL_REF)
-
-            assert _trlp_limits_matching(limits, simulator_sub_id), \
-                f"Original subscription '{simulator_sub_id}' not matched by any TRLP limit. Available keys: {list(limits.keys())}"
-            assert _trlp_limits_matching(limits, second_sub_id), \
-                f"Second subscription '{second_sub_id}' not matched by any TRLP limit. Available keys: {list(limits.keys())}"
+            # Match either short-ID or legacy-key predicates (mixed generations).
+            # Pre-existing fixture may be legacy after upgrade; e2e-second-sub is new → short.
+            assert _trlp_limits_matching(limits, SIMULATOR_SUBSCRIPTION), \
+                f"Original subscription not matched by any TRLP limit. Available keys: {list(limits.keys())}"
+            assert _trlp_limits_matching(limits, "e2e-second-sub"), \
+                f"Second subscription not matched by any TRLP limit. Available keys: {list(limits.keys())}"
+            assert _trlp_uses_short_id(limits, "e2e-second-sub"), \
+                "New subscription e2e-second-sub must use selected_subscription_id (short), " \
+                f"not legacy key. Limits: {limits}"
 
             log.info(f"✅ TRLP contains both subscriptions: {list(limits.keys())}")
 
@@ -1331,12 +1375,12 @@ class TestCascadeDeletion:
             assert limits_after, f"TRLP {trlp_name} has no limits after 2nd subscription deletion"
 
             # Verify original subscription still in TRLP, second subscription removed
-            assert _trlp_limits_matching(limits_after, simulator_sub_id), \
-                f"Original subscription '{simulator_sub_id}' missing after 2nd sub deletion. " \
+            assert _trlp_limits_matching(limits_after, SIMULATOR_SUBSCRIPTION), \
+                f"Original subscription missing after 2nd sub deletion. " \
                 f"Available: {list(limits_after.keys())}"
-            assert not _trlp_limits_matching(limits_after, second_sub_id), \
-                f"Deleted subscription '{second_sub_id}' still matched by TRLP limits " \
-                f"{_trlp_limits_matching(limits_after, second_sub_id)}"
+            assert not _trlp_limits_matching(limits_after, "e2e-second-sub"), \
+                f"Deleted subscription still matched by TRLP limits " \
+                f"{_trlp_limits_matching(limits_after, 'e2e-second-sub')}"
 
             log.info(f"✅ TRLP rebuilt in-place with only original subscription: {list(limits_after.keys())}")
 
@@ -1376,8 +1420,8 @@ class TestCascadeDeletion:
                     SIMULATOR_SUBSCRIPTION,
                     MODEL_REF,
                     model_namespace=MODEL_NAMESPACE,
-                    timeout=180,
                 )
+
 
     @pytest.mark.serial
     def test_delete_last_subscription_denies_access(self):
@@ -1428,7 +1472,6 @@ class TestCascadeDeletion:
                 SIMULATOR_SUBSCRIPTION,
                 MODEL_REF,
                 model_namespace=MODEL_NAMESPACE,
-                timeout=180,
             )
             new_key_response = _create_api_key_raw(
                 oc_token,
@@ -1461,7 +1504,6 @@ class TestCascadeDeletion:
                 SIMULATOR_SUBSCRIPTION,
                 MODEL_REF,
                 model_namespace=MODEL_NAMESPACE,
-                timeout=180,
             )
 
     @pytest.mark.serial
@@ -1504,6 +1546,129 @@ class TestCascadeDeletion:
         assert r.status_code == 403, f"Expected 403 (gateway default deny), got {r.status_code}"
 
 
+
+
+class TestRateLimitIdentityGenerations:
+    """Legacy selected_subscription_key vs short selected_subscription_id.
+
+    Opt-in legacy annotation keeps the pre-1546 TRLP identity so upgrade
+    survivors (and explicit legacy CRs) still rate-limit correctly alongside
+    new short-ID subscriptions.
+    """
+
+    AUTH_POLICY = "e2e-rl-identity-auth"
+    LEGACY_SUB = "e2e-rl-identity-legacy"
+    SHORT_SUB = "e2e-rl-identity-short"
+    LEGACY_SA = "e2e-rl-identity-legacy-sa"
+    SHORT_SA = "e2e-rl-identity-short-sa"
+
+    @pytest.mark.serial
+    def test_legacy_and_short_identities_coexist(self):
+        """Explicit legacy annotation keeps selected_subscription_key; new CR uses short ID.
+
+        Also mints API keys via service-account tokens for both generations so the
+        select → AuthPolicy → TRLP path still works for the old key identity.
+        """
+        model_ref = UNCONFIGURED_MODEL_REF
+        model_path = UNCONFIGURED_MODEL_PATH
+        ns = _ns()
+        trlp_name = f"maas-trlp-{model_ref}"
+        legacy_key = None
+        short_key = None
+
+        try:
+            _create_test_auth_policy(
+                self.AUTH_POLICY, model_refs=[model_ref], groups=["system:authenticated"]
+            )
+            _wait_for_maas_auth_policy_phase(self.AUTH_POLICY, require_enforced=False)
+
+            _apply_cr({
+                "apiVersion": "maas.opendatahub.io/v1alpha1",
+                "kind": "MaaSSubscription",
+                "metadata": {
+                    "name": self.LEGACY_SUB,
+                    "namespace": ns,
+                    "annotations": {
+                        "maas.opendatahub.io/rate-limit-identity": "legacy",
+                    },
+                },
+                "spec": {
+                    "owner": {"groups": [{"name": "system:authenticated"}]},
+                    "modelRefs": [{
+                        "name": model_ref,
+                        "namespace": MODEL_NAMESPACE,
+                        "tokenRateLimits": [{"limit": 40, "window": "1m"}],
+                    }],
+                },
+            })
+            _apply_cr({
+                "apiVersion": "maas.opendatahub.io/v1alpha1",
+                "kind": "MaaSSubscription",
+                "metadata": {"name": self.SHORT_SUB, "namespace": ns},
+                "spec": {
+                    "owner": {"groups": [{"name": "system:authenticated"}]},
+                    "modelRefs": [{
+                        "name": model_ref,
+                        "namespace": MODEL_NAMESPACE,
+                        "tokenRateLimits": [{"limit": 60, "window": "1m"}],
+                    }],
+                },
+            })
+
+            for sub in (self.LEGACY_SUB, self.SHORT_SUB):
+                _wait_for_subscription_inference_ready(
+                    sub, model_ref, model_namespace=MODEL_NAMESPACE
+                )
+
+            limits = _wait_for_trlp_limits(
+                model_ref,
+                lambda lims: (
+                    _trlp_uses_legacy_key(lims, self.LEGACY_SUB, model_ref)
+                    and _trlp_uses_short_id(lims, self.SHORT_SUB, model_ref)
+                ),
+                timeout=120,
+            )
+            assert not _trlp_uses_short_id(limits, self.LEGACY_SUB, model_ref), \
+                "legacy-annotated subscription must not use selected_subscription_id"
+            assert not _trlp_uses_legacy_key(limits, self.SHORT_SUB, model_ref), \
+                "new subscription must not use selected_subscription_key"
+            log.info("TRLP mixed generations OK: %s", list(limits.keys()))
+
+            # Service-account tokens → API keys for both generations (old key path + short).
+            legacy_token = _create_sa_token(self.LEGACY_SA, namespace=ns)
+            short_token = _create_sa_token(self.SHORT_SA, namespace=ns)
+            legacy_key = _create_api_key(
+                legacy_token, name=f"legacy-{uuid.uuid4().hex[:6]}", subscription=self.LEGACY_SUB
+            )
+            short_key = _create_api_key(
+                short_token, name=f"short-{uuid.uuid4().hex[:6]}", subscription=self.SHORT_SUB
+            )
+
+            for label, api_key in (("legacy", legacy_key), ("short", short_key)):
+                r = _poll_status(api_key, 200, path=model_path, timeout=90)
+                assert r.status_code == 200, f"{label} SA-minted key got {r.status_code}: {r.text[:200]}"
+                log.info("%s-identity SA API key -> %s", label, r.status_code)
+
+            assert _get_cr("tokenratelimitpolicy", trlp_name, namespace=MODEL_NAMESPACE), \
+                f"TRLP {trlp_name} should remain while both subscriptions exist"
+        finally:
+            for key in (legacy_key, short_key):
+                if key:
+                    try:
+                        _revoke_api_key(key)
+                    except Exception as e:
+                        log.warning("revoke failed: %s", e)
+            _delete_governance_and_wait(
+                subscriptions=[
+                    (self.LEGACY_SUB, ns),
+                    (self.SHORT_SUB, ns),
+                ],
+                auth_policies=[(self.AUTH_POLICY, ns)],
+            )
+            _delete_sa(self.LEGACY_SA, namespace=ns)
+            _delete_sa(self.SHORT_SA, namespace=ns)
+
+
 class TestOrderingEdgeCases:
     """Tests that resource creation order doesn't matter."""
 
@@ -1525,6 +1690,8 @@ class TestOrderingEdgeCases:
                 groups=["system:authenticated"],
                 namespace=ns,
             )
+            # Premium model TRLP may still be rebuilding from parallel churn; discovery
+            # alone can exceed the 120s default before modelRefStatuses are ready.
             _wait_for_subscription_discovery_ready(
                 "e2e-ordering-sub", namespace=ns, timeout=180
             )
@@ -1553,7 +1720,7 @@ class TestOrderingEdgeCases:
                 },
             })
 
-            _wait_for_maas_auth_policy_phase("e2e-ordering-auth", namespace=ns, timeout=90, require_auth_policies=False)
+            _wait_for_maas_auth_policy_phase("e2e-ordering-auth", namespace=ns, require_auth_policies=False)
             # Now it should work
             r2 = _poll_status(api_key, 200, path=PREMIUM_MODEL_PATH)
             log.info(f"Sub + auth policy -> {r2.status_code}")
@@ -1567,6 +1734,7 @@ class TestOrderingEdgeCases:
 class TestManagedAnnotation:
     """Tests that opendatahub.io/managed=false prevents the controller from updating generated resources."""
 
+    @pytest.mark.serial
     def test_authpolicy_managed_false_prevents_update(self):
         """AuthPolicy annotated with opendatahub.io/managed=false must not have
         its spec updated when the parent MaaSAuthPolicy is modified."""
@@ -1661,6 +1829,7 @@ class TestManagedAnnotation:
                 )
                 _wait_for_maas_auth_policy_phase(SIMULATOR_ACCESS_POLICY, require_enforced=False)
 
+    @pytest.mark.serial
     def test_trlp_managed_false_prevents_update(self):
         """TokenRateLimitPolicy annotated with opendatahub.io/managed=false must not
         have its spec updated when the parent MaaSSubscription is modified."""
@@ -1864,6 +2033,7 @@ class TestE2ESubscriptionFlow:
         log.info("=" * 60)
 
 
+    @pytest.mark.limitador
     def test_e2e_with_both_access_and_subscription_gets_200(self):
         """
         API key with both access and subscription should get 200 OK.
@@ -1883,13 +2053,13 @@ class TestE2ESubscriptionFlow:
             # Use pre-existing premium model to keep model identity consistent with gateway path.
             _create_test_auth_policy(auth_policy_name, PREMIUM_MODEL_REF, users=[sa_user])
             _create_test_subscription(subscription_name, PREMIUM_MODEL_REF, users=[sa_user])
-            _wait_for_maas_auth_policy_phase(auth_policy_name, namespace=ns, timeout=120, require_auth_policies=False)
+            _wait_for_maas_auth_policy_phase(auth_policy_name, namespace=ns, require_auth_policies=False)
             _wait_for_subscription_inference_ready(
                 subscription_name,
                 PREMIUM_MODEL_REF,
                 namespace=ns,
                 model_namespace=MODEL_NAMESPACE,
-                timeout=180,
+                require_enforced_trlp=False,
             )
 
             # API key bound to this subscription at mint (inference does not send x-maas-subscription)
@@ -1957,7 +2127,6 @@ class TestE2ESubscriptionFlow:
                     SIMULATOR_SUBSCRIPTION,
                     MODEL_REF,
                     model_namespace=MODEL_NAMESPACE,
-                    timeout=180,
                 )
 
     def test_e2e_with_subscription_but_no_access_gets_403(self):
@@ -1986,9 +2155,9 @@ class TestE2ESubscriptionFlow:
             # Create test-specific auth/subscription
             _create_test_auth_policy(auth_policy_name, PREMIUM_MODEL_REF, users=[sa_with_auth_user])
             _create_test_subscription(subscription_name, PREMIUM_MODEL_REF, users=[sa_with_sub_user])
-            _wait_for_maas_auth_policy_phase(auth_policy_name, namespace=ns, timeout=120, require_auth_policies=False)
+            _wait_for_maas_auth_policy_phase(auth_policy_name, namespace=ns, require_auth_policies=False)
             _wait_for_subscription_discovery_ready(
-                subscription_name, namespace=ns, timeout=120
+                subscription_name, namespace=ns
             )
 
             api_key_with_sub = _create_api_key(
@@ -2043,7 +2212,7 @@ class TestE2ESubscriptionFlow:
                 context.model_ref,
                 model_namespace=context.model_namespace,
                 namespace=context.tenant_namespace,
-                timeout=180,
+                require_enforced_trlp=False,
             )
 
             # Exactly one subscription for this user → mint can auto-bind it without explicit name
@@ -2064,6 +2233,7 @@ class TestE2ESubscriptionFlow:
             _delete_sa(sa_name, namespace=ns)
             _wait_for_cr_absent("maassubscription", subscription_name, namespace=ns)
 
+    @pytest.mark.limitador
     def test_e2e_multiple_subscriptions_separate_keys_gets_200(self):
         """
         User with two subscriptions for the same model: mint one API key per subscription;
@@ -2090,13 +2260,13 @@ class TestE2ESubscriptionFlow:
                 subscription_1,
                 MODEL_REF,
                 model_namespace=MODEL_NAMESPACE,
-                timeout=180,
+                require_enforced_trlp=False,
             )
             _wait_for_subscription_inference_ready(
                 subscription_2,
                 MODEL_REF,
                 model_namespace=MODEL_NAMESPACE,
-                timeout=180,
+                require_enforced_trlp=False,
             )
 
             key1 = _create_api_key(
@@ -2187,6 +2357,7 @@ class TestE2ESubscriptionFlow:
             _delete_sa(sa_user, namespace=ns)
             _delete_sa(sa_other, namespace=ns)
 
+    @pytest.mark.limitador
     def test_e2e_group_based_access_gets_200(self):
         """
         E2E test: Group-based auth and subscription (success case).
@@ -2217,7 +2388,7 @@ class TestE2ESubscriptionFlow:
                 subscription_name,
                 MODEL_REF,
                 model_namespace=MODEL_NAMESPACE,
-                timeout=180,
+                require_enforced_trlp=False,
             )
 
             api_key = _create_api_key(
@@ -2286,7 +2457,6 @@ class TestE2ESubscriptionFlow:
                     SIMULATOR_SUBSCRIPTION,
                     MODEL_REF,
                     model_namespace=MODEL_NAMESPACE,
-                    timeout=180,
                 )
 
     def test_e2e_group_based_subscription_but_no_auth_gets_403(self):
@@ -2311,9 +2481,9 @@ class TestE2ESubscriptionFlow:
             # Create subscription with group the SA IS in
             _create_test_subscription(subscription_name, PREMIUM_MODEL_REF, groups=[test_group])
 
-            _wait_for_maas_auth_policy_phase(auth_policy_name, namespace=ns, timeout=120, require_auth_policies=False)
+            _wait_for_maas_auth_policy_phase(auth_policy_name, namespace=ns, require_auth_policies=False)
             _wait_for_subscription_discovery_ready(
-                subscription_name, namespace=ns, timeout=120
+                subscription_name, namespace=ns
             )
 
             api_key = _create_api_key(
@@ -2384,7 +2554,7 @@ class TestStatusReporting:
             _wait_for_maas_auth_policy_phase(auth_name)
 
             # Wait for subscription to reach Active phase with populated status
-            cr = _wait_for_maas_subscription_phase(subscription_name, "Active", timeout=60, require_model_statuses=True)
+            cr = _wait_for_maas_subscription_phase(subscription_name, "Active", require_model_statuses=True)
 
             status = cr.get("status", {})
             model_statuses = status.get("modelRefStatuses", [])
@@ -2426,7 +2596,7 @@ class TestStatusReporting:
             _create_test_subscription(subscription_name, missing_model, users=[sa_user])
 
             # Wait for subscription to reach Failed phase with populated status
-            cr = _wait_for_maas_subscription_phase(subscription_name, "Failed", timeout=60, require_model_statuses=True)
+            cr = _wait_for_maas_subscription_phase(subscription_name, "Failed", require_model_statuses=True)
 
             status = cr.get("status", {})
             model_statuses = status.get("modelRefStatuses", [])
@@ -2464,7 +2634,7 @@ class TestStatusReporting:
             _create_test_auth_policy(auth_name, MODEL_REF, users=[sa_user])
 
             # Wait for auth policy to reach Active phase.
-            cr = _wait_for_maas_auth_policy_phase(auth_name, "Active", timeout=90, require_auth_policies=False)
+            cr = _wait_for_maas_auth_policy_phase(auth_name, "Active", require_auth_policies=False)
 
             status = cr.get("status", {})
             auth_policies = status.get("authPolicies", [])
@@ -2502,7 +2672,7 @@ class TestStatusReporting:
             _create_test_auth_policy(auth_name, missing_model, users=[sa_user])
 
             # Wait for auth policy to reach Failed phase (no authPolicies expected for missing model)
-            cr = _wait_for_maas_auth_policy_phase(auth_name, "Failed", timeout=60, require_auth_policies=False)
+            cr = _wait_for_maas_auth_policy_phase(auth_name, "Failed", require_auth_policies=False)
 
             status = cr.get("status", {})
             log.info(f"AuthPolicy status: phase={status.get('phase')}, authPolicies={status.get('authPolicies', [])}")
@@ -2539,7 +2709,7 @@ class TestStatusReporting:
             _create_test_subscription(subscription_name, [MODEL_REF, missing_model], users=[sa_user])
 
             # Wait for subscription to reach Degraded phase with polling
-            cr = _wait_for_maas_subscription_phase(subscription_name, "Degraded", timeout=60)
+            cr = _wait_for_maas_subscription_phase(subscription_name, "Degraded")
 
             status = cr.get("status", {})
             model_statuses = status.get("modelRefStatuses", [])
@@ -2602,7 +2772,6 @@ class TestStatusReporting:
             _wait_for_maas_auth_policy_phase(
                 auth_name,
                 "Active",
-                timeout=120,
                 require_auth_policies=False,
             )
             log.info("Step 1: Auth policy Active + Enforced")
@@ -2621,8 +2790,8 @@ class TestStatusReporting:
 
             # Step 4: Wait for subscription to reach Degraded phase with TRLP not ready
             log.info("Step 4: Waiting for subscription to enter Degraded phase (TRLP not ready)...")
-            cr = _wait_for_maas_subscription_phase(subscription_name, "Degraded", timeout=120)
-            _wait_for_subscription_trlp_status(subscription_name, expected_ready=False, timeout=120)
+            cr = _wait_for_maas_subscription_phase(subscription_name, "Degraded")
+            _wait_for_subscription_trlp_status(subscription_name, expected_ready=False)
 
             status = cr.get("status", {})
             trlp_statuses = status.get("tokenRateLimitStatuses", [])
@@ -2647,8 +2816,8 @@ class TestStatusReporting:
 
             # Step 7: Wait for subscription to reach Active phase with TRLP ready
             log.info("Step 7: Waiting for subscription to reach Active phase (TRLP ready)...")
-            _wait_for_maas_subscription_phase(subscription_name, "Active", timeout=120)
-            _wait_for_subscription_trlp_status(subscription_name, expected_ready=True, timeout=120)
+            _wait_for_maas_subscription_phase(subscription_name, "Active")
+            _wait_for_subscription_trlp_status(subscription_name, expected_ready=True)
             # Drain AuthConfig backlog from the Kuadrant-down window before HTTP checks.
             _wait_for_gateway_auth_enforced()
 
@@ -2711,7 +2880,7 @@ class TestStatusReporting:
             _create_test_auth_policy(auth_name, [MODEL_REF, missing_model], users=[sa_user])
 
             # Wait for auth policy to reach Degraded phase with polling
-            cr = _wait_for_maas_auth_policy_phase(auth_name, "Degraded", timeout=60)
+            cr = _wait_for_maas_auth_policy_phase(auth_name, "Degraded")
 
             status = cr.get("status", {})
             auth_policies = status.get("authPolicies", [])
@@ -2774,7 +2943,7 @@ class TestStatusReporting:
 
             # Wait for subscription to transition to Failed phase with polling
             # Use longer timeout to allow for cache invalidation
-            cr = _wait_for_maas_subscription_phase(subscription_name, "Failed", timeout=120)
+            cr = _wait_for_maas_subscription_phase(subscription_name, "Failed")
 
             # Poll for modelRefStatuses to also reflect the deletion
             # (cache may take additional time to invalidate)
@@ -2853,7 +3022,7 @@ class TestDegradedSubscriptionFiltering:
                 users=[sa_user]
             )
 
-            cr = _wait_for_maas_subscription_phase(subscription_name, "Degraded", timeout=60)
+            cr = _wait_for_maas_subscription_phase(subscription_name, "Degraded")
 
             # Verify Degraded with mixed health
             status = cr.get("status", {})
@@ -2928,7 +3097,7 @@ class TestDegradedSubscriptionFiltering:
             # Create subscription with valid model (will be Active)
             _create_test_subscription(subscription_name, MODEL_REF, users=[sa_user])
 
-            cr = _wait_for_maas_subscription_phase(subscription_name, "Active", timeout=60)
+            cr = _wait_for_maas_subscription_phase(subscription_name, "Active")
 
             # This test overrides controller-owned status to exercise the gateway
             # rejection path. Let initial TRLP/discovery reconciliation settle first,
@@ -3053,7 +3222,7 @@ class TestDegradedSubscriptionFiltering:
                 users=[sa_user]
             )
 
-            cr = _wait_for_maas_subscription_phase(subscription_name, "Degraded", timeout=60)
+            cr = _wait_for_maas_subscription_phase(subscription_name, "Degraded")
 
             # Verify Degraded
             phase = cr.get("status", {}).get("phase")
@@ -3124,7 +3293,7 @@ class TestDegradedSubscriptionFiltering:
                 users=[sa_user]
             )
 
-            cr = _wait_for_maas_subscription_phase(subscription_name, "Degraded", timeout=60)
+            cr = _wait_for_maas_subscription_phase(subscription_name, "Degraded")
 
             # Verify Degraded
             phase = cr.get("status", {}).get("phase")

@@ -84,6 +84,8 @@ To enable the legacy metrics-based usage dashboard:
 kubectl patch configs.maas.opendatahub.io default --type=merge -p '{"spec":{"usageMetricsDashboard":true}}'
 ```
 
+`MaasTenantConfig` phase is `Degraded` when `MonitoringReady` or `MonitoringStackAvailable` is not `True` on `DSCInitialization` only when `usageMetricsDashboard` is `true` and tenant telemetry is enabled. That same check also warns when `PersesAvailable` is not `True`. Separately, a non-`True` `PersesAvailable` produces a usage-logging warning and degrades `MaasTenantConfig` when telemetry is enabled, regardless of the `usageMetricsDashboard` setting.
+
 !!! note "Operator prerequisite"
     Operator-managed `PersesDashboard` CRs require a running maas-controller, a `Config` instance, a monitoring namespace, and Perses CRDs (`PersesAvailable` above). Ownership and cleanup differ from Kustomize-applied dashboards — see [Operations: Cleanup](operations.md#cleanup).
 
@@ -91,11 +93,13 @@ kubectl patch configs.maas.opendatahub.io default --type=merge -p '{"spec":{"usa
 
 We have introduced usage dashboards that are based on structured access logs rather than on metrics for both administrators and non-admin users as a tech-preview feature. The data presented in these dashboards is more accurate and consistent, and a bit more enriched, compared to the data in the metrics-based dashboard.
 
-The controller deploys the tenancy proxy and usage-log dashboards whenever `Config/default` is present, from `deployment/components/observability/usage-logs/dsci-managed/`. When `Config.spec.usageLogging` is `true`, it renders `usage-logs/` instead, which also deploys the usage-logs collector. The per-tenant EnvoyFilter is removed when `MaasTenantConfig.spec.telemetry.enabled` is not `true`. When `usageLogging` is `true`, the EnvoyFilter sends logs to `usage-logs-collector`. When it is `false` or omitted, the EnvoyFilter sends logs to `data-science-usage-logs-collector`:
+The controller deploys the tenancy proxy and usage-log dashboards whenever `Config/default` is present, from `deployment/components/observability/usage-logs/dsci-managed/`. When `Config.spec.usageLogging` is `true`, it renders `usage-logs/` instead, which also deploys the usage-logs collector. The per-tenant EnvoyFilter is removed when `MaasTenantConfig.spec.telemetry.enabled` is not `true`. When `usageLogging` is `true`, the EnvoyFilter sends logs to `usage-logs-collector`. When it is `false` or omitted, the EnvoyFilter sends logs to `data-science-usage-logs-collector`.
+
+When tenant telemetry is enabled and `usageLogging` is `false` or omitted, `MaasTenantConfig` phase is `Degraded` if `LokiStackAvailable`, `UsageLogsCollectorAvailable`, or `PersesAvailable` is not `True` on `DSCInitialization`. When `usageLogging` is `true` and tenant telemetry is enabled, the phase is `Degraded` if `PersesAvailable` is not `True`. With telemetry disabled, `MaasTenantConfig` stays independent of those platform conditions.
 
 - **EnvoyFilter** (`maas-model-access-logs`) - emits OTLP structured access logs from the gateway
 - **OpenTelemetry Collector** (`usage-logs-collector`) - collects the logs and exports them to Loki; deployed only when `usageLogging` is `true`
-- **Tenancy Proxy** (`usage-logs-tenancy-proxy`) - filters user-scoped usage data for non-admin users
+- **Tenancy Proxy** (`usage-logs-tenancy-proxy`) - filters user-scoped usage data for non-admin users; serves TLS 1.3 only and negotiates the `X25519MLKEM768` hybrid post-quantum key-exchange group when the client offers it, with classical groups as fallback (OpenSSL configuration in the `usage-tenancy-proxy-source` ConfigMap, selected via `OPENSSL_CONF`)
 - **Perses Dashboard** (`dashboard-4-maas-usage-logs-admin`) - usage dashboard for administrators (shows information on all users)
 - **Perses Dashboard** (`dashboard-5-maas-usage-logs`) - user-scoped usage dashboard
 

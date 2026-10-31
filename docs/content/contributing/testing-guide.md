@@ -58,7 +58,7 @@ Tests are organized into **xdist groups** for parallel execution. All tests in a
 | `security` | `test_negative_security.py` | Header spoofing, expired keys, cross-model access |
 | `security` | `test_namespace_scoping.py` | Namespace isolation behavior |
 | `mt_lifecycle` | `test_aitenant_lifecycle.py` | AITenant create/migrate/delete |
-| `mt_lifecycle` | `test_multi_tenant_maas_api.py` | Per-tenant Deployment, Service, HTTPRoute |
+| `mt_lifecycle` | `test_multi_tenant_maas_api.py` | Per-tenant Deployment, Service, HTTPRoute; dual-listener AuthConfig/wasm checks are `@pytest.mark.nightly` |
 | `mt_lifecycle` | `test_tenant_namespace_discovery.py` | Namespace-label discovery, webhook validation |
 | `mt_lifecycle` | `test_crd_watch_resilience.py` | Dynamic CRD watch registration (restarts controller) |
 | `tenant_isolation` | `test_tenant_auth_isolation.py` | Cross-tenant key rejection, OIDC scoping |
@@ -68,8 +68,17 @@ Tests are organized into **xdist groups** for parallel execution. All tests in a
 | `tenant_inference` | `test_tenant_model_inference.py` | Cross-gateway auth isolation and per-Gateway AuthPolicy EnvoyFilter selectors |
 | `tenant_ipp` | `test_per_tenant_ipp_isolation.py` | Per-tenant IPP stacks, routing isolation |
 | `tenant_auto_resolve` | `test_tenant_auto_resolve.py` | MaaSModelRef tenant auto-resolution from the gateway parentRef |
+| `tenant_ipp` | `test_tenant_external_model_attachment.py` | Multi-tenant AGC/Praxis external models: user-ns models on tenant gateways, lifecycle cleanup, `NotAllowedByListeners` |
+| `tenant_ipp` | `test_tenant_external_model_shared.py` | Multi-tenant AGC/Praxis external models: shared model on two gateways, auth/quota isolation |
+| `tenant_ipp` | `test_tenant_external_model_conflicts.py` | Multi-tenant AGC/Praxis external models: modelName conflicts, same-named objects (overlay collision regression) |
+| `tenant_ipp` | `test_tenant_external_model_compat.py` | Multi-tenant AGC/Praxis external models: omitted-gatewayRefs compatibility; legacy IPP coexistence (`serial`, gated on `TENANT_EXTERNAL_MODEL_LEGACY_IPP_E2E`) |
+| `tenant_ipp` | `test_tenant_external_model_crossns.py` | ReferenceGrant-gated cross-namespace providers (P1; gated on `TENANT_EXTERNAL_MODEL_CROSSNS_E2E`) |
+| `tenant_ipp` | `test_tenant_external_model_default_tenant.py` | AGC/Praxis: models without `gatewayRefs` outside tenant namespaces served through the default tenant's Gateway (3.5 compatibility), `gatewayRefs` transition, deletion cleanup |
+| `inference_priority` | `test_inference_priority.py` | Subscription `inferencePriority`: InferenceObjective lifecycle, `flowControlStatuses`, gateway flow-control headers (`serial`; skips without the `inferenceobjectives.llm-d.ai` CRD) |
 | `external` | `test_external_oidc.py` | External OIDC token flows (skipped unless `EXTERNAL_OIDC=true`) |
 | `external` | `test_external_models.py` | ExternalModel/ExternalProvider, egress, body routing |
+
+The `test_tenant_external_model_*` modules share the `tenant_ipp` group for now: the legacy IPP controllers do not yet skip ExternalModels with gatewayRefs (upstream image pin pending), so without the guard they adopt this suite's models and flap `status.httpRouteName` when the groups run concurrently. Split them back into their own `tenant_external_model` group once the guard ships.
 
 ## Running Tests
 
@@ -104,6 +113,11 @@ Note: `TestPostgres` is compiled with the other unit tests. To avoid the postgre
 - Build tag check (requires `-tags=integration`)
 - `testing.Short()` check (skipped in short mode)
 - Environment variable check (skips if `TEST_DATABASE_URL` not set)
+
+`TEST_READ_DATABASE_URL` is optional. When it is not set, read-pool integration tests use
+`TEST_DATABASE_URL` for both independent pools, which validates routing and fallback with
+the real PostgreSQL driver. Set it to a real read-replica URL to exercise the deployed
+database topology.
 
 ```bash
 ./test/integration/postgresql.sh
@@ -175,7 +189,7 @@ The E2E framework auto-discovers most values from the cluster. These are the mos
 | `MODEL_NAME` | Override model ID (defaults to first from catalog) |
 | `E2E_MODEL_PATH` | Override the model route path used by inference tests (for example, `/llm/facebook-opt-125m-simulated`; omit `/v1`) |
 | `EXTERNAL_OIDC` | Set `true` to enable external OIDC tests |
-| `E2E_PARALLEL_WORKERS` | pytest-xdist worker count for pass 1 (default `7`). Set to `1` for single-worker pass 1 without xdist; pass 2 stays serial. |
+| `E2E_PARALLEL_WORKERS` | pytest-xdist worker count for pass 1 (default `5`). Set to `1` for single-worker pass 1 without xdist; pass 2 stays serial. |
 | `LLMISVC_CONTROLLER_CPU_REQUEST` / `LLMISVC_CONTROLLER_CPU_LIMIT` | CPU that `deploy-platform.sh` gives `llmisvc-controller-manager` on the test cluster (defaults `1` / `2`; shipped is 100m). Set the limit empty to keep the shipped resources. |
 
 See `test/e2e/tests/conftest.py` and individual test module docstrings for the full set of supported variables.
@@ -196,9 +210,9 @@ does not identify the model route. SSE parsing is centralized in
 
 ### Parallel E2E (pytest-xdist)
 
-`run_e2e_tests.sh` and `run-tests-quick.sh` run **two marker-filtered passes** by default (default `E2E_PARALLEL_WORKERS=7`). Use `--serial-only` to run pass 2 only (`-m serial`); that mode does not execute non-serial tests. Direct `pytest` invocations must use the same split when a module mixes `@serial` and worker-tenant tests.
+`run_e2e_tests.sh` and `run-tests-quick.sh` run **two marker-filtered passes** by default (default `E2E_PARALLEL_WORKERS=5`). Use `--serial-only` to run pass 2 only (`-m serial`); that mode does not execute non-serial tests. Direct `pytest` invocations must use the same split when a module mixes `@serial` and worker-tenant tests.
 
-1. **Pass 1**: `-m "not serial"` — with `--dist=loadgroup -n 7` when workers > 1, or single-worker execution when `E2E_PARALLEL_WORKERS=1`
+1. **Pass 1**: `-m "not serial"` — with `--dist=loadgroup -n 5` when workers > 1, or single-worker execution when `E2E_PARALLEL_WORKERS=1`
 2. **Pass 2 (serial)**: `-m serial` — tests that mutate shared cluster state (subscription delete/restore, controller/Kuadrant scaling)
 
 Set `E2E_PARALLEL_WORKERS=1` to disable xdist on pass 1 while keeping the serial/non-serial split (useful for debugging on shared clusters). Pass `./run_e2e_tests.sh --serial-only` only when intentionally limiting the run to serial mutators.
